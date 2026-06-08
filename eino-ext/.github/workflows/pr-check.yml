@@ -1,0 +1,95 @@
+name: Pull Request Check
+
+on: [ pull_request ]
+
+jobs:
+  compliant:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check License Header
+        uses: apache/skywalking-eyes/header@v0.4.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check Spell
+        uses: crate-ci/typos@v1.42.3
+        with:
+          config: .github/workflows/typos.toml
+
+      - name: Check README.md and examples
+        run: |-
+          # Fetch the main branch
+          git fetch origin main
+          
+          # Find only newly added directories containing go.mod compared to main branch
+          ADDED_DIRS=$(git diff --diff-filter=A --name-only origin/main...HEAD | grep "go.mod" | xargs -L1 dirname || true)
+          echo "Newly added directories (compared to main): $ADDED_DIRS"
+
+          # Filter out directories whose parent already has go.mod
+          FILTERED_DIRS=()
+          for dir in $ADDED_DIRS; do
+            parent_dir=$(dirname "$dir")
+            if [ ! -f "$parent_dir/go.mod" ]; then
+              FILTERED_DIRS+=("$dir")
+            else
+              echo "Skipping $dir as its parent directory already has go.mod"
+            fi
+          done
+          
+          # Check if README.md exists in each filtered directory
+          for dir in "${FILTERED_DIRS[@]}"; do
+            if [ ! -f "$dir/README.md" ]; then
+              echo "Error: README.md not found in newly added module directory: $dir"
+              echo "Please add a [README.md] file to the directory."
+              echo "📢 You can refer to the following example: https://github.com/cloudwego/eino-ext/blob/main/components/tool/duckduckgo/README.md"
+              exit 1
+            fi
+          done
+          
+          if [ -n "${FILTERED_DIRS[@]}" ]; then
+            echo "All filtered newly added go.mod directories have README.md files ✓"
+          else
+            echo "No new go.mod directories need checking ✓"
+          fi
+
+          # Check if examples exist in each filtered directory
+          for dir in "${FILTERED_DIRS[@]}"; do
+            if [ ! -d "$dir/examples" ]; then
+              echo "Error: examples not found in $dir"
+              echo "📢 examples directory is required for new components, please add some examples for your component usage."
+              exit 1
+            fi
+          done
+          echo "All newly added go.mod directories have examples ✓"
+
+#  golangci-lint:
+#    runs-on: ubuntu-latest
+#    steps:
+#      - uses: actions/checkout@v4
+#      - name: Set up Go
+#        uses: actions/setup-go@v5
+#        with:
+#          go-version: stable
+#          # for self-hosted, the cache path is shared across projects
+#          # and it works well without the cache of github actions
+#          # Enable it if we're going to use Github only
+#          cache: true
+#
+#      - name: Detect Modules
+#        id: detect-modules
+#        shell: bash
+#        run: |
+#          # Find all modules
+#          modules=$(find . -name "go.mod" -exec dirname {} \; | jq -R -s 'split("\n") | map(select(. != "")) | @json')
+#          echo "modules=$modules" >> $GITHUB_OUTPUT
+#      - name: Golangci Lint
+#        # https://golangci-lint.run/
+#        uses: golangci/golangci-lint-action@v6
+#        with:
+#          version: latest
+#          args: |
+#            $(for module in $(echo ${{ steps.detect-modules.outputs.modules }} | jq -r '.[]'); do echo "$module/..."; done)
