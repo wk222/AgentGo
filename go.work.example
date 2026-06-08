@@ -1,0 +1,11 @@
+// 复制为 go.work（勿提交）以 replace 本地 Eino/Wails 源码。
+// 路径请按本机仓库位置修改。
+
+go 1.24.0
+
+use (
+	.
+	// ../eino-main
+	// ../eino-ext-main
+	// ../wails-master/v3
+)
