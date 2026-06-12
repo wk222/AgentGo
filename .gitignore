@@ -1,0 +1,63 @@
+# 架构与矩阵文档入库；其余 Markdown 默认忽略（本地笔记）
+**/*.md
+!README.md
+!README_zh-CN.md
+!docs/ARCHITECTURE.md
+!docs/matrix-orchestration.md
+!docs/pybot-layer-map.md
+!docs/plan.md
+!docs/build-reproducible.md
+
+# Wails 构建临时文件
+*.syso
+wails_windows_*.syso
+build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
+build/windows/nsis/*-installer.exe
+
+# 本地数据与构建产物
+/data/
+/bin/
+/dist/
+*.exe
+agentgo.exe
+agentgo_build.exe
+go.work
+go.mod.local
+*.dll
+*.so
+*.dylib
+
+# Go
+/vendor/
+
+# JavaScript dependencies
+node_modules/
+frontend/node_modules/
+
+# Local working copies, exports, and reference bundles
+.agents/
+.config/
+.local/
+.task/
+coze-studio-main/
+artifacts/
+attached_assets/
+*.zip
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# 敏感配置（本地 LLM 密钥，勿提交）
+config.json
+**/config.json
+config.local.json
+.env
+.env.*
+
+# 忽略根目录下的 ps1 脚本，防止密钥泄漏
+/*.ps1
+

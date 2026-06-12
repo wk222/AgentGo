@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Name=AgentGo
+Comment=AgentGo Desktop IDE
+# The Exec line includes %u to pass the URL to the application
+Exec=/usr/local/bin/agentgo %u
+Terminal=false
+Type=Application
+Icon=agentgo
+Categories=Utility;
+StartupWMClass=agentgo
+
+ 

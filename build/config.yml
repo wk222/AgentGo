@@ -1,0 +1,33 @@
+# Wails v3 构建配置。修改 info 后运行: wails3 task common:update:build-assets
+version: '3'
+
+info:
+  companyName: "AgentGo"
+  productName: "AgentGo"
+  productIdentifier: "com.agentgo.desktop"
+  description: "Let agent Go!"
+  copyright: "(c) 2026, AgentGo"
+  comments: "Desktop agent runtime"
+  version: "0.1.0"
+
+dev_mode:
+  root_path: .
+  log_level: warn
+  debounce: 1000
+  ignore:
+    dir:
+      - .git
+      - node_modules
+      - bin
+      - .local
+    file:
+      - .DS_Store
+      - .gitignore
+    watched_extension:
+      - "*.go"
+    git_ignore: true
+  executes:
+    - cmd: wails3 build DEV=true
+      type: blocking
+    - cmd: wails3 task run
+      type: primary
