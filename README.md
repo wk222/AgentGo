@@ -8,6 +8,14 @@
 
 AgentGo is a high-performance, lightweight, and modern desktop Agent runtime built using **Go**, **ByteDance's Eino ADK**, and **Wails v3**. **Let agent Go!** It provides a premium visual interface for designing, orchestrating, and executing intelligent agents and workflows directly from your desktop.
 
+### 🖥️ Screenshots
+
+| Visual Workflow Designer (可视化工作流) | Inner App Sandbox (内置应用沙盒) |
+| :---: | :---: |
+| ![Workflow Editor](docs/workflow_editor.png) | ![Inner App](docs/inner_app.png) |
+
+---
+
 ### 🌟 Key Features
 
 - **Visual Workflow Designer (Flowgram → Compose)**: Create, edit, and execute complex Directed Acyclic Graph (DAG) workflows. Supports loops, branches, parallel execution, checkpoints, and Human-in-the-Loop (HITL) interruptions.
@@ -86,25 +94,24 @@ makensis -DARG_WAILS_AMD64_BINARY=C:\Users\wgk\Documents\GitHub\agentgo\bin\agen
 
 ---
 
-### 🔒 Security & Secrets Hygiene
-
-We take credentials safety seriously. **Never commit private API keys to git repositories.**
-- Local data, API keys, database files, and caches are stored in the `/data/` folder or local configs.
-- The project includes strict `.gitignore` rules that prevent `.env`, `.env.*`, and `config.json` files from being tracked by git.
-- **Configuring Keys**: Configure your LLM providers directly in the settings panel of the running desktop application or via a local `data/config.json` file.
-
----
-
 ## 中文
 
 AgentGo 是基于 **Go**、**字节跳动 Eino ADK** 与 **Wails v3** 构建的高性能、轻量级现代桌面智能体运行时。**Let agent Go!** 它提供了一套极具现代设计感的视觉界面，用于直接在桌面上设计、编排和执行智能体与工作流。
+
+### 🖥️ 界面预览
+
+| 可视化工作流设计器 | 内置应用沙盒 (Inner App) |
+| :---: | :---: |
+| ![Workflow Editor](docs/workflow_editor.png) | ![Inner App](docs/inner_app.png) |
+
+---
 
 ### 🌟 核心功能
 
 - **可视化工作流设计器 (Flowgram → Compose)**：创建、编辑和运行复杂的有向无环图 (DAG) 工作流。支持循环节点、分支规则、并行执行、Checkpoint 恢复及人工介入 (HITL) 审批。
 - **动态能力总线 (CapabilityBus)**：统一的能力资产索引注册表，在应用启动时自动扫描、登记并向系统暴露 Tools、Skills、Workflows、Inner Apps 及子智能体。
 - **Eino ADK 编排运行时**：底层深度集成字节跳动 Eino 框架，保证智能体图形化运行时的类型安全与结构化控制。
-- **高级记忆控制台**：支持认知冲突消解的 Truth Queue (真相队列)、可视化 1-hop 记忆链的 Graph View (图谱视图) 以及能够在请求 LLM 前查看精确 Token/字节占比的 Injection Preview (注入预览)。
+- **高级记忆控制台**：支持认知冲突消解 of Truth Queue (真相队列)、可视化 1-hop 记忆链的 Graph View (图谱视图) 以及能够在请求 LLM 前查看精确 Token/字节占比的 Injection Preview (注入预览)。
 - **治理与策略管道**：自定义 Governance 治理规则、画布策略与并发/预算控制（如 Token 限制、最大并发限制），对所有能力调用进行过滤和授权拦截。
 - **Inner App 沙盒**：通过内置的 App Builder 智能体，使用自然语言迭代构建、校验、自动修复并运行应用面板中的微应用 (Inner Apps)。
 
@@ -128,7 +135,7 @@ AgentGo 核心围绕 Agent 能力的完整生命周期开展工作：
 ### 🤖 AI 原生独特优势
 
 #### 1. AI 创建 Inner App (AI 原生桌面应用沙盒)
-*   **语言即应用**：用户只需使用口语提出需求，AI 将自动脚手架化 (scaffold) 出包含 UI HTML 骨架、样式和模拟交互逻辑的桌面微应用。
+*   **语言即应用**：用户只需使用口语提出需求，AI 将自动脚手架化 (scaffold) 出包含 UI HTML 骨架、样式 and 模拟交互逻辑的桌面微应用。
 *   **确定性自我修复**：集成本地沙盒环境校验。当发现编译报错或组件缺失时，系统会自动将错误日志反馈给 `app_builder` 智能体，触发自动化修复闭环，直到应用 100% 运行正常。
 
 #### 2. 可编辑的 Workflow-as-a-Tool (AI 创建且可编辑的“工作流工具”)
@@ -174,12 +181,3 @@ go build -ldflags="-w -s -H windowsgui" -o bin/agentgo.exe ./cmd/agentgo
 cd build/windows/nsis
 makensis -DARG_WAILS_AMD64_BINARY=C:\Users\wgk\Documents\GitHub\agentgo\bin\agentgo.exe project.nsi
 ```
-
----
-
-### 🔒 密钥安全与规范
-
-我们极其重视私有密钥与隐私安全。**切勿将私有 API 密钥提交至 Git 仓库。**
-- 所有本地运行时数据、SQLite 数据库和 API 缓存均存放在 `/data/` 目录或本地配置中。
-- 项目的 `.gitignore` 已配置严格规则，自动忽略 `.env`, `.env.*` 以及 `config.json`。
-- **密钥配置**：请在桌面应用运行后的「设置」面板中直接填写大模型服务商的 API 密钥，或者在本地 `data/config.json` 中配置（已忽略，不会入库）。
