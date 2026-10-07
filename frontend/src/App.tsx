@@ -822,6 +822,10 @@ export default defineComponent({
                 onStop={chat.stopGeneration}
                 onToggleWorkspace={toggleWorkspace}
                 onReload={chat.reloadCurrentSession}
+                onNewChat={chat.newSession}
+                onClearChat={chat.clearSession}
+                onSelectSession={(id: string) => chat.selectSession(id)}
+                onDeleteSession={(id: string) => chat.deleteSession(id)}
                 onApprove={(id: string) => chat.handleApprove(id)}
                 onReject={(id: string) => chat.handleReject(id)}
                 onSubmitQuestion={(msg: any, answer: string, idx: number) => chat.submitQuestion(msg, answer, idx)}

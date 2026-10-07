@@ -253,6 +253,33 @@ export function useChat() {
     } catch (e: any) { console.error('[AgentGo] newSession:', e?.message) }
   }
 
+  // deleteSession removes a history entry; deleting the active one starts a fresh chat.
+  const deleteSession = async (id: string) => {
+    id = String(id || '').trim()
+    if (!id) return
+    const wasActive = sessionId.value === id
+    if (wasActive && (sending.value || awaitingInteract.value)) await stopGeneration()
+    try { await wailsCall('DeleteSession', id) } catch (e: any) {
+      console.error('[AgentGo] deleteSession:', e?.message)
+      return
+    }
+    if (wasActive) {
+      sessionId.value = ''
+      messages.value = welcomeMsg()
+      localStorage.removeItem('agentgo-last-session')
+      await newSession()
+    } else {
+      await loadSessions()
+    }
+  }
+
+  // clearSession = Copilot "Clear": drop the current conversation and start an empty one.
+  const clearSession = async () => {
+    const id = sessionId.value
+    if (id) await deleteSession(id)
+    else await newSession()
+  }
+
   const selectSession = async (id: string) => {
     id = String(id || '').trim()
     if (!id) return
@@ -700,7 +727,7 @@ export function useChat() {
   return {
     messages, sessions, sessionId, sessionLoading, sending,
     awaitingInteract, runStatusLine, chatPaneKey, streamMsgIndex, formInputs,
-    loadSessions, newSession, selectSession, stopGeneration, sendMessage,
+    loadSessions, newSession, selectSession, deleteSession, clearSession, stopGeneration, sendMessage,
     handleApprove, handleReject, submitQuestion, submitAUIForm, submitAUIAction,
     reloadCurrentSession, setupWailsEvents, cleanup,
   }
