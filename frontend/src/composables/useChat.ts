@@ -415,7 +415,7 @@ export function useChat() {
     runStatusLine.value = '已批准，Agent 继续处理…'
     messages.value.filter(m => m.approval_id === approvalId).forEach(m => { m.resolved = true })
     try {
-      const r = await wailsCall('ResolveApproval', approvalId, true, '')
+      const r = await wailsCall('ResolveApproval', approvalId, true, '', '')
       if (!r?.success || r?.resume_error) {
         handleError(r?.resume_error || r?.error || '批准失败')
         if (!r?.success) {
@@ -428,7 +428,7 @@ export function useChat() {
 
   const handleReject = async (approvalId: string) => {
     try {
-      const r = await wailsCall('ResolveApproval', approvalId, false, '')
+      const r = await wailsCall('ResolveApproval', approvalId, false, '', '')
       if (r?.success) {
         messages.value.filter(m => m.approval_id === approvalId).forEach(m => { m.resolved = true })
         awaitingInteract.value = false; runStatusLine.value = '已拒绝'
