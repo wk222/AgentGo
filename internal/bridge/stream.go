@@ -27,7 +27,16 @@ func (s *AppService) SendMessageStream(sessionID, userText string, images []stri
 }
 
 func (s *AppService) runStream(sessionID, userText string, images []string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
+
 	if sessionID != "" {
+		// Load conversational history from persisted sessions before appending the current turn
+		hist := s.sessionHistory(ctx, sessionID)
+		if len(hist) > 0 {
+			ctx = agent.WithHistory(ctx, hist)
+		}
+
 		pctx := context.Background()
 		var meta map[string]any
 		if len(images) > 0 {
@@ -36,8 +45,6 @@ func (s *AppService) runStream(sessionID, userText string, images []string) {
 		_ = s.rt.Sessions().AppendMessage(pctx, sessionID, "user", userText, "text", meta)
 		_ = s.rt.Sessions().AutoTitleFromUserMessage(pctx, sessionID, userText)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
-	defer cancel()
 	if s.rt.runTrack != nil {
 		s.rt.runTrack.Set(sessionID, "goroutine", "runStream 已启动")
 	}

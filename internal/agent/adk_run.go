@@ -22,6 +22,9 @@ func (r *Runner) queryOptions(ctx context.Context, sessionID string) []adk.Agent
 	if _, ok := ctx.Value(traceEmitKey{}).(func(TraceRecord)); ok {
 		opts = append(opts, adk.WithCallbacks(NewTraceCallbackHandler(r.capBus)))
 	}
+	if obs := usageObserverFrom(ctx); obs != nil {
+		opts = append(opts, adk.WithCallbacks(newUsageCallbackHandler(obs)))
+	}
 	return opts
 }
 
@@ -45,6 +48,22 @@ func (r *Runner) drainADKEvents(ctx context.Context, iter *adk.AsyncIterator[*ad
 			continue
 		}
 		mv := ev.Output.MessageOutput
+		ro := reasoningObserverFrom(ctx)
+		extractReasoning := func(rc string, extra map[string]any) string {
+			if rc != "" {
+				return rc
+			}
+			if extra != nil {
+				if v, ok := extra["reasoning-content"].(string); ok && v != "" {
+					return v
+				}
+				if v, ok := extra["_eino_deepseek_reasoning_content"].(string); ok && v != "" {
+					return v
+				}
+			}
+			return ""
+		}
+
 		if mv.IsStreaming && mv.MessageStream != nil {
 			sr := mv.MessageStream
 			for {
@@ -52,20 +71,30 @@ func (r *Runner) drainADKEvents(ctx context.Context, iter *adk.AsyncIterator[*ad
 				if rerr != nil {
 					break
 				}
-				if chunk != nil && chunk.Content != "" {
-					content += chunk.Content
-					if emit != nil {
-						emit(chunk.Content)
+				if chunk != nil {
+					if rc := extractReasoning(chunk.ReasoningContent, chunk.Extra); rc != "" && ro != nil {
+						ro.ReasoningDelta(rc)
+					}
+					if chunk.Content != "" {
+						content += chunk.Content
+						if emit != nil {
+							emit(chunk.Content)
+						}
 					}
 				}
 			}
 			sr.Close()
 			continue
 		}
-		if mv.Message != nil && mv.Message.Content != "" {
-			content += mv.Message.Content
-			if emit != nil {
-				emit(mv.Message.Content)
+		if mv.Message != nil {
+			if rc := extractReasoning(mv.Message.ReasoningContent, mv.Message.Extra); rc != "" && ro != nil {
+				ro.ReasoningDelta(rc)
+			}
+			if mv.Message.Content != "" {
+				content += mv.Message.Content
+				if emit != nil {
+					emit(mv.Message.Content)
+				}
 			}
 		}
 	}
@@ -114,7 +143,9 @@ func (r *Runner) runADK(ctx context.Context, cfg LLMSettings, sessionID, userTex
 		defer r.runControl.Clear(sessionID)
 	}
 
-	iter := runner.Query(ctx, userText, opts...)
+	// Run, not Query: Query is Run with a single user message, and a frontend
+	// may have supplied earlier turns (see WithHistory).
+	iter := runner.Run(ctx, runMessages(ctx, userText), opts...)
 	content, pause, interruptID, err := r.drainADKEvents(ctx, iter, emit)
 	if err != nil {
 		return nil, err
@@ -153,7 +184,7 @@ func (r *Runner) ResumeInterrupt(ctx context.Context, cfg LLMSettings, sessionID
 	if err != nil {
 		return nil, err
 	}
-	return r.resumeADKAgent(runCtx, cfg, sessionID, interruptID, resumeData, agent, nil)
+	return r.resumeADKAgent(runCtx, cfg, sessionID, interruptID, resumeData, agent, textEmitterFrom(ctx))
 }
 
 func (r *Runner) resumeADKAgent(ctx context.Context, cfg LLMSettings, sessionID, interruptID string, resumeData any, agent adk.Agent, emit func(string)) (*RunResult, error) {

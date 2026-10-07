@@ -29,6 +29,37 @@ func TestBuildPolicyStrictBlocksMutation(t *testing.T) {
 	}
 }
 
+func TestBalancedRequiresApprovalForWorkspaceMutation(t *testing.T) {
+	p := ControlPolicyFromMode("balanced")
+	for _, name := range []string{"replace_workspace_text", "create_workspace_file"} {
+		d := p.EvaluateToolCall(name, false)
+		if !d.Allowed || !d.RequiresApproval || d.Risk != RiskMedium {
+			t.Fatalf("unexpected decision for %s: %+v", name, d)
+		}
+	}
+}
+
+func TestStrictAllowsReviewedWorkspaceMutationButBlocksToolMutation(t *testing.T) {
+	p := ControlPolicyFromMode("strict")
+	fileEdit := p.EvaluateToolCall("replace_workspace_text", false)
+	if !fileEdit.Allowed || !fileEdit.RequiresApproval {
+		t.Fatalf("strict should permit workspace edits only with approval: %+v", fileEdit)
+	}
+	toolEdit := p.EvaluateToolCall("create_tool", false)
+	if toolEdit.Allowed {
+		t.Fatalf("strict should still block tool mutation: %+v", toolEdit)
+	}
+}
+
+func TestRunBatchScriptAlwaysRequiresApproval(t *testing.T) {
+	for _, mode := range []string{"strict", "balanced", "open"} {
+		d := ControlPolicyFromMode(mode).EvaluateToolCall("run_batch_script", false)
+		if !d.RequiresApproval || d.Risk != RiskHigh {
+			t.Fatalf("mode %s should protect host script execution: %+v", mode, d)
+		}
+	}
+}
+
 func TestPathPolicyBlocksTraversal(t *testing.T) {
 	root := t.TempDir()
 	pipe := BuildDefaultToolPolicyPipeline(BuildPolicy("balanced", root), NewToolCallTracker())

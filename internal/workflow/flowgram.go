@@ -257,6 +257,8 @@ func normalizeNodeType(t string) string {
 		return "subworkflow"
 	case strings.Contains(t, "bash"):
 		return "bash"
+	case strings.Contains(t, "coding"), strings.Contains(t, "crush"):
+		return "coding_agent"
 	case strings.Contains(t, "agent"), strings.Contains(t, "adk"):
 		return "agent"
 	case strings.Contains(t, "ask_user"), strings.Contains(t, "human"), strings.Contains(t, "hitl"):
@@ -315,6 +317,8 @@ func flowgramType(t string) string {
 		return "Bash"
 	case "agent":
 		return "Agent"
+	case "coding_agent":
+		return "CodingAgent"
 	case "ask_user":
 		return "AskUser"
 	case "debate":

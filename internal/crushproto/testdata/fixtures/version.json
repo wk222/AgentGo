@@ -1,0 +1,10 @@
+{
+ "status": 200,
+ "body": {
+  "version": "v0.97.2-0.20261002140919-bdcf796cb1ff",
+  "commit": "unknown",
+  "build_id": "dlur7fld1qr4",
+  "go_version": "go1.27.0",
+  "platform": "windows/amd64"
+ }
+}

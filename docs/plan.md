@@ -61,6 +61,23 @@
 
 ---
 
+## 阶段 D — 对标 Cursor / Codex 原生开发体验
+
+详见专门路线图：`cursor-codex-parity-plan.md`
+
+| 任务 | 状态 | 说明 |
+|------|------|------|
+| D1 真实 PTY 交互式终端 (xterm.js) | ✅ | 支持多 Tab、动态高度拖拽、ANSI 彩色、流式输入输出与中断 |
+| D2 上下文引用补全与展开 (@ Mentions & Expander) | ✅ | Composer 支持 @ 提示 + 后端自动注入 Git/终端/代码/文件上下文 |
+| D3 GUI 统一多轮对话历史注入 | ✅ | `runStream` 与 `SendMessageWithSession` 统一通过 `WithHistory` 加载持久化记忆 |
+| D4 上下文截断原子工具对齐归一化 | ✅ | `pruneAndNormalizeActive` 消除孤立 tool 消息，防止 LLM 400 报错 |
+| D5 Monaco 内联编辑 (Ctrl+K) 快捷流转 | ✅ | 支持 `Ctrl+Enter` 接受 / `Esc` 放弃，快捷键键盘流转 |
+| D6 状态栏诊断指示与 LSP 联动 | ✅ | StatusBar 增加 `⊗ / ⚠` 计数与 `WorkspaceDiagnostics` 接口 |
+| D7 Monaco 原生行内 ZoneWidget Diff 审查 | 待办 | 原生 ZoneWidget 行内 Diff 逐块对比与接受/拒绝 |
+| D8 长任务中途纠偏与输入队列 (Steer Inbox) | ✅ | 任务循环中途接受用户插话纠偏并微调意图（`AddSteer` / `DrainSteers` / `SteerSession`） |
+
+---
+
 ## 明确后置
 
 - IM 渠道、Browser 工具、33 PyFlow 节点、2071 式测试规模  

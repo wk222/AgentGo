@@ -39,10 +39,15 @@ type ToolControlDecision struct {
 }
 
 var (
-	toolMutationTools  = []string{"create_tool", "create_tool_from_template", "execute_dynamic_tool"}
-	hostExecutionTools = []string{"execute_bash", "run_uv_skill"}
-	delegationTools    = []string{"invoke_subagent"}
-	alwaysApproveTools = []string{"execute_bash", "run_uv_skill"}
+	toolMutationTools      = []string{"create_tool", "create_tool_from_template", "execute_dynamic_tool"}
+	// Built-in tools that change workspace files. Plugin tools do not belong
+	// here: they declare Mutating through RegisterToolTraits (tool_traits.go),
+	// which the policy checks at decision time. The codetools plugin's own
+	// Approver is nil in AgentGo (allow all), so governance is the only gate.
+	workspaceMutationTools = []string{"replace_workspace_text", "create_workspace_file"}
+	hostExecutionTools     = []string{"execute_bash", "run_uv_skill", "run_batch_script"}
+	delegationTools        = []string{"invoke_subagent"}
+	alwaysApproveTools     = []string{"execute_bash", "run_uv_skill", "run_batch_script"}
 )
 
 // ControlPolicyFromMode returns a preset aligned with PyBot agent_control.py.
@@ -64,6 +69,7 @@ func ControlPolicyFromMode(mode string) ControlPolicy {
 	case ControlStrict:
 		return ControlPolicy{
 			Mode:                      ControlStrict,
+			ApprovalRequiredTools:     append([]string{}, workspaceMutationTools...),
 			AllowDynamicTools:         false,
 			AllowToolMutation:         false,
 			AllowAgentDelegation:      false,
@@ -75,7 +81,7 @@ func ControlPolicyFromMode(mode string) ControlPolicy {
 	default:
 		return ControlPolicy{
 			Mode:                         ControlBalanced,
-			ApprovalRequiredTools:        append([]string{}, append(toolMutationTools, hostExecutionTools...)...),
+			ApprovalRequiredTools:        append(append(append([]string{}, toolMutationTools...), workspaceMutationTools...), hostExecutionTools...),
 			AllowDynamicTools:            true,
 			AllowToolMutation:            true,
 			AllowAgentDelegation:         true,
@@ -113,6 +119,9 @@ func (c ControlPolicy) approvalSet() map[string]bool {
 			out[n] = true
 		}
 		for _, n := range hostExecutionTools {
+			out[n] = true
+		}
+		for _, n := range workspaceMutationTools {
 			out[n] = true
 		}
 	}
@@ -177,6 +186,9 @@ func classifyRisk(name string, isDynamic bool) RiskLevel {
 	if contains(toolMutationTools, name) || contains(hostExecutionTools, name) {
 		return RiskHigh
 	}
+	if contains(workspaceMutationTools, name) {
+		return RiskMedium
+	}
 	if isDynamic {
 		return RiskMedium
 	}
@@ -196,6 +208,9 @@ func classifyTags(name string, isDynamic bool) []string {
 	}
 	if contains(hostExecutionTools, name) {
 		tags = append(tags, "host-exec")
+	}
+	if contains(workspaceMutationTools, name) {
+		tags = append(tags, "workspace-mutation")
 	}
 	return tags
 }

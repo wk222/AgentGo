@@ -54,7 +54,39 @@ func NewStore(db *sql.DB) error {
 			FOREIGN KEY(session_id) REFERENCES chat_sessions(id)
 		);
 		CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id);
+
+		CREATE TABLE IF NOT EXISTS chat_entries (
+			id TEXT PRIMARY KEY,
+			parent_id TEXT,
+			session_id TEXT NOT NULL,
+			kind TEXT NOT NULL,
+			role TEXT,
+			content TEXT,
+			msg_type TEXT DEFAULT 'text',
+			meta_json TEXT,
+			created_at INTEGER,
+			FOREIGN KEY(session_id) REFERENCES chat_sessions(id)
+		);
+		CREATE INDEX IF NOT EXISTS idx_chat_entries_parent ON chat_entries(parent_id);
+		CREATE INDEX IF NOT EXISTS idx_chat_entries_session ON chat_entries(session_id);
+
+		CREATE TABLE IF NOT EXISTS chat_lanes (
+			session_id TEXT NOT NULL,
+			name TEXT NOT NULL,
+			head_entry_id TEXT,
+			created_at INTEGER,
+			updated_at INTEGER,
+			PRIMARY KEY(session_id, name),
+			FOREIGN KEY(session_id) REFERENCES chat_sessions(id)
+		);
 	`)
+	if err != nil {
+		return err
+	}
+	if _, err = db.Exec(runEventsSchema); err != nil {
+		return err
+	}
+	_, err = db.Exec(pendingRunsSchema)
 	return err
 }
 
@@ -157,6 +189,12 @@ func (s *Store) Delete(ctx context.Context, sessionID string) error {
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM chat_messages WHERE session_id = ?`, sessionID); err != nil {
 		return err
 	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM chat_run_events WHERE session_id = ?`, sessionID); err != nil {
+		return err
+	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM pending_runs WHERE session_id = ?`, sessionID); err != nil {
+		return err
+	}
 	_, err := s.db.ExecContext(ctx, `DELETE FROM chat_sessions WHERE id = ?`, sessionID)
 	return err
 }
@@ -165,9 +203,16 @@ func (s *Store) GetMessages(ctx context.Context, sessionID string, limit int) ([
 	if limit <= 0 {
 		limit = 200
 	}
+	// The newest `limit` messages, oldest first. Ordering by created_at alone
+	// (whole seconds) cannot separate a user message from the reply written in
+	// the same second, so rowid breaks ties in insertion order. Taking the
+	// oldest `limit` instead would freeze long sessions: later turns would
+	// never reach the model's history.
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, session_id, role, content, msg_type, meta_json, created_at
-		FROM chat_messages WHERE session_id = ? ORDER BY created_at ASC LIMIT ?
+		SELECT id, session_id, role, content, msg_type, meta_json, created_at FROM (
+			SELECT rowid AS rid, id, session_id, role, content, msg_type, meta_json, created_at
+			FROM chat_messages WHERE session_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?
+		) ORDER BY created_at ASC, rid ASC
 	`, sessionID, limit)
 	if err != nil {
 		return nil, err

@@ -4,9 +4,10 @@ import (
 	"bytes"
 	"context"
 	"os/exec"
-	"runtime"
 	"strings"
 	"time"
+
+	"agentgo/internal/shellcmd"
 )
 
 // Result is returned to the desktop terminal panel.
@@ -24,12 +25,7 @@ func Run(ctx context.Context, workspaceRoot, command string) (Result, error) {
 		return Result{}, nil
 	}
 	start := time.Now()
-	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		cmd = exec.CommandContext(ctx, "cmd", "/C", command)
-	} else {
-		cmd = exec.CommandContext(ctx, "sh", "-c", command)
-	}
+	cmd := shellcmd.Command(ctx, command)
 	cmd.Dir = workspaceRoot
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

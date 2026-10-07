@@ -275,6 +275,10 @@ func (s *AppService) MemoryFeedback(id string, signal string) map[string]any {
   'data/large-dataset.csv': 'preview,line\n'.repeat(64),
 }
 
+let mockReviewActive = false
+let mockReviewChanges: any[] = []
+let mockReviewBefore: Record<string, string> = {}
+
 function bytesOf(text: string) {
   return new Blob([text]).size
 }
@@ -366,6 +370,21 @@ const mockMemories = [
   { id: 'mem-eino', content: '优先使用 Eino/compose 能力减少自研组件和维护负担。', scope: 'project', modality: 'insight', status: 'active', importance: 1.4, created_at: Date.now() / 1000, updated_at: Date.now() / 1000 },
   { id: 'mem-ui-qa', content: '窄屏下需要重点检查 topbar、A2UI 卡片、Workflow 编辑器与右栏挤压。', scope: 'session', modality: 'episode', status: 'active', importance: 1.0, created_at: Date.now() / 1000, updated_at: Date.now() / 1000 },
 ]
+
+interface MockTerminalSession {
+  info: {
+    id: string
+    title: string
+    pid: number
+    shell: string
+    cwd: string
+    created_at: string
+  }
+  cols: number
+  rows: number
+}
+const mockTerminals = new Map<string, MockTerminalSession>()
+const mockTermInput = new Map<string, string>()
 
 function withMockMemoryDefaults(items: any[]) {
   return (Array.isArray(items) ? items : []).map((m: any, i: number) => ({
@@ -547,6 +566,41 @@ async function mockStream(sessionID: string, text: string) {
   return { success: true, streaming: true, session_id: sessionID, preview: true }
 }
 
+let previewEventSeq = 0
+const previewRuns = new Map<string, { runID: string; sid: string; timers: ReturnType<typeof setTimeout>[]; approvalID?: string }>()
+
+function mockEngine(sessionID: string, text: string, resumed = false) {
+  const old = previewRuns.get(sessionID)
+  const run = resumed && old ? old : { runID: `preview-run-${Date.now()}`, sid: sessionID, timers: [] }
+  previewRuns.set(sessionID, run)
+  const emit = (type: string, payload: any) => emitMock('engine:event', {
+    run_id: run.runID, session_id: sessionID, engine: 'preview', seq: ++previewEventSeq, type, payload,
+  })
+  const later = (delay: number, fn: () => void) => run.timers.push(setTimeout(fn, delay))
+  if (!resumed) appendMockMessage(sessionID, { role: 'user', type: 'text', content: text })
+  later(20, () => emit('status', { state: resumed ? 'resumed' : 'started' }))
+  later(100, () => emit('tool_call', { id: 'preview-inspect', name: 'preview_inspect', arguments: '{"fixture":true}' }))
+  later(230, () => emit('tool_result', { id: 'preview-inspect', name: 'preview_inspect', output: '界面预览模拟结果，未执行真实工具。', is_error: false }))
+  const pending = !resumed && text.includes('审批')
+  const answer = pending ? '预览检查完成，下一步等待你的审批。' : resumed
+    ? '审批续跑的模拟文本已逐步返回，界面恢复完成。' : '统一事件流已连接。这是浏览器预览模拟回复，尚未调用真实模型或修改文件。'
+  const parts = answer.match(/.{1,7}/g) || [answer]
+  parts.forEach((delta, i) => later(300 + i * 140, () => emit('token', { delta })))
+  later(350 + parts.length * 140, () => {
+    const messages: any[] = [{ role: 'assistant', type: 'text', content: answer }]
+    if (pending) {
+      run.approvalID = `${run.runID}-approval`
+      messages.push({ role: 'assistant', type: 'approval', approval_id: run.approvalID,
+        tool_name: 'preview_apply', arguments: '{"fixture":true}', content: '批准模拟续跑？', status: 'pending' })
+      emit('approval_request', { approval_id: run.approvalID, tool_name: 'preview_apply', prompt: '批准模拟续跑？', arguments: '{"fixture":true}' })
+    }
+    messages.forEach(m => appendMockMessage(sessionID, m))
+    emit('done', { messages, pending, error: '' })
+    if (!pending) previewRuns.delete(sessionID)
+  })
+  return { success: true, run_id: run.runID, session_id: sessionID, preview: true }
+}
+
 async function mockCall(method: string, ...params: any[]): Promise<any> {
   logPreviewOnce()
   switch (method) {
@@ -572,10 +626,37 @@ async function mockCall(method: string, ...params: any[]): Promise<any> {
     }
     case 'SendMessageStream':
       return mockStream(String(params[0] || ''), String(params[1] || ''))
+    case 'RunEngine':
+      return mockEngine(String(params[1] || ''), String(params[2] || ''))
+    case 'CancelEngineSession':
+    case 'CancelEngineRun': {
+      for (const [sid, run] of previewRuns) {
+        if (sid !== params[0] && run.runID !== params[0]) continue
+        run.timers.forEach(clearTimeout)
+        emitMock('engine:event', { run_id: run.runID, session_id: sid, seq: ++previewEventSeq,
+          type: 'done', payload: { messages: [], pending: false, error: 'cancelled' } })
+        previewRuns.delete(sid)
+      }
+      return { success: true, preview: true }
+    }
+    case 'ResolveApproval': {
+      const run = [...previewRuns.values()].find(r => r.approvalID === params[0])
+      if (!run) return { success: false, error: '预览审批已处理或不存在' }
+      const sessions = getMockSessions()
+      const row = sessions.find(s => s.id === run.sid)?.messages.find(m => m.approval_id === params[0])
+      if (row) { row.status = params[1] ? 'approved' : 'rejected'; row.resolved = true; saveMockSessions(sessions) }
+      run.approvalID = undefined
+      if (params[1]) mockEngine(run.sid, '', true)
+      else {
+        emitMock('engine:event', { run_id: run.runID, session_id: run.sid, seq: ++previewEventSeq,
+          type: 'done', payload: { messages: [], pending: false, error: '' } })
+        previewRuns.delete(run.sid)
+      }
+      return { success: true, preview: true }
+    }
     case 'StopSession':
     case 'CancelA2UIInteraction':
     case 'ResolveA2UIInteraction':
-    case 'ResolveApproval':
       return { success: true, preview: true }
     case 'AnswerQuestion':
       return { success: true, content: '预览模式已记录你的回答，真实桌面运行时会继续恢复 Agent。' }
@@ -614,7 +695,8 @@ async function mockCall(method: string, ...params: any[]): Promise<any> {
       writeJSON(PREVIEW_WORKSPACE_ROOT_KEY, root)
       return mockWorkspaceInfo(root)
     }
-    case 'ListWorkspace': {
+    case 'ListWorkspace':
+    case 'ListWorkspaceDir': {
       const rel = cleanRel(params[0])
       return clone(mockWorkspace[rel] || [])
     }
@@ -628,6 +710,183 @@ async function mockCall(method: string, ...params: any[]): Promise<any> {
       if (content == null) return { success: false, error: 'mock 文件不存在' }
       return { success: true, content, size: bytesOf(content) }
     }
+    case 'WriteWorkspaceFile': {
+      const rel = cleanRel(params[0])
+      const content = String(params[1] ?? '')
+      mockFiles[rel] = content
+      return { success: true, path: rel, size: bytesOf(content), preview: true }
+    }
+    case 'CreateWorkspaceFile':
+    case 'CreateWorkspaceDir': {
+      const rel = cleanRel(params[0])
+      if (!rel) return { success: false, error: '路径不能为空', preview: true }
+      const parts = rel.split('/')
+      const name = parts.pop() || rel
+      const parent = parts.join('/')
+      const entries = ((mockWorkspace as Record<string, any[]>)[parent] ||= [])
+      if (entries.some((entry: any) => entry.path === rel)) {
+        return { success: false, error: '文件或文件夹已存在', preview: true }
+      }
+      const isDir = method === 'CreateWorkspaceDir'
+      entries.push({ name, path: rel, is_dir: isDir, size: 0, mod_time: nowISO(), git_status: '??' })
+      if (isDir) (mockWorkspace as Record<string, any[]>)[rel] = []
+      else mockFiles[rel] = ''
+      return { success: true, path: rel, preview: true }
+    }
+    case 'DeleteWorkspacePath': {
+      const rel = cleanRel(params[0])
+      for (const entries of Object.values(mockWorkspace) as any[][]) {
+        const idx = entries.findIndex((entry: any) => entry.path === rel)
+        if (idx >= 0) entries.splice(idx, 1)
+      }
+      delete mockFiles[rel]
+      delete (mockWorkspace as Record<string, any[]>)[rel]
+      return { success: true, path: rel, preview: true }
+    }
+    case 'RenameWorkspacePath': {
+      const oldRel = cleanRel(params[0])
+      const newRel = cleanRel(params[1])
+      const newParts = newRel.split('/')
+      const newName = newParts.pop() || newRel
+      let moved: any = null
+      for (const entries of Object.values(mockWorkspace) as any[][]) {
+        const idx = entries.findIndex((entry: any) => entry.path === oldRel)
+        if (idx >= 0) moved = entries.splice(idx, 1)[0]
+      }
+      if (!moved) return { success: false, error: '原路径不存在', preview: true }
+      moved = { ...moved, name: newName, path: newRel, mod_time: nowISO() }
+      const parent = newParts.join('/')
+      ;((mockWorkspace as Record<string, any[]>)[parent] ||= []).push(moved)
+      if (oldRel in mockFiles) {
+        mockFiles[newRel] = mockFiles[oldRel]
+        delete mockFiles[oldRel]
+      }
+      if ((mockWorkspace as Record<string, any[]>)[oldRel]) {
+        ;(mockWorkspace as Record<string, any[]>)[newRel] = (mockWorkspace as Record<string, any[]>)[oldRel]
+        delete (mockWorkspace as Record<string, any[]>)[oldRel]
+      }
+      return { success: true, path: newRel, preview: true }
+    }
+    case 'ExecuteTerminalCommand': {
+      const command = String(params[0] || '')
+      if (command.includes('git branch --show-current')) {
+        return { success: true, stdout: 'main\n', stderr: '', exit_code: 0, preview: true }
+      }
+      return { success: true, stdout: `preview> ${command}\n`, stderr: '', exit_code: 0, preview: true }
+    }
+    case 'TerminalCreate': {
+      const id = String(params[0] || `term-${Date.now()}`)
+      const shell = String(params[1] || 'pwsh')
+      const cwd = String(params[2] || mockWorkspaceRoot())
+      const cols = Number(params[3]) || 120
+      const rows = Number(params[4]) || 30
+      const info = {
+        id,
+        title: shell.includes('pwsh') ? 'PowerShell' : (shell.includes('bash') ? 'Bash' : 'Terminal'),
+        pid: Math.floor(Math.random() * 90000) + 1000,
+        shell,
+        cwd,
+        created_at: nowISO(),
+      }
+      mockTerminals.set(id, { info, cols, rows })
+      setTimeout(() => {
+        emitMock('terminal:data', {
+          term_id: id,
+          data: `\x1b[32mAgentGo Interactive Terminal (Mock Preview)\x1b[0m\r\n\x1b[90mShell: ${shell} | CWD: ${cwd}\x1b[0m\r\n\r\n\x1b[36m${cwd} > \x1b[0m`,
+        })
+      }, 50)
+      return info
+    }
+    case 'TerminalWrite': {
+      const id = String(params[0] || '')
+      const data = String(params[1] || '')
+      if (data === '\r' || data === '\n') {
+        const line = mockTermInput.get(id) || ''
+        mockTermInput.set(id, '')
+        emitMock('terminal:data', { term_id: id, data: '\r\n' })
+        if (line.trim() === 'clear') {
+          emitMock('terminal:data', { term_id: id, data: '\x1b[2J\x1b[3J\x1b[H\x1b[36mpreview > \x1b[0m' })
+        } else if (line.trim() === 'ls' || line.trim() === 'dir') {
+          emitMock('terminal:data', {
+            term_id: id,
+            data: `README.md  package.json  src/  docs/\r\n\x1b[36mpreview > \x1b[0m`,
+          })
+        } else if (line.trim()) {
+          emitMock('terminal:data', {
+            term_id: id,
+            data: `[preview mock exec]: ${line}\r\n\x1b[36mpreview > \x1b[0m`,
+          })
+        } else {
+          emitMock('terminal:data', { term_id: id, data: '\x1b[36mpreview > \x1b[0m' })
+        }
+      } else if (data === '\x03') {
+        mockTermInput.set(id, '')
+        emitMock('terminal:data', { term_id: id, data: '^C\r\n\x1b[36mpreview > \x1b[0m' })
+      } else if (data === '\x7f' || data === '\b') {
+        const cur = mockTermInput.get(id) || ''
+        if (cur.length > 0) {
+          mockTermInput.set(id, cur.slice(0, -1))
+          emitMock('terminal:data', { term_id: id, data: '\b \b' })
+        }
+      } else {
+        const cur = mockTermInput.get(id) || ''
+        mockTermInput.set(id, cur + data)
+        emitMock('terminal:data', { term_id: id, data })
+      }
+      return { success: true }
+    }
+    case 'TerminalResize': {
+      return { success: true }
+    }
+    case 'TerminalClose': {
+      const id = String(params[0] || '')
+      mockTerminals.delete(id)
+      mockTermInput.delete(id)
+      emitMock('terminal:exit', { term_id: id, exit_code: 0 })
+      return { success: true }
+    }
+    case 'TerminalList': {
+      return Array.from(mockTerminals.values()).map(t => t.info)
+    }
+    case 'TerminalPoll': {
+      return ''
+    }
+    case 'SearchFiles': {
+      const pattern = String(params[0] || '').toLowerCase()
+      const maxResults = Number(params[1]) || 20
+      const all = Object.keys(mockFiles)
+      const matched = pattern ? all.filter(p => p.toLowerCase().includes(pattern)) : all
+      return matched.slice(0, maxResults)
+    }
+    case 'WorkspaceGitStatus':
+      return {
+        success: true,
+        branch: 'main',
+        staged: [],
+        unstaged: [{ path: 'README.md', name: 'README.md', status: 'M', staged: false }],
+        untracked: [],
+        total: 1,
+        preview: true,
+      }
+    case 'WorkspaceGitBranches':
+      return { success: true, current: 'main', branches: ['main'], preview: true }
+    case 'SteerSession': {
+      const text = String(params[1] || '')
+      return { success: true, steered: true, instruction: text, preview: true }
+    }
+    case 'WorkspaceDiagnostics':
+      return {
+        success: true,
+        total: 0,
+        servers: {
+          mock_lsp: { state: 'ready', diagnostic_count: 0, diagnostics: [] },
+        },
+        preview: true,
+      }
+    case 'WorkspaceGitStage':
+    case 'WorkspaceGitUnstage':
+    case 'WorkspaceGitCommit':
+      return { success: true, preview: true }
     case 'WorkspaceFileDiff': {
       const rel = cleanRel(params[0])
       const diff = rel
@@ -640,7 +899,68 @@ async function mockCall(method: string, ...params: any[]): Promise<any> {
  保留真实 Wails v3 runtime
 `
         : ''
-      return { success: true, path: rel, diff, added: diff ? 1 : 0, removed: 0, untracked: false, has_changes: !!diff }
+      return {
+        success: true,
+        path: rel,
+        diff,
+        added: diff ? 1 : 0,
+        removed: 0,
+        untracked: false,
+        has_changes: !!diff,
+        original_content: mockFiles[rel] || '',
+        modified_content: `${mockFiles[rel] || ''}\n\n<!-- localhost preview change -->`,
+      }
+    }
+
+    case 'BeginWorkspaceReview': {
+      if (!mockReviewActive || mockReviewChanges.length === 0) {
+        mockReviewActive = true
+        mockReviewBefore = { 'README.md': mockFiles['README.md'] || '' }
+        mockFiles['README.md'] = `${mockReviewBefore['README.md']}\n\n> localhost preview: Agent 建议新增这一行。`
+        mockReviewChanges = [{
+          path: 'README.md', name: 'README.md', status: 'modified', reviewable: true,
+          binary: false, before_size: bytesOf(mockReviewBefore['README.md']), after_size: bytesOf(mockFiles['README.md']),
+        }]
+      }
+      return { success: true, resumed: mockReviewChanges.length > 0, pending_count: mockReviewChanges.length, skipped_count: 0, preview: true }
+    }
+    case 'ListWorkspaceReview':
+      return { success: true, active: mockReviewActive, changes: clone(mockReviewChanges), skipped_count: 0, preview: true }
+    case 'WorkspaceReviewFile': {
+      const rel = cleanRel(params[1])
+      const change = mockReviewChanges.find((item: any) => item.path === rel)
+      if (!change) return { success: false, error: 'change not found', preview: true }
+      return { success: true, change, original_content: mockReviewBefore[rel] || '', modified_content: mockFiles[rel] || '', preview: true }
+    }
+    case 'AcceptWorkspaceReviewFile': {
+      const rel = cleanRel(params[1])
+      mockReviewChanges = mockReviewChanges.filter((item: any) => item.path !== rel)
+      if (mockReviewChanges.length === 0) mockReviewActive = false
+      return { success: true, remaining: mockReviewChanges.length, preview: true }
+    }
+    case 'RejectWorkspaceReviewFile': {
+      const rel = cleanRel(params[1])
+      if (rel in mockReviewBefore) mockFiles[rel] = mockReviewBefore[rel]
+      mockReviewChanges = mockReviewChanges.filter((item: any) => item.path !== rel)
+      if (mockReviewChanges.length === 0) mockReviewActive = false
+      return { success: true, remaining: mockReviewChanges.length, preview: true }
+    }
+    case 'AcceptAllWorkspaceReview':
+      mockReviewChanges = []
+      mockReviewActive = false
+      return { success: true, remaining: 0, preview: true }
+    case 'RejectAllWorkspaceReview':
+      for (const [path, content] of Object.entries(mockReviewBefore)) mockFiles[path] = content
+      mockReviewChanges = []
+      mockReviewActive = false
+      return { success: true, remaining: 0, preview: true }
+    case 'GenerateInlineEdit': {
+      const selected = String(params[2] ?? '')
+      const instruction = String(params[5] || '').trim()
+      const replacement = instruction.includes('标题')
+        ? '# AgentGo · AI IDE'
+        : `${selected}\n// localhost preview: ${instruction}`
+      return { success: true, replacement, summary: `预览修改：${instruction || '优化选中代码'}`, preview: true }
     }
 
     case 'ListMemories':
@@ -799,6 +1119,18 @@ async function mockCall(method: string, ...params: any[]): Promise<any> {
 - UI QA 时检查 topbar、A2UI 卡片和 Workflow 编辑器在右栏打开时的布局。`
     case 'ListRegisteredTools':
       return ['list_workspace', 'read_file', 'workspace_file_diff', 'remember', 'invoke_inner_app', 'run_workflow']
+    case 'Capabilities': {
+      return [
+        { id: 'chat.eino', title: 'Eino agent chat', available: true, plugins: ['eino'] },
+        { id: 'code.tools', title: 'Code-aware tools (LSP, edit, search)', available: true, plugins: ['codetools'] },
+        { id: 'tools.builtin', title: 'Built-in agent tools', available: true, plugins: ['toolset'] },
+        { id: 'workflow', title: 'Workflows', available: true, plugins: ['workflow'] },
+        { id: 'approvals', title: 'Human approval of risky actions', available: true, plugins: ['approvals'] },
+        { id: 'memory', title: 'Long-term memory', available: true, plugins: ['memory'] },
+        { id: 'ide', title: 'Workspace files, terminal and git', available: true, plugins: ['ide'] },
+        { id: 'host.attach', title: 'Attach other terminals to this process', available: true, plugins: ['host'] },
+      ]
+    }
     case 'ListCapabilityGrants': {
       const kind = String(params[0] || '')
       const rows = mockCapabilityGrants()
@@ -906,7 +1238,7 @@ async function mockCall(method: string, ...params: any[]): Promise<any> {
   }
 }
 
-export async function wailsCall(method: string, ...params: any[]): Promise<any> {
+export async function wailsCall<T = any>(method: string, ...params: any[]): Promise<T> {
   const task = async () => {
     const rt = await loadRuntime(2500)
     if (rt?.Call?.ByName) {
@@ -919,7 +1251,7 @@ export async function wailsCall(method: string, ...params: any[]): Promise<any> 
   }
   const next = ipcQueue.then(task, task)
   ipcQueue = next.catch(() => {}) as any
-  return next
+  return next as Promise<T>
 }
 
 export async function wailsCallUrgent(method: string, timeoutMs: number, ...params: any[]): Promise<any> {

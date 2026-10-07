@@ -1,0 +1,9 @@
+{
+ "status": 200,
+ "body": {
+  "model": "gpt-5-mini",
+  "provider": "azure",
+  "reasoning_effort": "low",
+  "max_tokens": 128000
+ }
+}

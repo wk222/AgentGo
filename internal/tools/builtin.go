@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -14,6 +12,7 @@ import (
 	"github.com/cloudwego/eino/components/tool/utils"
 
 	"agentgo/internal/sandbox"
+	"agentgo/internal/shellcmd"
 )
 
 type getTimeInput struct{}
@@ -48,7 +47,10 @@ func registerListWorkspace(r *Registry, workspaceRoot string) error {
 	t, err := utils.InferTool("list_workspace_dir",
 		"List files and directories under the AgentGo workspace root. Pass relative_path for subfolders.",
 		func(_ context.Context, in listDirInput) (listDirOutput, error) {
-			target := filepath.Join(root, filepath.Clean("/"+strings.ReplaceAll(in.RelativePath, "\\", "/")))
+			_, target, err := resolveWorkspacePath(root, in.RelativePath, true, true)
+			if err != nil {
+				return listDirOutput{}, err
+			}
 			entries, err := os.ReadDir(target)
 			if err != nil {
 				return listDirOutput{}, err
@@ -142,12 +144,7 @@ func registerExecuteBash(r *Registry, workspaceRoot string) error {
 				fmt.Println("[sandbox] WARNING: Docker Sandbox Mode requested but Docker daemon is unreachable. Falling back to local execution.")
 			}
 
-			var cmd *exec.Cmd
-			if runtime.GOOS == "windows" {
-				cmd = exec.Command("cmd", "/C", cmdStr)
-			} else {
-				cmd = exec.Command("sh", "-c", cmdStr)
-			}
+			cmd := shellcmd.Command(context.Background(), cmdStr)
 			cmd.Dir = root
 			var stdout, stderr strings.Builder
 			cmd.Stdout = &stdout

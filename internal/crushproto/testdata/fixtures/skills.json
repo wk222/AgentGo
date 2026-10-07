@@ -1,0 +1,29 @@
+{
+ "status": 200,
+ "body": [
+  {
+   "id": "crush://skills/crush-config/SKILL.md",
+   "name": "crush-config",
+   "description": "Use when the user needs help configuring Crush — writing crushrc (the Bash config format) or crush.json, setting up providers, models, LSPs, MCP servers, hooks, skills, permissions, or changing Crush behavior.",
+   "label": "system:crush-config",
+   "source": "system",
+   "user_invocable": false
+  },
+  {
+   "id": "crush://skills/crush-hooks/SKILL.md",
+   "name": "crush-hooks",
+   "description": "Use when the user wants to add, write, debug, or configure a Crush hook — gating or blocking tool calls, approving or rewriting tool input before execution, injecting context into tool results, or troubleshooting hook behavior in crush.json.",
+   "label": "system:crush-hooks",
+   "source": "system",
+   "user_invocable": false
+  },
+  {
+   "id": "crush://skills/jq/SKILL.md",
+   "name": "jq",
+   "description": "Use when the user needs to query, filter, reshape, extract, create, or construct JSON data — including API responses, config files, log output, or any structured data — or when helping the user write or debug JSON transformations.",
+   "label": "system:jq",
+   "source": "system",
+   "user_invocable": false
+  }
+ ]
+}

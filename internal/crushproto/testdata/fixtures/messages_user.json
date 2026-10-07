@@ -1,0 +1,29 @@
+{
+ "status": 200,
+ "body": [
+  {
+   "parts": [
+    {
+     "type": "text",
+     "data": {
+      "text": "Create a file named hello.txt containing the single word hi, then read it back and tell me its content."
+     }
+    },
+    {
+     "type": "finish",
+     "data": {
+      "reason": "stop",
+      "time": 0
+     }
+    }
+   ],
+   "id": "8023bd08-fee4-4809-b63e-83ba78d976a5",
+   "role": "user",
+   "session_id": "74b381bb-9c99-45b7-b9ed-5ca606cb98b9",
+   "model": "",
+   "provider": "",
+   "created_at": 1790996527,
+   "updated_at": 1790996527
+  }
+ ]
+}

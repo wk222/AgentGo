@@ -8,6 +8,15 @@ import (
 
 // StartApprovalEscalation periodically expires stale pending tool approvals.
 func StartApprovalEscalation(ctx context.Context, queue *ApprovalQueue, interval, maxAge time.Duration) {
+	StartApprovalEscalationNotify(ctx, queue, interval, maxAge, nil)
+}
+
+// StartApprovalEscalationNotify is StartApprovalEscalation that also calls
+// afterExpire(n) after every successful pass, with the number of approvals this
+// pass expired. It runs even when n is 0: processes sharing a database expire
+// each other's approvals, so a process cannot rely on its own count to know
+// that runs it holds have lost their approval.
+func StartApprovalEscalationNotify(ctx context.Context, queue *ApprovalQueue, interval, maxAge time.Duration, afterExpire func(n int64)) {
 	if queue == nil {
 		return
 	}
@@ -32,6 +41,9 @@ func StartApprovalEscalation(ctx context.Context, queue *ApprovalQueue, interval
 				}
 				if n > 0 {
 					log.Printf("[governance] expired %d stale pending approval(s)", n)
+				}
+				if afterExpire != nil {
+					afterExpire(n)
 				}
 			}
 		}

@@ -17,13 +17,16 @@ import (
 // BuildADKHandlers wires workspace/memory, official Eino middlewares, and optional toolsearch.
 // MemoryMiddleware.AfterAgent runs here on successful ADK termination (framework applyAfterAgent).
 func (r *Runner) BuildADKHandlers(ctx context.Context, chatModel model.ToolCallingChatModel) ([]adk.ChatModelAgentMiddleware, error) {
-	stack, err := BuildTypedMiddlewareStack[*schema.Message](ctx, chatModel, r.workspaceRoot, r.dataDir)
+	stack, err := BuildTypedMiddlewareStack[*schema.Message](ctx, chatModel, r.workspaceRoot, r.dataDir, r.bgCoord)
 	if err != nil {
 		return nil, err
 	}
 
 	var handlers []adk.ChatModelAgentMiddleware
 	handlers = append(handlers, NewModeProfileMiddleware(r.SessionMode()))
+	if r.paradigm != nil {
+		handlers = append(handlers, NewParadigmMiddleware(r.paradigm))
+	}
 	if r.wsMW != nil {
 		handlers = append(handlers, r.wsMW)
 	}

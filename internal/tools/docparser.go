@@ -38,8 +38,10 @@ func registerParseFile(r *Registry, workspaceRoot string) error {
 			if in.RelativePath == "" {
 				return parseFileOutput{}, fmt.Errorf("relative_path is required")
 			}
-			clean := filepath.Clean("/" + strings.ReplaceAll(in.RelativePath, "\\", "/"))
-			abs := filepath.Join(root, clean)
+			_, abs, err := resolveWorkspacePath(root, in.RelativePath, false, true)
+			if err != nil {
+				return parseFileOutput{}, err
+			}
 
 			data, err := os.ReadFile(abs)
 			if err != nil {

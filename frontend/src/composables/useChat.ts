@@ -1,6 +1,7 @@
 import { ref, nextTick } from 'vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
+import { RuntimeClient, type RuntimeEvent } from '../../../frontend-shared/runtime-client'
 import {
   wailsCall,
   wailsCallUrgent,
@@ -118,6 +119,16 @@ export function useChat() {
   let unsubs: Array<() => void> = []
   let cleanupFn: (() => void) | null = null
 
+  const runtime = new RuntimeClient({
+    call: (method, ...args) => wailsCall(method, ...args),
+    on: (name, listener) => wailsEvents()!.On(name, listener),
+  })
+  let runtimeRunID = ''
+  let segmentTextStart = 0
+  let startingRuntime = false
+  let startEvents: RuntimeEvent[] = []
+  let ignoredRunID = ''
+
   const bumpPane = () => { chatPaneKey.value++ }
 
   const sessionMsgCount = (id: string) => {
@@ -177,6 +188,7 @@ export function useChat() {
       toolName: m.tool_name,
       arguments: m.arguments,
       status: m.status,
+      resolved: Boolean(m.resolved || (m.type === 'approval' && m.status && m.status !== 'pending')),
       meta: m.images ? { images: m.images } : undefined,
     }
   }
@@ -225,6 +237,7 @@ export function useChat() {
     sessionLoadSeq++
     bumpPane()
     activeStreamSession = ''
+    runtimeRunID = ''
     streamMsgIndex.value = -1
     try {
       const r = await wailsCall('NewSession', '新对话')
@@ -245,6 +258,7 @@ export function useChat() {
     if (!id) return
     if (sessionId.value === id && messagesHaveRealContent(messages.value)) return
     if (sending.value || awaitingInteract.value) await stopGeneration()
+    runtimeRunID = ''
 
     if (sessionId.value && messages.value.length) putCache(sessionId.value, messages.value)
 
@@ -283,17 +297,22 @@ export function useChat() {
 
   const stopGeneration = async () => {
     const sid = sessionId.value || activeStreamSession
-    endStreamingUI()
+    ignoredRunID = runtimeRunID
+    endStreamingUI('已停止')
     resetIpcQueue()
     const interactID = activeInteractId.value
     activeInteractId.value = ''
     if (interactID) { try { await wailsCallUrgent('CancelA2UIInteraction', 1500, interactID) } catch {} }
-    if (sid) { try { await wailsCallUrgent('StopSession', 3000, sid) } catch {} }
+    if (sid) {
+      try { await wailsCallUrgent('CancelEngineSession', 3000, sid) } catch {}
+      // Checkpoint continuations are owned by Runner rather than Router.
+      try { await wailsCallUrgent('StopSession', 3000, sid) } catch {}
+    }
   }
 
   const sendMessage = async (text: string, images?: string[]) => {
     text = String(text || '').trim()
-    if (!text || sending.value) return
+    if (!text || sending.value || awaitingInteract.value) return
 
     if (!sessionId.value) {
       try {
@@ -306,6 +325,8 @@ export function useChat() {
     }
 
     const sid = sessionId.value
+    runtimeRunID = ''
+    segmentTextStart = messages.value.length
     activeStreamSession = sid
 
     messages.value.push({
@@ -326,13 +347,18 @@ export function useChat() {
     resetIpcQueue()
 
     try {
-      await wailsCall('SendMessageStream', sid, text, images || [])
+      startingRuntime = true
+      startEvents = []
+      await setupWailsEvents()
+      runtimeRunID = await runtime.start(sid, text, images || [])
+      startingRuntime = false
+      const queued = startEvents
+      startEvents = []
+      queued.forEach(handleRuntimeEvent)
     } catch (e: any) {
-      endStreamingUI('发送失败: ' + e.message)
-      const idx = streamMsgIndex.value
-      if (idx >= 0 && messages.value[idx]?.streaming) {
-        messages.value[idx] = { ...messages.value[idx], streaming: false, content: '发送失败: ' + e.message, html: '' }
-      }
+      startingRuntime = false
+      startEvents = []
+      handleError('发送失败: ' + e.message)
     }
   }
 
@@ -358,10 +384,13 @@ export function useChat() {
 
   const handleError = (err: any) => {
     const msg = typeof err === 'string' ? err : (err?.error || err?.message || '未知错误')
-    endStreamingUI('错误: ' + msg)
     const idx = streamMsgIndex.value
-    if (idx >= 0 && messages.value[idx]?.streaming) {
-      messages.value[idx] = { ...messages.value[idx], streaming: false, content: '错误: ' + msg, html: '' }
+    endStreamingUI('错误: ' + msg)
+    if (idx >= 0 && messages.value[idx]) {
+      const content = [messages.value[idx].content, '错误: ' + msg].filter(Boolean).join('\n\n')
+      messages.value[idx] = { ...messages.value[idx], streaming: false, content, html: renderMarkdown(content) }
+    } else if (messages.value[messages.value.length - 1]?.content !== '错误: ' + msg) {
+      messages.value.push({ role: 'assistant', type: 'text', content: '错误: ' + msg, html: renderMarkdown('错误: ' + msg) })
     }
   }
 
@@ -381,20 +410,29 @@ export function useChat() {
   }
 
   const handleApprove = async (approvalId: string) => {
+    awaitingInteract.value = false
+    sending.value = true
+    runStatusLine.value = '已批准，Agent 继续处理…'
+    messages.value.filter(m => m.approval_id === approvalId).forEach(m => { m.resolved = true })
     try {
       const r = await wailsCall('ResolveApproval', approvalId, true, '')
-      if (r?.success) {
-        awaitingInteract.value = false
-        sending.value = true
-        runStatusLine.value = '已批准，Agent 继续处理…'
-      } else { alert('批准失败: ' + (r?.error || '未知错误')) }
-    } catch (e: any) { alert('批准异常: ' + e.message) }
+      if (!r?.success || r?.resume_error) {
+        handleError(r?.resume_error || r?.error || '批准失败')
+        if (!r?.success) {
+          messages.value.filter(m => m.approval_id === approvalId).forEach(m => { m.resolved = false })
+          awaitingInteract.value = true
+        }
+      }
+    } catch (e: any) { handleError(e.message) }
   }
 
   const handleReject = async (approvalId: string) => {
     try {
       const r = await wailsCall('ResolveApproval', approvalId, false, '')
-      if (r?.success) { awaitingInteract.value = false; runStatusLine.value = '已拒绝' }
+      if (r?.success) {
+        messages.value.filter(m => m.approval_id === approvalId).forEach(m => { m.resolved = true })
+        awaitingInteract.value = false; runStatusLine.value = '已拒绝'
+      }
       else alert('拒绝失败: ' + (r?.error || ''))
     } catch (e: any) { alert('拒绝异常: ' + e.message) }
   }
@@ -470,6 +508,63 @@ export function useChat() {
     finally { sessionLoading.value = false }
   }
 
+  const handleRuntimeEvent = (event: RuntimeEvent) => {
+    if (event.run_id === ignoredRunID) return
+    if (startingRuntime) { startEvents.push(event); return }
+    if (runtimeRunID && event.run_id !== runtimeRunID) return
+    runtimeRunID = event.run_id
+    const p = event.payload || {}
+    if (event.type === 'status') {
+      if (p.state === 'resumed') segmentTextStart = messages.value.length
+      if (p.state === 'started' || p.state === 'resumed') {
+        sending.value = true
+        awaitingInteract.value = false
+        runStatusLine.value = p.state === 'resumed' ? '继续处理…' : '思考中…'
+      }
+    } else if (event.type === 'token') {
+      if (streamMsgIndex.value < 0 || !messages.value[streamMsgIndex.value]?.streaming) {
+        messages.value.push({ role: 'assistant', type: 'text', content: '', streaming: true,
+          _key: `${event.run_id}_${event.seq}_text` })
+        streamMsgIndex.value = messages.value.length - 1
+      }
+      handleChunk({ session_id: event.session_id, content: p.delta })
+    } else if (event.type === 'reasoning') {
+      runStatusLine.value = '思考中…'
+    } else if (event.type === 'tool_call') {
+      const idx = streamMsgIndex.value
+      if (idx >= 0 && messages.value[idx]) messages.value[idx].streaming = false
+      streamMsgIndex.value = -1
+      messages.value.push({ role: 'assistant', type: 'tool_call', toolName: p.name,
+        arguments: p.arguments, status: 'running', meta: { runID: event.run_id, callID: p.id },
+        _key: `${event.run_id}_tool_${p.id}_${event.seq}` })
+      runStatusLine.value = `调用 ${p.name}…`
+    } else if (event.type === 'tool_result') {
+      const item = [...messages.value].reverse().find(m => m.type === 'tool_call' && m.meta?.runID === event.run_id && m.meta?.callID === p.id)
+      if (item) { item.content = p.output; item.status = p.is_error ? 'error' : 'success' }
+    } else if (event.type === 'approval_request') {
+      endStreamingUI()
+      awaitingInteract.value = true
+      runStatusLine.value = p.tool_name === 'ask_user' ? '等待输入…' : '等待批准…'
+      if (!messages.value.some(m => m.approval_id === p.approval_id)) {
+        messages.value.push({ role: 'assistant', type: p.tool_name === 'ask_user' ? 'question' : 'approval',
+          approval_id: p.approval_id, interactId: p.approval_id, toolName: p.tool_name,
+          arguments: p.arguments, content: p.prompt, status: 'pending',
+          _key: `${event.run_id}_approval_${p.approval_id}` })
+      }
+    } else if (event.type === 'done') {
+      const streamed = messages.value.slice(segmentTextStart).some(m => m.role === 'assistant' && m.type === 'text' && m.content)
+      const rows = (p.messages || []).filter((m: any) => {
+        if (m.type === 'approval' || m.type === 'question') return !messages.value.some(x => x.approval_id === m.approval_id)
+        return !streamed
+      })
+      appendServerMessages(rows, event.session_id)
+      handleDone()
+      if (p.error && p.error !== 'cancelled') handleError(p.error)
+      else if (p.error === 'cancelled') runStatusLine.value = '已停止'
+      else if (p.pending) { awaitingInteract.value = true; runStatusLine.value = '等待交互…' }
+    }
+  }
+
   const setupWailsEvents = async () => {
     const Ev = await waitForWailsEvents(3000)
     if (!Ev?.On) { console.warn('[AgentGo] Wails Events 未就绪（非桌面环境）'); return }
@@ -484,8 +579,11 @@ export function useChat() {
       if (typeof u === 'function') unsubs.push(u)
     }
 
+    unsubs.push(runtime.subscribe(() => sessionId.value, handleRuntimeEvent))
+
     // ── Core chat events (actual bridge event names) ──────────────────────
     sub('chat:chunk', (payload: any) => {
+      if (runtimeRunID || startingRuntime) return
       const sid = String(payload?.session_id || payload?.sessionId || '')
       if (sid && sid !== sessionId.value && sid !== activeStreamSession) return
       const text = String(payload?.delta || payload?.content || payload?.text || '')
@@ -493,6 +591,7 @@ export function useChat() {
     })
 
     sub('chat:done', (payload: any) => {
+      if (runtimeRunID || startingRuntime) return
       const sid = String(payload?.session_id || payload?.sessionId || '')
       if (sid && sid !== sessionId.value && sid !== activeStreamSession) return
       if (payload?.error) handleError(payload.error)
@@ -507,6 +606,7 @@ export function useChat() {
     sub('a2ui:render', handleA2UI)
 
     sub('approval:pending', (payload: any) => {
+      if (runtimeRunID || startingRuntime) return
       const sid = String(payload?.session_id || payload?.sessionId || '')
       if (sid && sid !== sessionId.value && sid !== activeStreamSession) return
       awaitingInteract.value = true
@@ -524,6 +624,8 @@ export function useChat() {
     })
 
     sub('ask:pending', (payload: any) => {
+      const sid = String(payload?.session_id || '')
+      if (sid && sid !== sessionId.value) return
       const q = payload?.question
       const questionText = typeof q === 'string' ? q
         : (q?.text || q?.question || q?.prompt || '请回答：')
@@ -539,7 +641,11 @@ export function useChat() {
         approval_id: payload?.approval_id || payload?.interrupt_id || '',
         _key: `${sessionId.value}_${chatPaneKey.value}_question_${Date.now()}`,
       }
-      if (idx >= 0 && messages.value[idx]?.streaming) {
+      if (runtimeRunID) {
+        if (idx >= 0 && messages.value[idx]) messages.value[idx].streaming = false
+        streamMsgIndex.value = -1
+        messages.value.push(nextQuestion)
+      } else if (idx >= 0 && messages.value[idx]?.streaming) {
         messages.value[idx] = {
           ...messages.value[idx],
           ...nextQuestion,
@@ -552,6 +658,7 @@ export function useChat() {
     })
 
     sub('chat:paused', (payload: any) => {
+      if (runtimeRunID || startingRuntime) return
       awaitingInteract.value = true
       sending.value = false
       if (!runStatusLine.value || runStatusLine.value === '生成中…' || runStatusLine.value === '思考中…') {
@@ -561,6 +668,7 @@ export function useChat() {
 
     // ── Agent trace events — used for tool call status display ─────────────
     sub('agent:trace', (payload: any) => {
+      if (runtimeRunID || startingRuntime) return
       if (!sending.value) return
       const component = String(payload?.component || '')
       const phase = String(payload?.phase || '')

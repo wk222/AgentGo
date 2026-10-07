@@ -1,0 +1,24 @@
+{
+ "status": 200,
+ "body": {
+  "is_busy": false,
+  "is_ready": true,
+  "model": {
+   "id": "gpt-6-luna",
+   "name": "gpt-6-luna",
+   "cost_per_1m_in": 0,
+   "cost_per_1m_out": 0,
+   "cost_per_1m_in_cached": 0,
+   "cost_per_1m_out_cached": 0,
+   "context_window": 400000,
+   "default_max_tokens": 16384,
+   "can_reason": false,
+   "supports_attachments": false
+  },
+  "model_cfg": {
+   "model": "gpt-6-luna",
+   "provider": "azure",
+   "max_tokens": 16384
+  }
+ }
+}

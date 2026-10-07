@@ -13,6 +13,9 @@ type ToolInvokeFunc func(ctx context.Context, argumentsJSON string) (string, err
 // InvokeWithPolicy runs the ADK governance pipeline (validators, budget, approval, StatefulInterrupt).
 // Used by ADK WrapInvokableToolCall and Compose ToolMiddleware.
 func (m *GovernanceMiddleware) InvokeWithPolicy(ctx context.Context, toolName, argumentsInJSON string, endpoint ToolInvokeFunc) (string, error) {
+	if m != nil && endpoint != nil {
+		endpoint = m.withHooks(toolName, endpoint)
+	}
 	if m == nil {
 		if endpoint == nil {
 			return "", fmt.Errorf("governance: nil endpoint")
@@ -87,7 +90,7 @@ func (m *GovernanceMiddleware) InvokeWithPolicy(ctx context.Context, toolName, a
 
 	wasInterrupted, hasState, st := tool.GetInterruptState[ToolApprovalPause](ctx)
 	if wasInterrupted && hasState {
-		isResume, hasData, data := tool.GetResumeContext[ResumePayload](ctx)
+		isResume, hasData, data := resumePayloadFrom(ctx)
 		if isResume && hasData {
 			if data.Approved {
 				var finalArgs string

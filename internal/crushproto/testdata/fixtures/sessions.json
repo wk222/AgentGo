@@ -1,0 +1,19 @@
+{
+ "status": 200,
+ "body": [
+  {
+   "id": "74b381bb-9c99-45b7-b9ed-5ca606cb98b9",
+   "parent_session_id": "",
+   "title": "Create and Read hello.txt",
+   "message_count": 4,
+   "prompt_tokens": 9724,
+   "completion_tokens": 5,
+   "summary_message_id": "",
+   "cost": 0,
+   "created_at": 1790996527,
+   "updated_at": 1790996533,
+   "is_busy": false,
+   "attached_clients": 0
+  }
+ ]
+}
