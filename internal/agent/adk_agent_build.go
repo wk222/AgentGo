@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -24,10 +26,26 @@ func (r *Runner) newOpenAIModel(ctx context.Context, cfg LLMSettings, modelName 
 	if timeout == 0 {
 		timeout = 120 * time.Second
 	}
-	return openai.NewChatModel(ctx, &openai.ChatModelConfig{
+	if responsesEnabled() {
+		var hc *http.Client
+		if debugLLMEnabled() {
+			hc = newLLMShapeClient()
+		}
+		return newResponsesModel(cfg, name, timeout, hc), nil
+	}
+	mc := &openai.ChatModelConfig{
 		APIKey: cfg.APIKey, BaseURL: cfg.APIBase, Model: name,
 		Timeout: timeout,
-	})
+	}
+	// Reasoning models (e.g. Azure gpt-5/o-series deployments) reject function tools on
+	// /chat/completions unless reasoning_effort is "none". Opt-in, default unchanged.
+	if v := strings.TrimSpace(os.Getenv("AGENTGO_REASONING_EFFORT")); v != "" {
+		mc.ReasoningEffort = openai.ReasoningEffortLevel(v)
+	}
+	if debugLLMEnabled() {
+		mc.HTTPClient = newLLMShapeClient()
+	}
+	return openai.NewChatModel(ctx, mc)
 }
 
 func (r *Runner) modelFailoverConfig(ctx context.Context, cfg LLMSettings) (*adk.ModelFailoverConfig[*schema.Message], error) {

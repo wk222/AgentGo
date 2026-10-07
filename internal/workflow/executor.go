@@ -61,8 +61,19 @@ type ExecutorRegistry struct {
 	executors map[string]NodeExecutor
 }
 
-// NewExecutorRegistry creates a registry with built-in node executors.
+// NewExecutorRegistry creates a registry with the built-in node executors plus
+// everything plugins added through RegisterNodeExecutor.
 func NewExecutorRegistry() *ExecutorRegistry {
+	r := newBuiltinRegistry()
+	extMu.RLock()
+	for typ, e := range extExecutors {
+		r.executors[typ] = e
+	}
+	extMu.RUnlock()
+	return r
+}
+
+func newBuiltinRegistry() *ExecutorRegistry {
 	r := &ExecutorRegistry{
 		executors: make(map[string]NodeExecutor),
 	}

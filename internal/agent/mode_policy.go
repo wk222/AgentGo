@@ -1,6 +1,10 @@
 package agent
 
-import "strings"
+import (
+	"strings"
+
+	"agentgo/internal/tools"
+)
 
 // EnableSubagent reports whether invoke_subagent should be exposed for this mode.
 func (m SessionMode) EnableSubagent() bool {
@@ -67,10 +71,15 @@ func (m SessionMode) StaticToolAllowlist() map[string]bool {
 			"list_dynamic_tools":            true,
 			"echo_message":                  true,
 		}
+		allowWorkspaceReadTools(allow)
+		if c != CanvasFocused {
+			allowWorkspaceActionTools(allow)
+		}
 		if m.EnableSubagent() {
 			allow["invoke_subagent"] = true
 			allow["run_swarm"] = true
 		}
+		allowPluginTools(allow, c)
 		return allow
 	default:
 		allow := map[string]bool{
@@ -79,8 +88,9 @@ func (m SessionMode) StaticToolAllowlist() map[string]bool {
 			"echo_message":     true,
 			"render_ui":        true,
 		}
+		allowWorkspaceReadTools(allow)
 		if c != CanvasFocused {
-			allow["list_workspace_dir"] = true
+			allowWorkspaceActionTools(allow)
 			allow["activate_skill"] = true
 		}
 		if c == CanvasDeep {
@@ -110,7 +120,41 @@ func (m SessionMode) StaticToolAllowlist() map[string]bool {
 			allow["invoke_subagent"] = true
 			allow["run_swarm"] = true
 		}
+		allowPluginTools(allow, c)
 		return allow
+	}
+}
+
+// allowPluginTools admits tools plugins declared always-visible. File-mutating
+// ones stay hidden in the read-only (focused) canvas.
+func allowPluginTools(allow map[string]bool, c ExecutionCanvas) {
+	for name, mutating := range tools.PluginStaticTools() {
+		if !mutating || c != CanvasFocused {
+			allow[name] = true
+		}
+	}
+}
+
+func allowWorkspaceReadTools(allow map[string]bool) {
+	for _, name := range []string{
+		"list_workspace_dir",
+		"read_workspace_file",
+		"search_workspace",
+		"get_workspace_changes",
+		"parse_file",
+	} {
+		allow[name] = true
+	}
+}
+
+func allowWorkspaceActionTools(allow map[string]bool) {
+	for _, name := range []string{
+		"replace_workspace_text",
+		"create_workspace_file",
+		"execute_bash",
+		"run_batch_script",
+	} {
+		allow[name] = true
 	}
 }
 

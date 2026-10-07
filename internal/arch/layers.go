@@ -16,35 +16,52 @@ const (
 
 // PackageLayer maps agentgo/internal/<pkg> to its layer.
 var PackageLayer = map[string]Layer{
-	"db":              LayerFoundation,
-	"sessions":        LayerFoundation,
-	"workspace":       LayerFoundation,
-	"applog":          LayerFoundation,
-	"event":           LayerFoundation,
-	"telemetry":       LayerFoundation,
-	"governance":      LayerSystems,
-	"memory":          LayerSystems,
-	"capability":      LayerSystems,
-	"checkpoint":      LayerSystems,
-	"gateway":         LayerSystems,
-	"channels":        LayerSystems,
-	"interactive":     LayerSystems,
-	"externalcontent": LayerSystems,
-	"sandbox":         LayerSystems,
-	"tools":           LayerAssets,
-	"skills":          LayerAssets,
-	"workflow":        LayerAssets,
-	"apps":            LayerAssets,
-	"agentpack":       LayerAssets,
-	"kanban":          LayerAssets,
-	"taskhub":         LayerAssets,
-	"scheduler":       LayerAssets,
-	"admin":           LayerAssets,
-	"terminal":        LayerAssets,
-	"evaluation":      LayerAssets,
-	"agent":           LayerModes,
-	"bridge":          LayerConsumer,
-	"arch":            LayerFoundation, // meta; only stdlib imports allowed
+	"db":                 LayerFoundation,
+	"sessions":           LayerFoundation,
+	"workspace":          LayerFoundation,
+	"applog":             LayerFoundation,
+	"event":              LayerFoundation,
+	"telemetry":          LayerFoundation,
+	"governance":         LayerSystems,
+	"memory":             LayerSystems,
+	"capability":         LayerSystems,
+	"checkpoint":         LayerSystems,
+	"gateway":            LayerSystems,
+	"channels":           LayerSystems,
+	"interactive":        LayerSystems,
+	"externalcontent":    LayerSystems,
+	"sandbox":            LayerSystems,
+	"coderuntime":        LayerSystems,
+	"compose":            LayerSystems,
+	"compose/lifecycle":  LayerSystems,
+	"compose/reconciler": LayerSystems,
+	"compose/service":    LayerSystems,
+	"ledger":             LayerSystems,
+	"spill":              LayerSystems,
+	"ideruntime":         LayerSystems,
+	"hostlink":           LayerFoundation, // host discovery, token auth, loopback guard, attach proxy; stdlib only
+	"shellcmd":           LayerFoundation, // runs a command line through the platform shell and ends its process tree; stdlib only
+	"plugin":             LayerFoundation, // plugin host: services, scopes, event middleware; stdlib only
+	"codetools":          LayerAssets,     // Crush code-aware tools adapted to Eino tools
+	"engine":             LayerSystems,    // unified AgentEngine/EventSink contracts; stdlib only
+	"engine/crushengine": LayerSystems,    // Crush sidecar engine (HTTP/SSE client; imports engine only)
+	"crushproto":         LayerSystems,    // serves Crush's /v1 protocol so the stock Crush TUI can front AgentGo; stdlib only
+	"tools":              LayerAssets,
+	"skills":             LayerAssets,
+	"workflow":           LayerAssets,
+	"apps":               LayerAssets,
+	"agentpack":          LayerAssets,
+	"kanban":             LayerAssets,
+	"taskhub":            LayerAssets,
+	"scheduler":          LayerAssets,
+	"admin":              LayerAssets,
+	"terminal":           LayerAssets,
+	"evaluation":         LayerAssets,
+	"agent":              LayerModes,
+	"bridge":             LayerConsumer,
+	"acp":                LayerConsumer,
+	"tui":                LayerConsumer,
+	"arch":               LayerFoundation, // meta; only stdlib imports allowed
 }
 
 // ConsumerPackages may import any registered internal package at LayerModes or below.

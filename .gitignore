@@ -7,6 +7,15 @@
 !docs/pybot-layer-map.md
 !docs/plan.md
 !docs/build-reproducible.md
+!docs/cursor-codex-parity-plan.md
+!docs/summary-parity-and-opensumi.md
+# OpenSumi 本地参考（不提交 GitHub）
+frontend-opensumi/
+opensumi-reference/
+frontend-legacy/
+scripts/build-electron.*
+configs/opensumi*
+docs/opensumi*
 
 # Wails 构建临时文件
 *.syso

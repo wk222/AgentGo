@@ -48,8 +48,10 @@ func TestBridgeGovernancePendingResolve(t *testing.T) {
 	if _, ok := rt.pending.Get(req.ID); ok {
 		t.Fatal("pending should be cleared after resolve")
 	}
-	if _, hasResume := out["resume_error"]; hasResume {
-		t.Fatalf("unexpected resume without agent runner: %+v", out)
+	// Without an agent runner the run cannot continue. That must be reported,
+	// not look like a successful approval.
+	if e, _ := out["resume_error"].(string); e == "" {
+		t.Fatalf("expected resume_error without agent runner: %+v", out)
 	}
 
 	pending, _ := queue.ListPending(ctx, nil)

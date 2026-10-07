@@ -1,0 +1,72 @@
+{
+  "name": "agentgo-vscode",
+  "displayName": "AgentGo AI Assistant",
+  "description": "High-performance AgentGo desktop & workspace AI assistant for VS Code",
+  "version": "0.10.0",
+  "publisher": "agentgo",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "AI",
+    "Chat",
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "chatParticipants": [
+      {
+        "id": "agentgo.chat",
+        "name": "agentgo",
+        "fullName": "AgentGo",
+        "description": "Ask AgentGo to inspect code, edit workspace files, run background jobs, and manage task plans.",
+        "isDefault": true,
+        "commands": [
+          {
+            "name": "plan",
+            "description": "Create and inspect durable task plans with AgentGo"
+          },
+          {
+            "name": "code",
+            "description": "Execute multi-step batch scripts in Code Mode"
+          }
+        ]
+      }
+    ],
+    "commands": [
+      {
+        "command": "agentgo.openTasks",
+        "title": "AgentGo: Open Task Board",
+        "category": "AgentGo"
+      },
+      {
+        "command": "agentgo.cancelRun",
+        "title": "AgentGo: Cancel In-Flight Task",
+        "category": "AgentGo"
+      }
+    ],
+    "configuration": {
+      "title": "AgentGo",
+      "properties": {
+        "agentgo.binaryPath": {
+          "type": "string",
+          "default": "agentgo",
+          "description": "Path to the AgentGo binary executable"
+        },
+        "agentgo.model": {
+          "type": "string",
+          "default": "deepseek-chat",
+          "description": "Default LLM model name"
+        }
+      }
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.4.0"
+  }
+}

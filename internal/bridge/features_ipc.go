@@ -106,6 +106,13 @@ func (s *AppService) AnswerQuestion(interruptID, answerJSON string) map[string]a
 	out := map[string]any{"success": true, "content": res.Content}
 	if res.PendingApproval != nil {
 		out["pending"] = res.PendingApproval
+		// The run stopped again (for an approval or another question). Register it
+		// like any pause, or nothing could ever resume it.
+		msg := s.registerPending(sessionID, "", res.PendingApproval)
+		out["message"] = msg
+		if sessionID != "" {
+			s.persistResumedMessage(sessionID, msg)
+		}
 	}
 	return out
 }

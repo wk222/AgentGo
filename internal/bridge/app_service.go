@@ -6,25 +6,63 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
+	ct "github.com/charmbracelet/crush/pkg/codetools"
 	"github.com/wailsapp/wails/v3/pkg/application"
 
-	"agentgo/internal/agent"
-	"agentgo/internal/capability"
-	"agentgo/internal/governance"
+	"agentgo/internal/engine"
 	"agentgo/internal/memory"
+	"agentgo/internal/plugin"
 	"agentgo/internal/taskhub"
 )
 
 // AppService exposes AgentGo backend to the Wails frontend via IPC.
 type AppService struct {
-	rt  *Runtime
-	app *application.App
+	rt              *Runtime
+	app             *application.App
+	engines         *engine.Router
+	plugins         *plugin.Host
+	desktopEventSeq atomic.Int64
+
+	muTools     sync.RWMutex
+	codetools   *ct.Toolbox
+	lspListener func(e ct.LSPEvent)
+
+	unbindWorkspace func() // removes this service's binder from the Runtime
+}
+
+func (s *AppService) setCodetools(tb *ct.Toolbox) {
+	s.muTools.Lock()
+	s.codetools = tb
+	listener := s.lspListener
+	if tb != nil && listener != nil {
+		tb.SetLSPEventListener(listener)
+	}
+	s.muTools.Unlock()
+}
+
+func (s *AppService) getCodetools() *ct.Toolbox {
+	s.muTools.RLock()
+	defer s.muTools.RUnlock()
+	return s.codetools
+}
+
+func (s *AppService) setLSPListener(fn func(e ct.LSPEvent)) {
+	s.muTools.Lock()
+	s.lspListener = fn
+	if s.codetools != nil && fn != nil {
+		s.codetools.SetLSPEventListener(fn)
+	}
+	s.muTools.Unlock()
 }
 
 func NewAppService(rt *Runtime) *AppService {
-	return &AppService{rt: rt}
+	s := &AppService{rt: rt, engines: engine.NewRouter()}
+	s.initPlugins() // eino (default engine) and, when installed, crush
+	return s
 }
 
 func (s *AppService) ServiceStartup(ctx context.Context, _ application.ServiceOptions) error {
@@ -61,6 +99,10 @@ type ChatMessageDTO struct {
 type SendMessageResult struct {
 	Messages []ChatMessageDTO `json:"messages"`
 	Error    string           `json:"error,omitempty"`
+	// Degraded is set when the agent run failed and the reply came from a
+	// tool-less chat instead. The text is not a result of the task: callers
+	// that act on a reply (quick fix, automation) must not treat it as done.
+	Degraded string `json:"degraded,omitempty"`
 }
 
 type ApprovalDTO struct {
@@ -148,94 +190,15 @@ func (s *AppService) ListPendingApprovals() []ApprovalDTO {
 	return out
 }
 
-// ResolveApproval approves or rejects a pending request, then resumes ReAct if approved.
+// ResolveApproval records the user's decision on a pending request and, when
+// approved, resumes the paused run. The work is done by resolveApproval; this is
+// the desktop binding.
 func (s *AppService) ResolveApproval(approvalID string, approved bool, note string, overrideArgs ...string) map[string]any {
-	ctx := context.Background()
 	var finalArgs string
 	if len(overrideArgs) > 0 {
 		finalArgs = overrideArgs[0]
 	}
-	resume := &governance.ResumePayload{Approved: approved, Arguments: finalArgs}
-	if err := s.rt.Approvals().Resolve(ctx, approvalID, approved, note, "desktop_user", resume); err != nil {
-		return map[string]any{"success": false, "error": err.Error()}
-	}
-	if s.app != nil {
-		s.app.Event.Emit("approval:resolved", map[string]any{
-			"approval_id": approvalID,
-			"approved":    approved,
-			"arguments":   finalArgs,
-		})
-	}
-
-	out := map[string]any{"success": true}
-	if approved {
-		if pr, ok := s.rt.pending.Get(approvalID); ok {
-			if finalArgs != "" {
-				pr.Arguments = finalArgs
-			}
-			if pr.ResumeKind == "workflow" {
-				wfOut, err := s.rt.resumeWorkflowAfterApproval(ctx, pr, resume)
-				s.rt.pending.Delete(approvalID)
-				if err != nil {
-					out["resume_error"] = err.Error()
-				} else {
-					out["workflow_output"] = wfOut
-					if s.app != nil {
-						s.app.Event.Emit("workflow:resumed", map[string]any{
-							"approval_id": approvalID,
-							"workflow_id": pr.WorkflowID,
-							"output":      wfOut,
-						})
-					}
-				}
-				return out
-			}
-			runner := s.rt.AgentRunner()
-			var runRes *agent.RunResult
-			var err error
-			if runner != nil && pr.InterruptID != "" {
-				if pr.ResumeKind == "matrix" {
-					runRes, err = runner.ResumeMatrixSupervisor(ctx, s.rt.AgentLLMSettings(), pr.InterruptID, resume)
-				} else {
-					runRes, err = runner.ContinueAfterApproval(ctx, s.rt.AgentLLMSettings(), pr.SessionID, pr.InterruptID, pr.ToolName, pr.Arguments, true)
-				}
-			}
-			s.rt.pending.Delete(approvalID)
-			if err != nil {
-				out["resume_error"] = err.Error()
-			} else if runRes != nil {
-				content := runRes.Content
-				msgs := []ChatMessageDTO{{Role: "assistant", Type: "text", Content: content}}
-				if pr.ResumeKind == "matrix" {
-					ev := capability.Event{Type: "matrix.resumed", Source: pr.MatrixEvent}
-					s.rt.publishMatrixOrchestrated(ev, content, "")
-					if s.app != nil {
-						s.app.Event.Emit("matrix:resumed", map[string]any{
-							"approval_id": approvalID, "content": content,
-						})
-					}
-				} else if pr.SessionID != "" {
-					_ = s.rt.Sessions().AppendMessage(ctx, pr.SessionID, "assistant", content, "text", nil)
-				}
-				out["messages"] = msgs
-				if s.app != nil && pr.ResumeKind != "matrix" {
-					s.app.Event.Emit("chat:done", map[string]any{
-						"session_id": pr.SessionID,
-						"messages":   msgs,
-						"resume":     true,
-					})
-				}
-			}
-		}
-	} else {
-		if pr, ok := s.rt.pending.Get(approvalID); ok && pr.ResumeKind == "workflow" {
-			_, _ = s.rt.resumeWorkflowAfterApproval(ctx, pr, resume)
-			s.rt.pending.Delete(approvalID)
-		} else {
-			s.rt.pending.Delete(approvalID)
-		}
-	}
-	return out
+	return s.resolveApproval(context.Background(), approvalID, approved, note, "desktop_user", finalArgs)
 }
 
 // SendMessage runs workspace + memory + ReAct/LLM.

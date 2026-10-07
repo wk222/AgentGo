@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -108,6 +109,16 @@ func (s *AppService) GetSessionMessages(sessionID string) map[string]any {
 			row["type"] = msgType
 			row["session_id"] = m.SessionID
 		}
+		// Transcript metadata describes the original pause. Decisions belong to
+		// the approval queue and must be projected afresh after a UI reload.
+		if msgType == "approval" && s.rt.Approvals() != nil {
+			if id, _ := row["approval_id"].(string); id != "" {
+				if req, err := s.rt.Approvals().GetRequest(ctx, id); err == nil && req != nil {
+					row["status"] = req.Status
+					row["resolved"] = req.Status != "pending"
+				}
+			}
+		}
 		if msgType == "aui" {
 			applog.A2UI("db row want=%s component=%v data_json_len=%d",
 				sessionID, row["component"], len(fmt.Sprint(row["data_json"])))
@@ -182,6 +193,10 @@ func (s *AppService) ListWorkspace(relPath string) []WorkspaceEntry {
 	return out
 }
 
+func (s *AppService) ListWorkspaceDir(relPath string) []WorkspaceEntry {
+	return s.ListWorkspace(relPath)
+}
+
 func (s *AppService) GetWorkspaceInfo() map[string]any {
 	info := s.rt.WorkspaceInfo()
 	return map[string]any{
@@ -225,6 +240,125 @@ func (s *AppService) ReadWorkspaceFile(relPath string) map[string]any {
 		return map[string]any{"success": false, "error": err.Error()}
 	}
 	return map[string]any{"success": true, "path": clean, "size": info.Size(), "content": string(b)}
+}
+
+// WriteWorkspaceFile writes content to a file inside the workspace safely.
+func (s *AppService) WriteWorkspaceFile(relPath string, content string) map[string]any {
+	root := s.rt.WorkspaceRoot()
+	clean, full, err := workspaceFullPath(root, relPath, false)
+	if err != nil {
+		return map[string]any{"success": false, "error": err.Error()}
+	}
+	dir := filepath.Dir(full)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return map[string]any{"success": false, "error": fmt.Sprintf("failed to create parent directories: %v", err)}
+	}
+	if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+		return map[string]any{"success": false, "error": fmt.Sprintf("failed to write file: %v", err)}
+	}
+	return map[string]any{"success": true, "path": clean, "size": len(content)}
+}
+
+// CreateWorkspaceFile creates a new file at relPath.
+func (s *AppService) CreateWorkspaceFile(relPath string) map[string]any {
+	root := s.rt.WorkspaceRoot()
+	clean, full, err := workspaceFullPath(root, relPath, false)
+	if err != nil {
+		return map[string]any{"success": false, "error": err.Error()}
+	}
+	dir := filepath.Dir(full)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return map[string]any{"success": false, "error": err.Error()}
+	}
+	f, err := os.OpenFile(full, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return map[string]any{"success": false, "error": err.Error()}
+	}
+	_ = f.Close()
+	return map[string]any{"success": true, "path": clean}
+}
+
+// CreateWorkspaceDir creates a new directory at relPath.
+func (s *AppService) CreateWorkspaceDir(relPath string) map[string]any {
+	root := s.rt.WorkspaceRoot()
+	clean, full, err := workspaceFullPath(root, relPath, false)
+	if err != nil {
+		return map[string]any{"success": false, "error": err.Error()}
+	}
+	if err := os.MkdirAll(full, 0o755); err != nil {
+		return map[string]any{"success": false, "error": err.Error()}
+	}
+	return map[string]any{"success": true, "path": clean}
+}
+
+// DeleteWorkspacePath deletes a file or folder at relPath.
+func (s *AppService) DeleteWorkspacePath(relPath string) map[string]any {
+	root := s.rt.WorkspaceRoot()
+	clean, full, err := workspaceFullPath(root, relPath, false)
+	if err != nil {
+		return map[string]any{"success": false, "error": err.Error()}
+	}
+	if err := os.RemoveAll(full); err != nil {
+		return map[string]any{"success": false, "error": err.Error()}
+	}
+	return map[string]any{"success": true, "path": clean}
+}
+
+// RenameWorkspacePath renames a file or folder.
+func (s *AppService) RenameWorkspacePath(oldPath, newPath string) map[string]any {
+	root := s.rt.WorkspaceRoot()
+	_, oldFull, err := workspaceFullPath(root, oldPath, false)
+	if err != nil {
+		return map[string]any{"success": false, "error": err.Error()}
+	}
+	newClean, newFull, err := workspaceFullPath(root, newPath, false)
+	if err != nil {
+		return map[string]any{"success": false, "error": err.Error()}
+	}
+	if err := os.Rename(oldFull, newFull); err != nil {
+		return map[string]any{"success": false, "error": err.Error()}
+	}
+	return map[string]any{"success": true, "path": newClean}
+}
+
+// ExecuteTerminalCommand runs a command in the workspace and returns output.
+func (s *AppService) ExecuteTerminalCommand(command string) map[string]any {
+	root := s.rt.WorkspaceRoot()
+	if strings.TrimSpace(command) == "" {
+		return map[string]any{"success": false, "error": "empty command"}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command", command)
+	} else {
+		cmd = exec.CommandContext(ctx, "sh", "-c", command)
+	}
+	cmd.Dir = root
+	hideExecWindow(cmd)
+
+	var out, errb bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errb
+
+	err := cmd.Run()
+	exitCode := 0
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		} else {
+			exitCode = 1
+		}
+	}
+
+	return map[string]any{
+		"success":   err == nil,
+		"stdout":    out.String(),
+		"stderr":    errb.String(),
+		"exit_code": exitCode,
+	}
 }
 
 // runGit executes a git subcommand inside dir with an 8s timeout, returning
@@ -290,16 +424,25 @@ func sanitizeWorkspaceRel(relPath string) (string, error) {
 	return cleanWorkspaceRel(relPath, false)
 }
 
-// WorkspaceFileDiff computes a unified git diff (vs HEAD) for a single workspace
-// file. Backend capability only — not yet wired into the UI. Returns the unified
-// diff text plus added/removed line counts and an untracked flag (new files show
-// no diff against HEAD).
+// WorkspaceFileDiff computes a git diff and also returns the two text snapshots
+// required by Monaco's DiffEditor. Deleted files use an empty modified snapshot;
+// untracked files use an empty original snapshot.
 func (s *AppService) WorkspaceFileDiff(relPath string) map[string]any {
 	root := s.rt.WorkspaceRoot()
 	clean, err := sanitizeWorkspaceRel(relPath)
 	if err != nil {
 		return map[string]any{"success": false, "error": err.Error()}
 	}
+
+	_, full, err := workspaceFullPath(root, clean, false)
+	if err != nil {
+		return map[string]any{"success": false, "error": err.Error()}
+	}
+	modifiedBytes, readErr := os.ReadFile(full)
+	if readErr != nil && !os.IsNotExist(readErr) {
+		return map[string]any{"success": false, "error": readErr.Error()}
+	}
+	modifiedContent := string(modifiedBytes)
 
 	diffOut, err := runGit(root, "diff", "--no-color", "HEAD", "--", clean)
 	if err != nil {
@@ -312,6 +455,13 @@ func (s *AppService) WorkspaceFileDiff(relPath string) map[string]any {
 	if strings.TrimSpace(diffOut) == "" {
 		if st, e := runGit(root, "status", "--porcelain", "--", clean); e == nil {
 			untracked = strings.HasPrefix(strings.TrimSpace(st), "??")
+		}
+	}
+
+	originalContent := ""
+	if !untracked {
+		if headContent, showErr := runGit(root, "show", "HEAD:"+clean); showErr == nil {
+			originalContent = headContent
 		}
 	}
 
@@ -328,13 +478,15 @@ func (s *AppService) WorkspaceFileDiff(relPath string) map[string]any {
 	}
 
 	return map[string]any{
-		"success":     true,
-		"path":        clean,
-		"diff":        diffOut,
-		"added":       added,
-		"removed":     removed,
-		"untracked":   untracked,
-		"has_changes": strings.TrimSpace(diffOut) != "" || untracked,
+		"success":          true,
+		"path":             clean,
+		"diff":             diffOut,
+		"added":            added,
+		"removed":          removed,
+		"untracked":        untracked,
+		"has_changes":      strings.TrimSpace(diffOut) != "" || untracked,
+		"original_content": originalContent,
+		"modified_content": modifiedContent,
 	}
 }
 
@@ -461,6 +613,10 @@ func (s *AppService) SendMessageWithSession(sessionID, userText string, images [
 		return s.SendMessage(userText)
 	}
 	ctx := context.Background()
+	hist := s.sessionHistory(ctx, sessionID)
+	if len(hist) > 0 {
+		ctx = agent.WithHistory(ctx, hist)
+	}
 	applog.IPC("SendMessageWithSession", "enter session=%s len=%d", sessionID, len(userText))
 	var meta map[string]any
 	if len(images) > 0 {
@@ -480,6 +636,30 @@ func (s *AppService) SendMessageWithSession(sessionID, userText string, images [
 		_ = s.rt.Sessions().AppendMessage(ctx, sessionID, m.Role, m.Content, m.Type, mmeta)
 	}
 	return res
+}
+
+// SteerSession provides mid-flight guidance/instruction to a running agent task (Codex parity).
+func (s *AppService) SteerSession(sessionID, instruction string) map[string]any {
+	sessionID = strings.TrimSpace(sessionID)
+	instruction = strings.TrimSpace(instruction)
+	if sessionID == "" || instruction == "" {
+		return map[string]any{"success": false, "error": "session_id and instruction required"}
+	}
+	runner := s.rt.AgentRunner()
+	if runner == nil {
+		return map[string]any{"success": false, "error": "agent runner unavailable"}
+	}
+	if runner.SteerSessionRun(sessionID, instruction) {
+		applog.IPC("SteerSession", "queued steer for session=%s: %q", sessionID, instruction)
+		if s.app != nil {
+			s.app.Event.Emit("chat:steered", map[string]any{
+				"session_id":  sessionID,
+				"instruction": instruction,
+			})
+		}
+		return map[string]any{"success": true, "steered": true}
+	}
+	return map[string]any{"success": false, "steered": false, "reason": "session not actively running"}
 }
 
 // CancelA2UIInteraction unblocks a render_ui tool waiting on interact_id (stop button / new session).

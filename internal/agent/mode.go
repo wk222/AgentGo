@@ -55,12 +55,15 @@ func sessionModeFromContext(ctx context.Context) (SessionMode, bool) {
 
 // ModeHints returns system-prompt augmentation for profile.
 func (m SessionMode) ModeHints() string {
-	p, _ := m.normalized()
-	return fmt.Sprintf(`[ModeProfile: %s]
-- assistant: conversational helper, prefer concise answers.
+	p, c := m.normalized()
+	return fmt.Sprintf(`[ModeProfile: %s; ExecutionCanvas: %s]
+- assistant: answer simple questions directly; for task requests, follow inspect -> plan -> act -> verify and finish the work.
 - app_matrix: orchestrate tools/workflows/apps across boundaries.
 - admin: persistent operator; plan before destructive actions.
-- For dashboards, CPU/memory/health metrics, or interactive cards: call render_ui (component metric/card/markdown) with JSON data; do not claim tools are unavailable.`, p)
+- focused canvas: investigation and read-only reasoning; do not attempt workspace edits or command execution.
+- balanced canvas: complete ordinary coding work with approvals, review the diff, and verify the result.
+- deep canvas: use broader investigation and delegation only when complexity justifies it; still prefer the smallest decisive check.
+- For dashboards, CPU/memory/health metrics, or interactive cards: call render_ui (component metric/card/markdown) with JSON data; do not claim tools are unavailable.`, p, c)
 }
 
 // EnvSessionMode reads AGENTGO_MODE_PROFILE.

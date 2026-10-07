@@ -7,7 +7,9 @@ import ChatPanel from './ChatPanel'
 import RightPanel from './RightPanel'
 import InnerAppHost from './InnerAppHost'
 import MemoryPanel from './panels/MemoryPanel'
-import { WorkflowPanel, TasksPanel, CapabilityPanel, SkillsPanel, ChannelsPanel, AppsPanel } from './panels'
+import { WorkflowPanel, TasksPanel, CapabilityPanel, SkillsPanel, ChannelsPanel, AppsPanel, CodeWorkspacePanel } from './panels'
+import AppTitleBar from './components/AppTitleBar'
+import AppStatusBar from './components/AppStatusBar'
 
 type FileCat = 'data' | 'code' | 'doc' | 'image'
 interface ProjectFile { name: string; cat: FileCat; size: string; updated: string }
@@ -37,19 +39,23 @@ function saveProjects(list: Project[]) {
 }
 
 const WORKSPACE_NAV = [
-  { id: 'apps', label: '内置应用' },
+  { id: 'chat', label: 'Agent 对话' },
+  { id: 'code', label: '代码 IDE' },
   { id: 'workflow', label: 'Workflow' },
   { id: 'tasks', label: '任务管理' },
-  { id: 'capabilities', label: '能力中心' },
 ]
 
 const KNOWLEDGE_NAV = [
+  { id: 'apps', label: '内置应用' },
+  { id: 'capabilities', label: '能力中心' },
   { id: 'skills', label: 'Skills' },
   { id: 'memory', label: 'Memory' },
   { id: 'channels', label: 'Channels' },
 ]
 
 const PANEL_ICONS: Record<string, string> = {
+  chat: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M8 9h8M8 13h5"/></svg>`,
+  code: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>`,
   apps: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>`,
   workflow: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="6" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="12" cy="18" r="2"/><path d="M7 6h10M5 8v8a1 1 0 0 0 .5.87L12 20M19 8v8a1 1 0 0 1-.5.87L12 20"/></svg>`,
   tasks: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>`,
@@ -61,7 +67,7 @@ const PANEL_ICONS: Record<string, string> = {
 }
 
 const VIEW_LABELS: Record<string, string> = {
-  apps: '内置应用', workflow: 'Workflow', tasks: '任务管理', capabilities: '能力中心',
+  chat: 'Agent 对话', code: '代码 IDE', apps: '内置应用', workflow: 'Workflow', tasks: '任务管理', capabilities: '能力中心',
   skills: 'Skills', memory: 'Memory', channels: 'Channels', settings: '设置',
 }
 
@@ -95,13 +101,20 @@ export default defineComponent({
     const chat = useChat()
 
     const isDark = ref(localStorage.getItem('agentgo-dark') !== 'false')
-    const workspacePanelOpen = ref(localStorage.getItem('agentgo-workspace-panel') !== 'closed')
-    const sidebarWidth = ref(Number(localStorage.getItem('agentgo-sidebar-width') || 260))
-    const rightPanelWidth = ref(Number(localStorage.getItem('agentgo-rightpanel-width') || 300))
+    const sidebarPreference = localStorage.getItem('agentgo-sidebar-open')
+    const sidebarOpen = ref(sidebarPreference === 'true' || (sidebarPreference === null && window.innerWidth >= 1400))
+    const centerWorkspaceOpen = ref(localStorage.getItem('agentgo-center-open') !== 'false')
+    const agentPanelOpen = ref(localStorage.getItem('agentgo-agent-open') !== 'false')
+    const workspacePanelOpen = ref(localStorage.getItem('agentgo-workspace-panel') === 'open')
+    const viewportWidth = ref(window.innerWidth)
+    const sidebarWidth = ref(Number(localStorage.getItem('agentgo-sidebar-width') || 240))
+    const rightPanelWidth = ref(Number(localStorage.getItem('agentgo-rightpanel-width') || 380))
     const resizingPane = ref<'sidebar' | 'right' | ''>('')
     const workflowPopout = ref(false)
     const rightPanelTab = ref<'workspace' | 'files'>('workspace')
-    const activeView = ref('chat')
+    const activeView = ref('code')
+    const settingsReturnView = ref('code')
+    const compactLayout = computed(() => viewportWidth.value < 900)
 
     const projects = ref<Project[]>(loadProjects())
     const activeProjectId = ref(projects.value[0]?.id ?? 'default')
@@ -171,6 +184,15 @@ export default defineComponent({
       }
     }
 
+    const focusAgent = () => {
+      activeView.value = 'chat'
+      centerWorkspaceOpen.value = false
+      agentPanelOpen.value = true
+      localStorage.setItem('agentgo-center-open', 'false')
+      localStorage.setItem('agentgo-agent-open', 'true')
+      projectMenuOpen.value = false
+    }
+
     const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n))
 
     const startResize = (pane: 'sidebar' | 'right', e: PointerEvent) => {
@@ -196,7 +218,15 @@ export default defineComponent({
     }
 
     const switchView = (id: string) => {
+      if (id === 'chat') {
+        settingsReturnView.value = 'chat'
+        focusAgent()
+        return
+      }
+      if (id !== 'settings') settingsReturnView.value = id
       activeView.value = id
+      centerWorkspaceOpen.value = true
+      localStorage.setItem('agentgo-center-open', 'true')
       if (id === 'settings') loadLLM()
     }
 
@@ -264,10 +294,21 @@ export default defineComponent({
       }
     }
 
-    const sendToAgent = (text: string) => {
-      activeView.value = 'chat'
-      void chat.sendMessage(text)
+    const sendChatMessage = async (text: string, images?: string[]) => {
+      agentPanelOpen.value = true
+      localStorage.setItem('agentgo-agent-open', 'true')
+      try {
+        const review = await wailsCall<{ success?: boolean; error?: string }>('BeginWorkspaceReview', chat.sessionId.value)
+        if (review?.success === false || review?.error) {
+          alert(`AI 变更保护未能启动，本次仍可对话，但文件修改不能自动恢复：${review?.error || '未知错误'}`)
+        }
+      } catch (e: any) {
+        alert(`AI 变更保护未能启动，本次仍可对话，但文件修改不能自动恢复：${e?.message || e}`)
+      }
+      return chat.sendMessage(text, images)
     }
+
+    const sendToAgent = (text: string) => { void sendChatMessage(text) }
 
     const openWorkflowEditor = async () => {
       try {
@@ -382,7 +423,10 @@ export default defineComponent({
         </div>
 
         {/* New Chat */}
-        <button class="sb-new-chat" onClick={chat.newSession}>
+        <button class="sb-new-chat" onClick={() => {
+          chat.newSession()
+          focusAgent()
+        }}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           <span>新对话</span>
         </button>
@@ -410,7 +454,10 @@ export default defineComponent({
                 <button
                   key={sid}
                   class={['sb-session-item', sid === chat.sessionId.value && 'active']}
-                  onClick={() => { chat.selectSession(sid); activeView.value = 'chat' }}
+                  onClick={() => {
+                    chat.selectSession(sid)
+                    focusAgent()
+                  }}
                 >
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                   <span class="sb-session-title">{sessionTitle(s)}</span>
@@ -419,9 +466,9 @@ export default defineComponent({
             })}
           </div>
 
-          {/* Workspace nav */}
+          {/* Primary workspace nav */}
           <div class="sb-section">
-            <span class="sb-section-label">工作区</span>
+            <span class="sb-section-label">主工作区</span>
             {WORKSPACE_NAV.map(item => (
               <button
                 key={item.id}
@@ -434,9 +481,9 @@ export default defineComponent({
             ))}
           </div>
 
-          {/* Knowledge nav */}
+          {/* Secondary resources */}
           <div class="sb-section">
-            <span class="sb-section-label">知识库</span>
+            <span class="sb-section-label">资源与知识</span>
             {KNOWLEDGE_NAV.map(item => (
               <button
                 key={item.id}
@@ -475,12 +522,22 @@ export default defineComponent({
       </aside>
     )
 
+    const closeSettings = () => {
+      if (settingsReturnView.value === 'chat') {
+        focusAgent()
+        return
+      }
+      activeView.value = settingsReturnView.value
+      centerWorkspaceOpen.value = true
+      localStorage.setItem('agentgo-center-open', 'true')
+    }
+
     /* ── Settings panel ── */
     const SettingsPanel = () => (
       <div class="settings-panel">
         <div class="settings-header">
           <h2>设置</h2>
-          <button class="icon-btn" onClick={() => activeView.value = 'chat'}>
+          <button class="icon-btn" onClick={closeSettings} title="返回工作区">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
@@ -525,6 +582,7 @@ export default defineComponent({
 
     /* ── Real panels ── */
     const PANEL_COMPONENTS: Record<string, any> = {
+      code: CodeWorkspacePanel,
       memory: MemoryPanel,
       workflow: WorkflowPanel,
       tasks: TasksPanel,
@@ -535,17 +593,11 @@ export default defineComponent({
     }
     const ActivePanel = (view: string) => {
       const Comp = PANEL_COMPONENTS[view]
+      if (view === 'code') return <CodeWorkspacePanel onSendToAgent={sendToAgent} sessionId={chat.sessionId.value} />
       if (view === 'workflow') return <WorkflowPanel standalone={false} />
       if (view === 'memory') return <MemoryPanel onSendToAgent={sendToAgent} sessionId={chat.sessionId.value} />
       if (Comp) return <Comp onSendToAgent={sendToAgent} />
-      return (
-        <div class="stub-panel">
-          <div class="stub-icon" innerHTML={PANEL_ICONS[view] || ''}></div>
-          <h2 class="stub-title">{VIEW_LABELS[view] || view}</h2>
-          <p class="stub-desc">即将推出</p>
-          <button class="stub-back" onClick={() => activeView.value = 'chat'}>← 返回对话</button>
-        </div>
-      )
+      return <CodeWorkspacePanel onSendToAgent={sendToAgent} sessionId={chat.sessionId.value} />
     }
 
     const WorkflowPopout = () => workflowPopout.value ? (
@@ -562,82 +614,242 @@ export default defineComponent({
       </div>
     ) : null
 
+    const toggleSidebar = () => {
+      sidebarOpen.value = !sidebarOpen.value
+      localStorage.setItem('agentgo-sidebar-open', String(sidebarOpen.value))
+    }
+
+    const toggleCenter = () => {
+      if (centerWorkspaceOpen.value) {
+        centerWorkspaceOpen.value = false
+      } else {
+        if (activeView.value === 'chat') activeView.value = 'code'
+        centerWorkspaceOpen.value = true
+      }
+      localStorage.setItem('agentgo-center-open', String(centerWorkspaceOpen.value))
+    }
+
+    const toggleAgent = () => {
+      if (agentPanelOpen.value) {
+        agentPanelOpen.value = false
+        if (activeView.value === 'chat') {
+          activeView.value = 'code'
+          centerWorkspaceOpen.value = true
+          localStorage.setItem('agentgo-center-open', 'true')
+        }
+      } else {
+        agentPanelOpen.value = true
+      }
+      localStorage.setItem('agentgo-agent-open', String(agentPanelOpen.value))
+    }
+
+    const handleLayoutKeydown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
+        e.preventDefault()
+        toggleSidebar()
+      }
+    }
+
+    const applyResponsiveLayout = () => {
+      viewportWidth.value = window.innerWidth
+      if (viewportWidth.value < 1400) sidebarOpen.value = false
+      if (viewportWidth.value < 780 && centerWorkspaceOpen.value && agentPanelOpen.value) {
+        agentPanelOpen.value = false
+      }
+    }
+
+    onMounted(() => {
+      applyResponsiveLayout()
+      window.addEventListener('resize', applyResponsiveLayout)
+      window.addEventListener('keydown', handleLayoutKeydown)
+    })
+
+    const currentSession = computed(() =>
+      chat.sessions.value.find(s => (s.id || s.session_id || '') === chat.sessionId.value)
+    )
+
+    onUnmounted(() => {
+      window.removeEventListener('resize', applyResponsiveLayout)
+      window.removeEventListener('keydown', handleLayoutKeydown)
+    })
+
     return () => (
-      <div
-        class="layout"
-        style={{
-          '--sb-width': `${sidebarWidth.value}px`,
-          '--rp-width': `${rightPanelWidth.value}px`,
-        } as any}
-      >
-        <Sidebar />
+      <div class="app-window-root">
+        {/* Desktop Native Frameless Titlebar */}
+        <AppTitleBar
+          sidebarOpen={sidebarOpen.value}
+          centerOpen={centerWorkspaceOpen.value}
+          agentOpen={agentPanelOpen.value}
+          isDark={isDark.value}
+          projectName={activeProject.value.name}
+          projectColor={activeProject.value.color}
+          sessionTitle={currentSession.value ? sessionTitle(currentSession.value) : 'AgentGo 工作区'}
+          activeView={activeView.value}
+          sending={chat.sending.value}
+          onToggleSidebar={toggleSidebar}
+          onToggleCenter={toggleCenter}
+          onToggleAgent={toggleAgent}
+          onToggleDark={toggleDark}
+          onOpenSettings={() => {
+            settingsReturnView.value = activeView.value === 'settings' ? 'code' : activeView.value
+            activeView.value = 'settings'
+            centerWorkspaceOpen.value = true
+            loadLLM()
+          }}
+          onSelectView={switchView}
+        />
+
+        {/* Main Tri-Pane Workspace */}
         <div
-          class={['pane-resizer', 'pane-resizer-left', resizingPane.value === 'sidebar' && 'active']}
-          onPointerdown={(e: PointerEvent) => startResize('sidebar', e)}
-          title="拖动调整侧栏宽度"
-        ></div>
-
-        <main class="main">
-          {activeView.value === 'chat' && (
-            <ChatPanel
-              messages={chat.messages.value}
-              sessionId={chat.sessionId.value}
-              sessions={chat.sessions.value}
-              sessionLoading={chat.sessionLoading.value}
-              sending={chat.sending.value}
-              awaitingInteract={chat.awaitingInteract.value}
-              runStatusLine={chat.runStatusLine.value}
-              chatPaneKey={chat.chatPaneKey.value}
-              workspacePanelOpen={workspacePanelOpen.value}
-              formInputs={chat.formInputs.value}
-              onSend={(text: string, images?: string[]) => chat.sendMessage(text, images)}
-              onStop={chat.stopGeneration}
-              onToggleWorkspace={toggleWorkspace}
-              onReload={chat.reloadCurrentSession}
-              onApprove={(id: string) => chat.handleApprove(id)}
-              onReject={(id: string) => chat.handleReject(id)}
-              onSubmitQuestion={(msg: any, answer: string, idx: number) => chat.submitQuestion(msg, answer, idx)}
-              onSubmitAUI={(msg: any, val: string, idx: number) => chat.submitAUIForm(msg, val, idx)}
-              onSubmitAUIAction={(msg: any, val: string, idx: number) => chat.submitAUIAction(msg, val, idx)}
-              onFormInput={(key: string, field: string, val: any) => {
-                chat.formInputs.value[key] = { ...(chat.formInputs.value[key] || {}), [field]: val }
-              }}
-              modeProfile={modeProfile.value}
-              modeCanvas={modeCanvas.value}
-              modeSaving={modeSaving.value}
-              onModeChange={changeSessionMode}
-            />
+          class={['layout', 'app-layout-body', compactLayout.value && 'compact-layout']}
+          style={{
+            '--sb-width': `${sidebarWidth.value}px`,
+            '--rp-width': `${rightPanelWidth.value}px`,
+            display: 'flex',
+            flex: 1,
+            height: 'calc(100% - 64px)',
+            width: '100vw',
+            overflow: 'hidden',
+            background: 'var(--bg)',
+          } as any}
+        >
+          {/* 1. Left Sidebar / Navigation (Collapsible) */}
+          {sidebarOpen.value && (
+            <>
+              <Sidebar />
+              <div
+                class={['pane-resizer', 'pane-resizer-left', resizingPane.value === 'sidebar' && 'active']}
+                onPointerdown={(e: PointerEvent) => startResize('sidebar', e)}
+                title="拖动调整侧栏宽度"
+              ></div>
+            </>
           )}
-          {activeView.value === 'settings' && <SettingsPanel />}
-          {activeView.value !== 'chat' && activeView.value !== 'settings' && ActivePanel(activeView.value)}
-        </main>
 
-        {workspacePanelOpen.value && (
-          <>
+          {/* 2. Center Workspace (IDE Code Editor / Workflow / Active Panels) */}
+          {centerWorkspaceOpen.value && (
+            <div
+              class="center-workspace-pane"
+              style={{
+                flex: 1,
+                minWidth: '320px',
+                height: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden',
+                background: 'var(--surface-1)',
+              }}
+            >
+              {activeView.value === 'code' && <CodeWorkspacePanel onSendToAgent={sendToAgent} sessionId={chat.sessionId.value} />}
+              {activeView.value === 'settings' && <SettingsPanel />}
+              {activeView.value !== 'code' && activeView.value !== 'settings' && ActivePanel(activeView.value)}
+            </div>
+          )}
+
+          {/* Resizer between Center Workspace & Right Agent Console */}
+          {centerWorkspaceOpen.value && agentPanelOpen.value && !compactLayout.value && (
             <div
               class={['pane-resizer', 'pane-resizer-right', resizingPane.value === 'right' && 'active']}
               onPointerdown={(e: PointerEvent) => startResize('right', e)}
-              title="拖动调整右栏宽度"
+              title="拖动调整 Agent 控制台宽度"
             ></div>
-            <RightPanel
-              activeProject={activeProject.value}
-              projects={projects.value}
-              onSwitchProject={(id: string) => { activeProjectId.value = id }}
-              activeTab={rightPanelTab.value}
-              onTabChange={(tab: 'workspace' | 'files') => { rightPanelTab.value = tab }}
-              onSendToAgent={sendToAgent}
-              onClose={() => {
-                workspacePanelOpen.value = false
-                localStorage.setItem('agentgo-workspace-panel', 'closed')
-              }}
-            />
-          </>
-        )}
+          )}
 
-        <WorkflowPopout />
-        {projectMenuOpen.value && (
-          <div class="overlay-bg" onClick={() => projectMenuOpen.value = false}></div>
-        )}
+          {/* 3. Right Agent Console (Chat / Stream / Tools / Reasoning / Prompt) */}
+          {agentPanelOpen.value && (
+            <div
+              class="agent-console-pane"
+              style={{
+                width: centerWorkspaceOpen.value ? `${rightPanelWidth.value}px` : '100%',
+                minWidth: compactLayout.value ? '0' : '340px',
+                height: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden',
+                background: 'var(--main-bg)',
+                borderLeft: centerWorkspaceOpen.value ? '1px solid var(--border)' : 'none',
+                ...(compactLayout.value ? {
+                  position: 'absolute',
+                  top: 0,
+                  right: 0,
+                  bottom: 0,
+                  width: centerWorkspaceOpen.value ? 'min(100%, 440px)' : '100%',
+                  zIndex: 60,
+                  boxShadow: 'var(--shadow-xl)',
+                } : {}),
+              }}
+            >
+              <ChatPanel
+                messages={chat.messages.value}
+                sessionId={chat.sessionId.value}
+                sessions={chat.sessions.value}
+                sessionLoading={chat.sessionLoading.value}
+                sending={chat.sending.value}
+                awaitingInteract={chat.awaitingInteract.value}
+                runStatusLine={chat.runStatusLine.value}
+                chatPaneKey={chat.chatPaneKey.value}
+                workspacePanelOpen={workspacePanelOpen.value}
+                formInputs={chat.formInputs.value}
+                onSend={sendChatMessage}
+                onStop={chat.stopGeneration}
+                onToggleWorkspace={toggleWorkspace}
+                onReload={chat.reloadCurrentSession}
+                onApprove={(id: string) => chat.handleApprove(id)}
+                onReject={(id: string) => chat.handleReject(id)}
+                onSubmitQuestion={(msg: any, answer: string, idx: number) => chat.submitQuestion(msg, answer, idx)}
+                onSubmitAUI={(msg: any, val: string, idx: number) => chat.submitAUIForm(msg, val, idx)}
+                onSubmitAUIAction={(msg: any, val: string, idx: number) => chat.submitAUIAction(msg, val, idx)}
+                onFormInput={(key: string, field: string, val: any) => {
+                  chat.formInputs.value[key] = { ...(chat.formInputs.value[key] || {}), [field]: val }
+                }}
+                modeProfile={modeProfile.value}
+                modeCanvas={modeCanvas.value}
+                modeSaving={modeSaving.value}
+                onModeChange={changeSessionMode}
+              />
+            </div>
+          )}
+
+          {workspacePanelOpen.value && (
+            <>
+              <div
+                class="context-drawer-backdrop"
+                onClick={() => {
+                  workspacePanelOpen.value = false
+                  localStorage.setItem('agentgo-workspace-panel', 'closed')
+                }}
+              ></div>
+              <div class="context-drawer-shell">
+                <RightPanel
+                  activeProject={activeProject.value}
+                  projects={projects.value}
+                  onSwitchProject={(id: string) => { activeProjectId.value = id }}
+                  activeTab={rightPanelTab.value}
+                  onTabChange={(tab: 'workspace' | 'files') => { rightPanelTab.value = tab }}
+                  onSendToAgent={sendToAgent}
+                  onClose={() => {
+                    workspacePanelOpen.value = false
+                    localStorage.setItem('agentgo-workspace-panel', 'closed')
+                  }}
+                />
+              </div>
+            </>
+          )}
+
+          <WorkflowPopout />
+          {projectMenuOpen.value && (
+            <div class="overlay-bg" onClick={() => projectMenuOpen.value = false}></div>
+          )}
+        </div>
+
+        {/* Desktop Status Bar */}
+        <AppStatusBar
+          model={llmForm.value.model}
+          modeProfile={modeProfile.value}
+          modeCanvas={modeCanvas.value}
+          sending={chat.sending.value}
+          sessionId={chat.sessionId.value}
+          statusLine={chat.runStatusLine.value}
+        />
       </div>
     )
   },

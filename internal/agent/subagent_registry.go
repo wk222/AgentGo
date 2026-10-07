@@ -177,23 +177,25 @@ func (r *SubagentRegistry) ListEnabled(ctx context.Context, limit int) ([]Subage
 
 // SeedDefaults inserts society-of-mind style presets when table is empty.
 func (r *SubagentRegistry) SeedDefaults(ctx context.Context) (int, error) {
-	var n int
-	_ = r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM subagents`).Scan(&n)
-	if n > 0 {
-		return 0, nil
-	}
 	presets := []SubagentDef{
 		{Name: "researcher", Role: "研究员", SystemPrompt: "你是研究员子智能体：收集事实、列要点，避免臆测。", Enabled: true},
 		{Name: "critic", Role: "质疑者", SystemPrompt: "你是质疑者子智能体：找漏洞、风险与反例，简洁有力。", Enabled: true},
 		{Name: "synthesizer", Role: "综合者", SystemPrompt: "你是综合者子智能体：合并多方观点为可执行结论。", Enabled: true},
 		{Name: "app_builder", Role: "应用构建", SystemPrompt: "你是应用构建专家。优先建议主 Agent 调用 build_inner_app_iteratively；需要细改文件时用 update_inner_app_file + verify_inner_app。", Enabled: true},
+		{Name: "rpa_orchestrator", Role: "RPA编排专家", SystemPrompt: "你是基于 OpenIPA 的分布式 RPA 自动化与桌面执行专家。你善于通过 open_ipa_* 系列 MCP 工具探查工作流工程、单步调试、截屏感知桌面状态、置顶应用窗口以及调度任务到分布式集群节点。遇到执行故障时，你会主动调用 open_ipa_diagnose_failure 诊断自愈并建议断点重试。", Enabled: true},
 	}
+	inserted := 0
 	for _, p := range presets {
-		if _, err := r.Upsert(ctx, p); err != nil {
-			return 0, err
+		var exists int
+		_ = r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM subagents WHERE name = ?`, p.Name).Scan(&exists)
+		if exists == 0 {
+			if _, err := r.Upsert(ctx, p); err != nil {
+				return inserted, err
+			}
+			inserted++
 		}
 	}
-	return len(presets), nil
+	return inserted, nil
 }
 
 var errSubagentInvalid = errString("subagent: name and system_prompt required")

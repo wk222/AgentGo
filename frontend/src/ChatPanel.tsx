@@ -1,7 +1,29 @@
-import { defineComponent, ref, nextTick, watch, PropType } from 'vue'
+import { defineComponent, ref, computed, nextTick, watch, PropType } from 'vue'
 import type { Message, Session } from './composables/useChat'
 import { sessionTitle } from './composables/useChat'
 import { wailsCall } from './wails'
+import ReasoningBubble from './components/chat/ReasoningBubble'
+import ToolCallBubble from './components/chat/ToolCallBubble'
+import PromptSuggestions from './components/chat/PromptSuggestions'
+
+function extractThinking(content: string): { thinking: string; main: string } {
+  if (!content) return { thinking: '', main: '' }
+  const match = content.match(/<think>([\s\S]*?)<\/think>/i)
+  if (match) {
+    return {
+      thinking: match[1].trim(),
+      main: content.replace(/<think>[\s\S]*?<\/think>/i, '').trim(),
+    }
+  }
+  const openMatch = content.match(/<think>([\s\S]*)$/i)
+  if (openMatch) {
+    return {
+      thinking: openMatch[1].trim(),
+      main: content.replace(/<think>[\s\S]*$/i, '').trim(),
+    }
+  }
+  return { thinking: '', main: content }
+}
 
 /* ── A2UI Card components ── */
 const AUICard = ({
@@ -381,10 +403,24 @@ export default defineComponent({
 
     watch(() => [props.messages.length, props.chatPaneKey], () => { void scrollToBottom() })
 
-    const handleSend = () => {
+    const handleSend = async () => {
       const text = inputText.value.trim()
       if (!text && pastedImages.value.length === 0) return
-      if (props.sending) return
+      if (props.sending) {
+        // Codex & Cursor parity: Mid-turn Steer!
+        inputText.value = ''
+        try {
+          const res = await wailsCall<{ success?: boolean; steered?: boolean }>('SteerSession', props.sessionId, text)
+          if (res?.steered) {
+            console.info('[ChatPanel] Mid-turn steer queued:', text)
+          } else {
+            console.warn('[ChatPanel] SteerSession rejected, session may not be actively running')
+          }
+        } catch (e) {
+          console.error('[ChatPanel] SteerSession failed:', e)
+        }
+        return
+      }
       inputText.value = ''
       const imgs = [...pastedImages.value]
       pastedImages.value = []
@@ -421,7 +457,125 @@ export default defineComponent({
       }
     }
 
+    interface MentionOption {
+      id: string
+      label: string
+      desc: string
+      icon: string
+      insertText: string
+    }
+
+    const showMentionMenu = ref(false)
+    const mentionFilter = ref('')
+    const mentionIndex = ref(0)
+    const mentionStartIndex = ref(-1)
+    const workspaceFiles = ref<string[]>([])
+
+    const BUILTIN_MENTIONS: MentionOption[] = [
+      { id: 'codebase', label: '@Codebase', desc: '检索整个工作区项目代码与语义上下文', icon: '⚡', insertText: '@Codebase ' },
+      { id: 'git', label: '@Git', desc: '引入当前分支改动、未提交 Diff 与状态', icon: '🌿', insertText: '@Git ' },
+      { id: 'terminal', label: '@Terminal', desc: '引入当前终端最近会话与运行输出', icon: '📟', insertText: '@Terminal ' },
+      { id: 'problems', label: '@Problems', desc: '引入当前工作区代码错误与诊断信息', icon: '⚠️', insertText: '@Problems ' },
+    ]
+
+    const fetchWorkspaceFiles = async () => {
+      if (workspaceFiles.value.length > 0) return
+      try {
+        const res = await wailsCall<any>('SearchFiles', '', 50)
+        if (Array.isArray(res) && res.length > 0) {
+          workspaceFiles.value = res
+        } else {
+          const list = await wailsCall<any[]>('ListWorkspace', '')
+          if (Array.isArray(list)) {
+            workspaceFiles.value = list.map(item => item.path || item.name).filter(Boolean)
+          }
+        }
+      } catch (e) {
+        console.debug('[ChatPanel] fetchWorkspaceFiles failed:', e)
+      }
+    }
+
+    const filteredMentions = computed(() => {
+      const q = mentionFilter.value.toLowerCase()
+      const builtin = BUILTIN_MENTIONS.filter(m =>
+        m.label.toLowerCase().includes(q) || m.desc.toLowerCase().includes(q)
+      )
+      const files = workspaceFiles.value
+        .filter(f => f.toLowerCase().includes(q))
+        .slice(0, 10)
+        .map(f => ({
+          id: `file:${f}`,
+          label: `@${f.split(/[\/\\]/).pop()}`,
+          desc: f,
+          icon: '📄',
+          insertText: `@${f} `,
+        }))
+      return [...builtin, ...files]
+    })
+
+    const selectMention = (opt: MentionOption) => {
+      const start = mentionStartIndex.value
+      const curPos = textareaEl.value?.selectionStart || (start + 1 + mentionFilter.value.length)
+      const before = inputText.value.slice(0, start)
+      const after = inputText.value.slice(curPos)
+      inputText.value = before + opt.insertText + after
+      showMentionMenu.value = false
+      nextTick(() => {
+        if (textareaEl.value) {
+          const newPos = (before + opt.insertText).length
+          textareaEl.value.focus()
+          textareaEl.value.setSelectionRange(newPos, newPos)
+        }
+      })
+    }
+
+    const handleInput = (e: Event) => {
+      const target = e.target as HTMLTextAreaElement
+      inputText.value = target.value
+      autoResize(e)
+
+      const pos = target.selectionStart || 0
+      const beforeCursor = target.value.slice(0, pos)
+      const lastAt = beforeCursor.lastIndexOf('@')
+
+      if (lastAt !== -1 && (lastAt === 0 || /\s/.test(beforeCursor[lastAt - 1]))) {
+        const query = beforeCursor.slice(lastAt + 1)
+        if (!/\s/.test(query)) {
+          mentionFilter.value = query
+          mentionStartIndex.value = lastAt
+          showMentionMenu.value = true
+          mentionIndex.value = 0
+          fetchWorkspaceFiles()
+          return
+        }
+      }
+      showMentionMenu.value = false
+    }
+
     const handleKeydown = (e: KeyboardEvent) => {
+      if (showMentionMenu.value && filteredMentions.value.length > 0) {
+        if (e.key === 'ArrowDown') {
+          e.preventDefault()
+          mentionIndex.value = (mentionIndex.value + 1) % filteredMentions.value.length
+          return
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault()
+          mentionIndex.value = (mentionIndex.value - 1 + filteredMentions.value.length) % filteredMentions.value.length
+          return
+        }
+        if (e.key === 'Enter' || e.key === 'Tab') {
+          e.preventDefault()
+          selectMention(filteredMentions.value[mentionIndex.value])
+          return
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault()
+          showMentionMenu.value = false
+          return
+        }
+      }
+
       if (e.key === 'Enter' && !e.shiftKey && !e.metaKey) {
         e.preventDefault()
         handleSend()
@@ -554,12 +708,13 @@ export default defineComponent({
               if (msg.type === 'approval') {
                 return (
                   <div key={msg._key || index} class="msg-row assistant">
-                    <div class="msg-approval">
-                      <div class="msg-approval-label">需要批准</div>
+                    <div class={['msg-approval', msg.resolved && 'resolved']}>
+                      <div class="msg-approval-label">{msg.resolved ? '已处理' : '需要批准'}</div>
                       <div class="msg-approval-prompt">{msg.content || '需要您的批准才能继续'}</div>
+                      {msg.resolved && <div class="msg-approval-state">Agent 已收到您的选择并继续执行。</div>}
                       <div class="msg-approval-actions">
-                        <button class="msg-approve-btn ok" onClick={() => props.onApprove(msg.approval_id || '')}>批准</button>
-                        <button class="msg-approve-btn no" onClick={() => props.onReject(msg.approval_id || '')}>拒绝</button>
+                        <button class="msg-approve-btn ok" disabled={msg.resolved} onClick={() => props.onApprove(msg.approval_id || '')}>批准</button>
+                        <button class="msg-approve-btn no" disabled={msg.resolved} onClick={() => props.onReject(msg.approval_id || '')}>拒绝</button>
                       </div>
                     </div>
                   </div>
@@ -631,11 +786,25 @@ export default defineComponent({
                 )
               }
 
+              if (msg.type === 'tool_call') {
+                return (
+                  <div key={msg._key || index} class="msg-row assistant tool-call-row">
+                    <ToolCallBubble
+                      toolName={msg.toolName || 'tool'}
+                      arguments={msg.arguments}
+                      content={msg.content}
+                      status={msg.status}
+                    />
+                  </div>
+                )
+              }
+
               /* Text message */
+              const { thinking, main } = extractThinking(msg.content || '')
               return (
                 <div key={msg._key || index} class={['msg-row', msg.role]}>
                   {msg.role === 'user' ? (
-                    <div class="msg-bubble">
+                    <div class="msg-bubble user-bubble">
                       {msg.content}
                       {msg.meta?.images && msg.meta.images.length > 0 && (
                         <div class="msg-images" style={{ display: 'flex', gap: '8px', marginTop: msg.content ? '8px' : '0', flexWrap: 'wrap' }}>
@@ -651,11 +820,19 @@ export default defineComponent({
                       )}
                     </div>
                   ) : (
-                    <div class="msg-bubble">
-                      {msg.html
-                        ? <div class={msg.streaming ? 'msg-streaming' : ''} innerHTML={msg.html}></div>
-                        : <span class={msg.streaming ? 'msg-streaming' : ''}>{msg.content}</span>
-                      }
+                    <div class="msg-bubble assistant-bubble">
+                      {thinking && (
+                        <ReasoningBubble thinking={thinking} streaming={msg.streaming} />
+                      )}
+                      {(main || msg.streaming) && (
+                        <div class="msg-main-content">
+                          {msg.html && !thinking ? (
+                            <div class={msg.streaming ? 'msg-streaming' : ''} innerHTML={msg.html}></div>
+                          ) : (
+                            <span class={msg.streaming ? 'msg-streaming' : ''}>{main}</span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
                   {msg.role === 'user' && msg.content && (
@@ -668,14 +845,74 @@ export default defineComponent({
 
           {/* Run status */}
           {(props.sending || props.awaitingInteract) && props.runStatusLine && (
-            <div class="run-status">
+            <div class="run-status" role="status" aria-live="polite">
               <span class="run-status-dot"></span>
               <span>{props.runStatusLine}</span>
             </div>
           )}
 
           {/* Composer */}
-          <div class="composer">
+          <div class="composer" style={{ position: 'relative' }}>
+            {showMentionMenu.value && filteredMentions.value.length > 0 && (
+              <div
+                class="composer-mention-menu"
+                style={{
+                  position: 'absolute',
+                  bottom: '100%',
+                  left: '12px',
+                  right: '12px',
+                  maxHeight: '240px',
+                  overflowY: 'auto',
+                  backgroundColor: '#18181B',
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  borderRadius: '8px',
+                  boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+                  zIndex: 100,
+                  padding: '4px',
+                  marginBottom: '8px',
+                }}
+              >
+                <div style={{ fontSize: '10px', color: '#71717A', padding: '4px 8px', fontWeight: 600, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                  添加上下文引用 (↑↓ 选择，Enter / Tab 确认)
+                </div>
+                {filteredMentions.value.map((item, idx) => {
+                  const isSelected = idx === mentionIndex.value
+                  return (
+                    <div
+                      key={item.id}
+                      onClick={() => selectMention(item)}
+                      onMouseenter={() => { mentionIndex.value = idx }}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        padding: '6px 10px',
+                        borderRadius: '6px',
+                        backgroundColor: isSelected ? 'rgba(56, 189, 248, 0.15)' : 'transparent',
+                        color: isSelected ? '#38BDF8' : '#E4E4E7',
+                        cursor: 'pointer',
+                        fontSize: '12px',
+                      }}
+                    >
+                      <span style={{ fontSize: '14px' }}>{item.icon}</span>
+                      <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                        <span style={{ fontWeight: 600 }}>{item.label}</span>
+                        <span style={{ fontSize: '10px', color: '#71717A', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                          {item.desc}
+                        </span>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+            <PromptSuggestions
+              disabled={props.sending || props.awaitingInteract}
+              onSelect={(prompt) => {
+                inputText.value = prompt
+                nextTick(() => textareaEl.value?.focus())
+              }}
+            />
             {pastedImages.value.length > 0 && (
               <div class="composer-previews" style={{ display: 'flex', gap: '8px', padding: '4px 2px 8px', flexWrap: 'wrap' }}>
                 {pastedImages.value.map((imgUrl, idx) => (
@@ -694,22 +931,52 @@ export default defineComponent({
               <textarea
                 ref={textareaEl}
                 class="composer-input"
-                placeholder="输入消息… (Enter 发送, Shift+Enter 换行)"
+                placeholder="输入消息… (Enter 发送, Shift+Enter 换行, 输入 @ 引用文件或上下文)"
                 rows={1}
                 value={inputText.value}
-                onInput={(e: Event) => { inputText.value = (e.target as HTMLTextAreaElement).value; autoResize(e) }}
+                onInput={handleInput}
                 onKeydown={handleKeydown}
                 onPaste={handlePaste}
                 disabled={props.awaitingInteract}
               ></textarea>
               <div class="composer-actions">
-                <button class="composer-btn" title="附件（暂未开放）" disabled>
+                <button
+                  class="composer-btn"
+                  title="添加上下文 (@ 引用文件/代码库/Git)"
+                  onClick={() => {
+                    if (!showMentionMenu.value) {
+                      showMentionMenu.value = true
+                      mentionFilter.value = ''
+                      mentionStartIndex.value = inputText.value.length
+                      inputText.value += '@'
+                      nextTick(() => {
+                        textareaEl.value?.focus()
+                        fetchWorkspaceFiles()
+                      })
+                    } else {
+                      showMentionMenu.value = false
+                    }
+                  }}
+                  style={{ color: showMentionMenu.value ? '#38BDF8' : 'inherit' }}
+                >
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
                 </button>
                 {props.sending ? (
-                  <button class="composer-send composer-stop" onClick={props.onStop} title="停止">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
-                  </button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    {inputText.value.trim() && (
+                      <button
+                        class="composer-send"
+                        onClick={handleSend}
+                        title="发送中途纠偏指引 (Enter)"
+                        style={{ backgroundColor: '#F59E0B', color: '#18181B', width: 'auto', padding: '0 8px', borderRadius: '4px' }}
+                      >
+                        <span style={{ fontSize: '11px', fontWeight: 700 }}>⚡ 纠偏</span>
+                      </button>
+                    )}
+                    <button class="composer-send composer-stop" onClick={props.onStop} title="停止">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+                    </button>
+                  </div>
                 ) : (
                   <button
                     class="composer-send"

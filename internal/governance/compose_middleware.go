@@ -16,8 +16,9 @@ func ComposeToolMiddleware(queue *ApprovalQueue, policy Policy) compose.ToolMidd
 				if input == nil {
 					return nil, fmt.Errorf("governance: nil tool input")
 				}
+				ctx = WithCallID(ctx, input.CallID)
 				result, err := mw.InvokeWithPolicy(ctx, input.Name, input.Arguments, func(ctx context.Context, args string) (string, error) {
-					out, invokeErr := next(ctx, &compose.ToolInput{Name: input.Name, Arguments: args})
+					out, invokeErr := next(ctx, &compose.ToolInput{Name: input.Name, Arguments: args, CallID: input.CallID})
 					if invokeErr != nil {
 						return "", invokeErr
 					}

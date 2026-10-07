@@ -2,6 +2,7 @@ import { defineComponent, ref, onMounted, type PropType, type VNode } from 'vue'
 import { wailsCall } from '../wails'
 import WorkflowEditorComp from './WorkflowEditor'
 import InnerAppHost from '../InnerAppHost'
+export { CodeWorkspacePanel } from './CodeWorkspacePanel'
 
 /* ── shared helpers ─────────────────────────────────────────────────── */
 const panelBodyStyle = {

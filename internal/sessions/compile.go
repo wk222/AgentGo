@@ -93,17 +93,90 @@ func CompileProjectedView(messages []*schema.Message, opt CompileOptions) *Proje
 		}
 	}
 
-	dropped := 0
-	if len(active) > opt.MaxActiveTurns {
-		dropped = len(active) - opt.MaxActiveTurns
-		active = active[len(active)-opt.MaxActiveTurns:]
-	}
+	var dropped int
+	active, dropped = pruneAndNormalizeActive(active, opt.MaxActiveTurns)
 	if dropped > 0 {
 		view.ContextHygiene = append(view.ContextHygiene,
-			fmt.Sprintf("活跃窗口保留最近 %d 条消息；另有 %d 条较早轮次未送入本轮模型（请依赖 episodic_summary）。", opt.MaxActiveTurns, dropped))
+			fmt.Sprintf("活跃窗口保留最近 %d 条消息；另有 %d 条较早轮次已自动归一化或未送入本轮模型（请依赖 episodic_summary）。", len(active), dropped))
 	}
 	view.ActiveTurn = active
 	return view
+}
+
+// pruneAndNormalizeActive prunes messages exceeding maxTurns while strictly preserving
+// atomic tool_call <-> tool_result pairing invariant required by LLM providers (Codex parity).
+func pruneAndNormalizeActive(active []FlatMessage, maxTurns int) ([]FlatMessage, int) {
+	if len(active) <= maxTurns {
+		normalized := normalizeToolPairs(active)
+		return normalized, len(active) - len(normalized)
+	}
+
+	start := len(active) - maxTurns
+	// Never start slice with an orphaned tool response
+	for start < len(active) && active[start].Role == "tool" {
+		start++
+	}
+
+	candidate := active[start:]
+	normalized := normalizeToolPairs(candidate)
+	dropped := len(active) - len(normalized)
+	return normalized, dropped
+}
+
+// normalizeToolPairs ensures every tool message has a preceding assistant with matching ToolCallID,
+// and every assistant ToolCall has a following tool message. Any orphaned items are safely filtered out.
+func normalizeToolPairs(msgs []FlatMessage) []FlatMessage {
+	if len(msgs) == 0 {
+		return msgs
+	}
+
+	// 1. Identify which tool_call_ids actually have a response in the window
+	toolResponses := make(map[string]bool)
+	for _, m := range msgs {
+		if m.Role == "tool" && m.ToolCallID != "" {
+			toolResponses[m.ToolCallID] = true
+		}
+	}
+
+	// 2. Identify which assistant messages have tool calls
+	knownCalls := make(map[string]bool)
+	for _, m := range msgs {
+		if m.Role == "assistant" {
+			for _, tc := range m.ToolCalls {
+				if tc.ID != "" {
+					knownCalls[tc.ID] = true
+				}
+			}
+		}
+	}
+
+	// 3. Filter: drop tool responses without parent call; drop assistant tool calls without responses
+	result := make([]FlatMessage, 0, len(msgs))
+	for _, m := range msgs {
+		if m.Role == "tool" {
+			// Orphaned tool response whose parent assistant call was dropped
+			if !knownCalls[m.ToolCallID] {
+				continue
+			}
+			result = append(result, m)
+		} else if m.Role == "assistant" && len(m.ToolCalls) > 0 {
+			var validCalls []schema.ToolCall
+			for _, tc := range m.ToolCalls {
+				if toolResponses[tc.ID] {
+					validCalls = append(validCalls, tc)
+				}
+			}
+			// If all tool calls were dropped and content is empty, skip this empty assistant msg
+			if len(validCalls) == 0 && strings.TrimSpace(m.Content) == "" {
+				continue
+			}
+			m.ToolCalls = validCalls
+			result = append(result, m)
+		} else {
+			result = append(result, m)
+		}
+	}
+	return result
 }
 
 func flatFromSchema(msg *schema.Message) FlatMessage {

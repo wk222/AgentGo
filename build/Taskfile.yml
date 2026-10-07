@@ -22,9 +22,9 @@ tasks:
       - sh: node --version
         msg: "node required — install Node.js first"
       - sh: node -e "require('fs').accessSync('./node_modules/typescript/bin/tsc')"
-        msg: "frontend dependencies missing — run: cd frontend && npm install (PowerShell: npm.cmd install)"
+        msg: "frontend dependencies missing — run: cd frontend && npm install"
       - sh: node -e "require('fs').accessSync('./node_modules/vite/bin/vite.js')"
-        msg: "frontend dependencies missing — run: cd frontend && npm install (PowerShell: npm.cmd install)"
+        msg: "frontend dependencies missing — run: cd frontend && npm install"
     cmds:
       - node ./node_modules/typescript/bin/tsc --noEmit
       - node ./node_modules/vite/bin/vite.js build
@@ -96,7 +96,7 @@ tasks:
       - wails3 generate icons -input appicon.png -macfilename darwin/icons.icns -windowsfilename windows/icon.ico -iconcomposerinput appicon.icon -macassetdir darwin
 
   dev:frontend:
-    summary: Runs the frontend in development mode
+    summary: Runs the Vue frontend in development mode
     dir: frontend
     deps:
       - task: install:frontend:deps

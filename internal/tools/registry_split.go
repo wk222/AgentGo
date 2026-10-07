@@ -9,7 +9,7 @@ import (
 // Static tool names are always visible to the model (no tool_search).
 // IsStaticTool reports whether name is in the always-static ADK tool set.
 func IsStaticTool(name string) bool {
-	return staticToolNames[name]
+	return staticToolNames[name] || isPluginStatic(name)
 }
 
 var staticToolNames = map[string]bool{
@@ -64,7 +64,7 @@ func (r *Registry) GetStaticToolsForMode(allow map[string]bool) []einotool.BaseT
 			continue
 		}
 		if allow == nil {
-			if staticToolNames[name] {
+			if IsStaticTool(name) {
 				list = append(list, t)
 			}
 			continue
@@ -89,7 +89,7 @@ func (r *Registry) GetDynamicToolsForMode(allowDynamic func(string) bool) []eino
 	var list []einotool.BaseTool
 	for _, t := range r.tools {
 		name := toolName(ctx, t)
-		if name == "" || staticToolNames[name] {
+		if name == "" || IsStaticTool(name) {
 			continue
 		}
 		if allowDynamic != nil && !allowDynamic(name) {

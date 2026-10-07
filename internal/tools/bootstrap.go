@@ -4,6 +4,8 @@ import (
 	"context"
 	"os"
 	"strings"
+
+	"agentgo/internal/coderuntime"
 )
 
 // Bootstrap registers built-in tools and optionally MCP servers from environment.
@@ -30,7 +32,10 @@ func Bootstrap(ctx context.Context, r *Registry, workspaceRoot string) error {
 		_ = err
 	}
 
-	// Optional MCP: AGENTGO_MCP_COMMAND="npx" AGENTGO_MCP_ARGS="-y,@modelcontextprotocol/server-filesystem,/path"
+	// Auto load standard MCP config files (e.g. mcp_servers.json / agentgo_mcp.json)
+	AutoLoadMCPServers(ctx, r, workspaceRoot)
+
+	// Optional MCP fallback via env: AGENTGO_MCP_COMMAND="npx" AGENTGO_MCP_ARGS="-y,@modelcontextprotocol/server-filesystem,/path"
 	cmd := strings.TrimSpace(os.Getenv("AGENTGO_MCP_COMMAND"))
 	if cmd != "" {
 		args := strings.Fields(os.Getenv("AGENTGO_MCP_ARGS"))
@@ -45,11 +50,31 @@ func RegisterWorkspaceBoundTools(r *Registry, workspaceRoot string) error {
 	if err := registerListWorkspace(r, workspaceRoot); err != nil {
 		return err
 	}
+	if err := registerWorkspaceCodeTools(r, workspaceRoot); err != nil {
+		return err
+	}
 	if err := registerExecuteBash(r, workspaceRoot); err != nil {
 		return err
 	}
 	if err := registerParseFile(r, workspaceRoot); err != nil {
 		_ = err
+	}
+	if err := RegisterVisionAdvisorTool(r, workspaceRoot); err != nil {
+		_ = err
+	}
+	if err := RegisterBrainstormTool(r, workspaceRoot); err != nil {
+		_ = err
+	}
+	if err := RegisterSkillEvolveTool(r, workspaceRoot); err != nil {
+		_ = err
+	}
+	if err := RegisterJobMonitorTool(r, workspaceRoot); err != nil {
+		_ = err
+	}
+	if rt, err := coderuntime.NewLocalProcessRuntime(workspaceRoot); err == nil && rt != nil {
+		if scriptTool, err := coderuntime.NewRunScriptTool(rt); err == nil && scriptTool != nil {
+			r.AddTool(scriptTool)
+		}
 	}
 	return nil
 }

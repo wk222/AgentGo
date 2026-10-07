@@ -1,6 +1,12 @@
 package frontend
 
-import "embed"
+import (
+	"embed"
+	"io/fs"
+)
 
 //go:embed dist/*
-var Assets embed.FS
+var distFS embed.FS
+
+// Assets serves the root of dist/ to Wails WebView2.
+var Assets, _ = fs.Sub(distFS, "dist")

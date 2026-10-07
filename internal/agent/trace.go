@@ -4,10 +4,9 @@ import (
 	"context"
 	"time"
 
+	"agentgo/internal/capability"
 	"github.com/cloudwego/eino/callbacks"
 	"github.com/cloudwego/eino/components/model"
-
-	"agentgo/internal/capability"
 )
 
 // TraceRecord is one ADK callback observation for the UI.
