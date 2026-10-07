@@ -1,6 +1,6 @@
-import { defineComponent, ref, computed, nextTick, watch, PropType } from 'vue'
+import { defineComponent, ref, computed, nextTick, watch, onMounted, onBeforeUnmount, PropType } from 'vue'
 import type { Message, Session } from './composables/useChat'
-import { sessionTitle } from './composables/useChat'
+import { sessionTitle, sessionIdOf } from './composables/useChat'
 import { wailsCall } from './wails'
 import ReasoningBubble from './components/chat/ReasoningBubble'
 import ToolCallBubble from './components/chat/ToolCallBubble'
@@ -377,6 +377,10 @@ export default defineComponent({
     onStop: { type: Function as PropType<() => void>, required: true },
     onToggleWorkspace: { type: Function as PropType<() => void>, required: true },
     onReload: { type: Function as PropType<() => void>, required: true },
+    onNewChat: { type: Function as PropType<() => void>, default: () => {} },
+    onClearChat: { type: Function as PropType<() => void>, default: () => {} },
+    onSelectSession: { type: Function as PropType<(id: string) => void>, default: () => {} },
+    onDeleteSession: { type: Function as PropType<(id: string) => void>, default: () => {} },
     onApprove: { type: Function as PropType<(id: string) => void>, required: true },
     onReject: { type: Function as PropType<(id: string) => void>, required: true },
     onSubmitAUI: { type: Function as PropType<(msg: Message, val: string, idx: number) => void>, required: true },
@@ -406,6 +410,12 @@ export default defineComponent({
     const handleSend = async () => {
       const text = inputText.value.trim()
       if (!text && pastedImages.value.length === 0) return
+      if (text === '/new' || text === '/clear') {
+        inputText.value = ''
+        if (textareaEl.value) textareaEl.value.style.height = 'auto'
+        if (text === '/new') props.onNewChat(); else props.onClearChat()
+        return
+      }
       if (props.sending) {
         // Codex & Cursor parity: Mid-turn Steer!
         inputText.value = ''
@@ -592,6 +602,38 @@ export default defineComponent({
       (s.id || s.session_id || '') === props.sessionId
     )
 
+    const historyOpen = ref(false)
+    const fmtTime = (v: any): string => {
+      if (v === undefined || v === null || v === '') return ''
+      let ms = typeof v === 'number' ? v : Number(v)
+      if (!isFinite(ms) || isNaN(ms)) ms = Date.parse(String(v))
+      if (!isFinite(ms) || isNaN(ms)) return ''
+      if (ms < 1e12) ms *= 1000
+      const diff = Date.now() - ms
+      const m = Math.floor(diff / 60000)
+      if (m < 1) return '刚刚'
+      if (m < 60) return m + ' 分钟前'
+      const h = Math.floor(m / 60)
+      if (h < 24) return h + ' 小时前'
+      const d = Math.floor(h / 24)
+      if (d < 30) return d + ' 天前'
+      return new Date(ms).toLocaleDateString()
+    }
+    const doNew = () => { historyOpen.value = false; props.onNewChat() }
+    const doClear = () => {
+      historyOpen.value = false
+      if (!props.sessionId) return
+      if (window.confirm('清除当前会话？该会话的全部消息将被删除。')) props.onClearChat()
+    }
+    const globalKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return
+      const k = e.key.toLowerCase()
+      if (k === 'l' && !e.shiftKey) { e.preventDefault(); doNew() }
+      else if (k === 'l' && e.shiftKey) { e.preventDefault(); doClear() }
+    }
+    onMounted(() => window.addEventListener('keydown', globalKey))
+    onBeforeUnmount(() => window.removeEventListener('keydown', globalKey))
+
     const setModeProfile = (profile: string) => props.onModeChange(profile, props.modeCanvas)
     const setModeCanvas = (canvas: string) => props.onModeChange(props.modeProfile, canvas)
 
@@ -622,6 +664,48 @@ export default defineComponent({
           {/* Top bar */}
           <div class="chat-topbar">
             <span class="chat-topbar-title">{title}</span>
+            <button class="topbar-btn topbar-btn-accent" onClick={doNew} title="新会话 (Ctrl+L，或输入 /new)">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            </button>
+            <div class="chat-history-wrap">
+              <button class={['topbar-btn', historyOpen.value && 'active']} onClick={() => { historyOpen.value = !historyOpen.value }} title="历史会话">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg>
+              </button>
+              {historyOpen.value && (
+                <>
+                  <div class="chat-history-backdrop" onClick={() => { historyOpen.value = false }}></div>
+                  <div class="chat-history-pop">
+                    <div class="chat-history-head">
+                      <span>最近会话</span>
+                      <button class="chat-history-new" onClick={doNew}>+ 新会话</button>
+                    </div>
+                    <div class="chat-history-list">
+                      {props.sessions.length === 0 && <div class="chat-history-empty">暂无历史会话</div>}
+                      {props.sessions.map((s) => {
+                        const sid = sessionIdOf(s)
+                        const active = sid === props.sessionId
+                        return (
+                          <div key={sid} class={['chat-history-item', active && 'active']}
+                            onClick={() => { historyOpen.value = false; if (!active) props.onSelectSession(sid) }}>
+                            <div class="chat-history-main">
+                              <div class="chat-history-title">{sessionTitle(s)}</div>
+                              <div class="chat-history-meta">{fmtTime((s as any).updated_at)}{(s as any).message_count ? ' · ' + (s as any).message_count + ' 条' : ''}</div>
+                            </div>
+                            <button class="chat-history-del" title="删除"
+                              onClick={(e: MouseEvent) => { e.stopPropagation(); props.onDeleteSession(sid) }}>
+                              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+                            </button>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+            <button class="topbar-btn" onClick={doClear} title="清除当前会话 (Ctrl+Shift+L，或输入 /clear)">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>
+            </button>
             <div class="chat-mode-controls">
               <select
                 class="chat-mode-select"
