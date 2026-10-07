@@ -1,0 +1,1 @@
+{"entries":["file:2.txt","dir:AppData","file:agentgo-amd64-installer.exe","file:agentgo.exe"]}

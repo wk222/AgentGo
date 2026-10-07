@@ -1242,15 +1242,19 @@ async function mockCall(method: string, ...params: any[]): Promise<any> {
 }
 
 export async function wailsCall<T = any>(method: string, ...params: any[]): Promise<T> {
+  const normalizedParams = [...params]
+  if (method === 'ResolveApproval' && normalizedParams.length === 3) {
+    normalizedParams.push('')
+  }
   const task = async () => {
     const rt = await loadRuntime(2500)
     if (rt?.Call?.ByName) {
       const full = `${SVC}.${method}`
       console.info('[AgentGo] IPC →', full)
-      const ret = rt.Call.ByName(full, ...params)
+      const ret = rt.Call.ByName(full, ...normalizedParams)
       return ret && typeof (ret as any).then === 'function' ? await ret : ret
     }
-    return mockCall(method, ...params)
+    return mockCall(method, ...normalizedParams)
   }
   const next = ipcQueue.then(task, task)
   ipcQueue = next.catch(() => {}) as any
@@ -1258,6 +1262,10 @@ export async function wailsCall<T = any>(method: string, ...params: any[]): Prom
 }
 
 export async function wailsCallUrgent(method: string, timeoutMs: number, ...params: any[]): Promise<any> {
+  const normalizedParams = [...params]
+  if (method === 'ResolveApproval' && normalizedParams.length === 3) {
+    normalizedParams.push('')
+  }
   const rt = await loadRuntime(Math.min(timeoutMs, 2500))
   if (rt?.Call?.ByName) {
     const full = `${SVC}.${method}`
@@ -1266,7 +1274,7 @@ export async function wailsCallUrgent(method: string, timeoutMs: number, ...para
       timer = setTimeout(() => reject(new Error(`${method} 超时 (${timeoutMs}ms)`)), timeoutMs)
     })
     try {
-      const ret = rt.Call.ByName(full, ...params)
+      const ret = rt.Call.ByName(full, ...normalizedParams)
       const result = ret && typeof (ret as any).then === 'function' ? await Promise.race([ret, timeout]) : ret
       clearTimeout(timer!)
       return result
@@ -1276,7 +1284,7 @@ export async function wailsCallUrgent(method: string, timeoutMs: number, ...para
     }
   }
   return Promise.race([
-    mockCall(method, ...params),
+    mockCall(method, ...normalizedParams),
     new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`${method} 超时 (${timeoutMs}ms)`)), timeoutMs)),
   ])
 }

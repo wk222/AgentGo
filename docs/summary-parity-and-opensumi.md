@@ -42,6 +42,17 @@
    - 解决：借鉴 Codex `normalize.rs` 的双向配对算法，在每轮上下文投递前扫描并移除非成对出现的孤立项，确保消息流结构合规。
 3. **PowerShell 5.1 命令自检纪律**：
    - 严格避免在 Windows 下使用 `&&` 串联命令，避免 heredoc 重定向，采用 Python 脚本与专用工具精准读写，防止出现参数吃引号或 UTF-16 编码损坏。
+4. **Wails v3 IPC 审批调用参数错位排查 (`ResolveApproval expects 4 arguments, got 3`)**：
+   - 现象：前端弹出的工具治理审批卡片（如 `code_write`），用户点击「批准」或「拒绝」时前端报错 `{"message":"agentgo/internal/bridge.AppService.ResolveApproval expects 4 arguments, got 3","kind":"TypeError"}`。
+   - 根因：Go 端方法定义为 `func (s *AppService) ResolveApproval(approvalID string, approved bool, note string, overrideArgs ...string)`。Wails v3 在将 Go 方法反射注册到前端 JS RPC 时，将可变参数槽位强制登记为一个参数形参，严格校验入参数量为 4；而前端先前在 `useChat.ts` 中仅传入了 3 个参数。
+   - 解决：在 `useChat.ts` 中补齐第 4 个 `overrideArgs` 实参（传空字符串 `""`）；并在 `wails.ts` 的 `wailsCall` 与 `wailsCallUrgent` 拦截层增加防御性参数补齐（当检测到 `ResolveApproval` 且参数长度为 3 时自动追加空串），彻底杜绝前端误调与类型报错。
+5. **Release 体积剖析与命令行控制台黑窗口消除**：
+   - 现象：默认构建的二进制高达 130MB 且双击运行时会弹出黑色的 Windows cmd 命令行黑窗口。
+   - 根因：默认 `go build` 未剥离 DWARF 调试符号信息（debug_info/line/frame 等），且默认编译为 Windows Console 子系统应用。
+   - 解决：在 Release 构建命令中显式加入 `-ldflags="-s -w -H windowsgui"`：
+     - `-H windowsgui`：彻底消除 cmd 黑色命令行控制台，呈现标准原生桌面应用外观；
+     - `-s -w`：彻底剥离调试符号与符号表，二进制体积由 **130.45 MB 骤降至 96.57 MB**（直接减少 33.88 MB / 26%）。
+   - 澄清：**此体积完全没有包含 OpenSumi**（OpenSumi 完整代码和 node_modules 位于本地独立目录 `frontend-opensumi/`，被 `.gitignore` 排除）；当前 96MB 为单二进制内嵌了完整自研 Webview2 GUI、Monaco Editor 语法解析全套 Worker、纯 Go SQLite 引擎、Eino 全家桶的完整自包含 IDE 产物。
 
 ---
 
