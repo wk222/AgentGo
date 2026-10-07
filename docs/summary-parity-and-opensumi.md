@@ -45,7 +45,26 @@
 
 ---
 
-## 四、下一步演进规划（Next Steps）
+## 四、本地 Azure GPT-6 Luna 密钥适配说明
+
+1. **凭证自动识别**：
+   - AgentGo 现已支持从宿主环境变量自动探测 `AZURE_OPENAI_API_KEY` 与 `AZURE_OPENAI_API_ENDPOINT`。
+   - 自动映射基地址至 `{endpoint}/openai/v1/`，默认选用 `gpt-6-luna`。
+   - 启动时自动将 `AGENTGO_REASONING_EFFORT` 设为 `none`，杜绝 Azure Luna 推理部署在 `/chat/completions` 接口上拒绝工具调用的报错。
+2. **测试与使用方式**：
+   - **方式一（命令行免配置直启）**：
+     ```powershell
+     .\bin\agentgo.exe --luna
+     ```
+     后台自动加载 Luna 密钥与端点，终端打印：`[AgentGo] 已启用本地 Azure Luna: model=gpt-6-luna, api_base=...`。
+   - **方式二（GUI 桌面设置界面一键切换）**：
+     点击左侧或活动栏「设置」，LLM 配置卡片顶部若检测到环境变量，会自动显示 `[⚡ 切换至本地 Azure Luna]`，点击即可一键填入并自动完成测试连接。
+   - **已实测验证**：
+     使用 `TestAzureLunaLive` 经由真实端点探活，返回 `HTTP 200`，模型列表中成功识别到 `gpt-6-luna` 与 `gpt-5.6-luna`。
+
+---
+
+## 五、下一步演进规划（Next Steps）
 
 1. **Monaco 行内 Diff 审查（Inline ZoneWidget Diff）**：
    - 当前内联编辑为浮层模式，下一步将其升级为原生 ViewZone 绿色/红色行内 Diff 对比卡片，支持按块（Hunk）局部接受/拒绝。

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -125,13 +126,50 @@ func (s *AppService) GetLLMConfig() map[string]any {
 			masked = "***"
 		}
 	}
+	azKey, azEp := os.Getenv("AZURE_OPENAI_API_KEY"), os.Getenv("AZURE_OPENAI_API_ENDPOINT")
+	hasAzureLuna := azKey != "" && azEp != ""
+	azureBase := ""
+	if hasAzureLuna {
+		azureBase = strings.TrimRight(azEp, "/") + "/openai/v1/"
+	}
+	azureModel := os.Getenv("AGENTGO_AZURE_DEPLOYMENT")
+	if azureModel == "" {
+		azureModel = "gpt-6-luna"
+	}
 	return map[string]any{
 		"api_base":       cfg.APIBase,
 		"api_key_set":    cfg.APIKey != "",
 		"api_key_hint":   masked,
 		"model":          cfg.Model,
 		"fallback_model": cfg.FallbackModel,
+		"has_azure_luna": hasAzureLuna,
+		"azure_api_base": azureBase,
+		"azure_model":    azureModel,
 	}
+}
+
+// LoadAzureLunaConfig switches the current LLM configuration to the local Azure Luna preset.
+func (s *AppService) LoadAzureLunaConfig() map[string]any {
+	azKey, azEp := os.Getenv("AZURE_OPENAI_API_KEY"), os.Getenv("AZURE_OPENAI_API_ENDPOINT")
+	if azKey == "" || azEp == "" {
+		return map[string]any{"success": false, "error": "本地环境中未检测到 AZURE_OPENAI_API_KEY / AZURE_OPENAI_API_ENDPOINT"}
+	}
+	model := os.Getenv("AGENTGO_AZURE_DEPLOYMENT")
+	if model == "" {
+		model = "gpt-6-luna"
+	}
+	cfg := LLMConfig{
+		APIBase: strings.TrimRight(azEp, "/") + "/openai/v1/",
+		APIKey:  azKey,
+		Model:   model,
+	}
+	if err := s.rt.SetLLMConfig(cfg); err != nil {
+		return map[string]any{"success": false, "error": err.Error()}
+	}
+	if os.Getenv("AGENTGO_REASONING_EFFORT") == "" {
+		_ = os.Setenv("AGENTGO_REASONING_EFFORT", "none")
+	}
+	return map[string]any{"success": true, "model": model, "api_base": cfg.APIBase}
 }
 
 // SetLLMConfig persists LLM settings from the settings UI.

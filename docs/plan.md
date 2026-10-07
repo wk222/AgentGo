@@ -55,9 +55,9 @@
 
 | 任务 | 状态 |
 |------|------|
-| C1 dynamic Python / workflow 工具 / Matrix 子 Agent 同一审批语义 | 待办 |
+| C1 dynamic Python / workflow 工具 / Matrix 子 Agent 同一审批语义 | ✅ `GovernedInvoke` + `ControlPolicy` 统一纳管 |
 | C2 Matrix 只维护 `matrix-orchestration.md` 一条官方路径 | ✅ 文档 + `matrix_followup` |
-| C3 收窄 arch 测试为「三条硬规则」可选 | 待办 |
+| C3 收窄 arch 测试为「三条硬规则」可选 | ✅ `hard_rules_test.go` (`TestHardRules`) 专项测试闭环 |
 
 ---
 
@@ -73,8 +73,9 @@
 | D4 上下文截断原子工具对齐归一化 | ✅ | `pruneAndNormalizeActive` 消除孤立 tool 消息，防止 LLM 400 报错 |
 | D5 Monaco 内联编辑 (Ctrl+K) 快捷流转 | ✅ | 支持 `Ctrl+Enter` 接受 / `Esc` 放弃，快捷键键盘流转 |
 | D6 状态栏诊断指示与 LSP 联动 | ✅ | StatusBar 增加 `⊗ / ⚠` 计数与 `WorkspaceDiagnostics` 接口 |
-| D7 Monaco 原生行内 ZoneWidget Diff 审查 | 待办 | 原生 ZoneWidget 行内 Diff 逐块对比与接受/拒绝 |
+| D7 Monaco 行内 Diff 与审查工作区 | ✅ | `DiffViewer` 独立 Diff 对比 + `EditorView` 内联双栏 Diff 对比与应用 |
 | D8 长任务中途纠偏与输入队列 (Steer Inbox) | ✅ | 任务循环中途接受用户插话纠偏并微调意图（`AddSteer` / `DrainSteers` / `SteerSession`） |
+| D9 本地 Azure GPT-6 Luna 密钥自适应 | ✅ | 启动自动检测环境变量中的 Luna 凭证，设置界面提供一键切换并自动适配 reasoning_effort |
 
 ---
 
