@@ -111,6 +111,26 @@ func main() {
 		log.Fatal(err)
 	}
 
+	// 自动适配环境变量中的 Azure OpenAI / GPT-6 Luna 密钥与端点
+	if key, ep := os.Getenv("AZURE_OPENAI_API_KEY"), os.Getenv("AZURE_OPENAI_API_ENDPOINT"); key != "" && ep != "" {
+		useLuna := hasArg("--luna") || os.Getenv("AGENTGO_USE_LUNA") == "1"
+		cfg := rt.LLMConfig()
+		if useLuna || cfg.APIKey == "" || cfg.APIBase == "https://api.openai.com/v1" {
+			model := os.Getenv("AGENTGO_AZURE_DEPLOYMENT")
+			if model == "" {
+				model = "gpt-6-luna"
+			}
+			cfg.APIBase = strings.TrimRight(ep, "/") + "/openai/v1/"
+			cfg.APIKey = key
+			cfg.Model = model
+			_ = rt.SetLLMConfig(cfg)
+			log.Printf("[AgentGo] 已启用本地 Azure Luna: model=%s, api_base=%s", model, cfg.APIBase)
+		}
+		if os.Getenv("AGENTGO_REASONING_EFFORT") == "" {
+			_ = os.Setenv("AGENTGO_REASONING_EFFORT", "none")
+		}
+	}
+
 	// 1. Check for ACP Server mode (stdio JSON-RPC 2.0 for OpenSumi / ACP Clients)
 	if hasArg("--acp") || hasArg("acp") {
 		if err := bridge.ServeACP(context.Background(), rt, os.Stdin, os.Stdout); err != nil && err != io.EOF {

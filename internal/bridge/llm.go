@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -39,6 +40,7 @@ func TestLLMConnection(ctx context.Context, cfg LLMConfig) APITestResult {
 		return APITestResult{OK: false, Message: err.Error()}
 	}
 	req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+	req.Header.Set("api-key", cfg.APIKey)
 
 	client := &http.Client{Timeout: 20 * time.Second}
 	resp, err := client.Do(req)
@@ -95,11 +97,18 @@ func ChatOnce(ctx context.Context, cfg LLMConfig, systemPrompt, userMessage stri
 		modelName = "gpt-4o-mini"
 	}
 
-	cm, err := openai.NewChatModel(ctx, &openai.ChatModelConfig{
+	chatCfg := &openai.ChatModelConfig{
 		APIKey:  cfg.APIKey,
 		BaseURL: cfg.APIBase,
 		Model:   modelName,
-	})
+	}
+	if v := strings.TrimSpace(os.Getenv("AGENTGO_REASONING_EFFORT")); v != "" {
+		chatCfg.ReasoningEffort = openai.ReasoningEffortLevel(v)
+	} else if strings.Contains(strings.ToLower(modelName), "luna") || strings.Contains(strings.ToLower(modelName), "gpt-5") {
+		chatCfg.ReasoningEffort = openai.ReasoningEffortLevel("none")
+	}
+
+	cm, err := openai.NewChatModel(ctx, chatCfg)
 	if err != nil {
 		return "", err
 	}
@@ -142,6 +151,7 @@ func quickChatProbe(ctx context.Context, cfg LLMConfig, user string) (string, er
 		return "", err
 	}
 	req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+	req.Header.Set("api-key", cfg.APIKey)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

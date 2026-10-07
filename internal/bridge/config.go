@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // LLMConfig mirrors PyBot llm_config (OpenAI-compatible endpoint).
@@ -32,10 +33,24 @@ type appConfigFile struct {
 
 // DefaultLLMConfig points at the user's custom relay; override via config.json or env.
 func DefaultLLMConfig() LLMConfig {
+	apiBase := "https://api.openai.com/v1"
+	apiKey := os.Getenv("AGENTGO_API_KEY")
+	model := envOr("AGENTGO_MODEL", "gpt-4o-mini")
+
+	if apiKey == "" {
+		if azKey := os.Getenv("AZURE_OPENAI_API_KEY"); azKey != "" {
+			if azEp := os.Getenv("AZURE_OPENAI_API_ENDPOINT"); azEp != "" {
+				apiKey = azKey
+				apiBase = strings.TrimRight(azEp, "/") + "/openai/v1/"
+				model = envOr("AGENTGO_AZURE_DEPLOYMENT", "gpt-6-luna")
+			}
+		}
+	}
+
 	return LLMConfig{
-		APIBase: "https://api.openai.com/v1",
-		APIKey:  os.Getenv("AGENTGO_API_KEY"),
-		Model:   envOr("AGENTGO_MODEL", "gpt-4o-mini"),
+		APIBase: apiBase,
+		APIKey:  apiKey,
+		Model:   model,
 	}
 }
 
@@ -80,7 +95,19 @@ func loadAppConfig(dataDir string) (LLMConfig, GovernanceConfig, WorkspaceConfig
 		}
 	}
 	if cfg.APIKey == "" {
-		cfg.APIKey = os.Getenv("AGENTGO_API_KEY")
+		if k := os.Getenv("AGENTGO_API_KEY"); k != "" {
+			cfg.APIKey = k
+		} else if azKey := os.Getenv("AZURE_OPENAI_API_KEY"); azKey != "" {
+			if azEp := os.Getenv("AZURE_OPENAI_API_ENDPOINT"); azEp != "" {
+				cfg.APIKey = azKey
+				if cfg.APIBase == "" || cfg.APIBase == "https://api.openai.com/v1" {
+					cfg.APIBase = strings.TrimRight(azEp, "/") + "/openai/v1/"
+				}
+				if cfg.Model == "" || cfg.Model == "gpt-4o-mini" {
+					cfg.Model = envOr("AGENTGO_AZURE_DEPLOYMENT", "gpt-6-luna")
+				}
+			}
+		}
 	}
 	return cfg, gov, ws
 }

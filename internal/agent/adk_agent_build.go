@@ -41,6 +41,8 @@ func (r *Runner) newOpenAIModel(ctx context.Context, cfg LLMSettings, modelName 
 	// /chat/completions unless reasoning_effort is "none". Opt-in, default unchanged.
 	if v := strings.TrimSpace(os.Getenv("AGENTGO_REASONING_EFFORT")); v != "" {
 		mc.ReasoningEffort = openai.ReasoningEffortLevel(v)
+	} else if strings.Contains(strings.ToLower(name), "luna") || strings.Contains(strings.ToLower(name), "gpt-5") {
+		mc.ReasoningEffort = openai.ReasoningEffortLevel("none")
 	}
 	if debugLLMEnabled() {
 		mc.HTTPClient = newLLMShapeClient()

@@ -230,16 +230,33 @@ export default defineComponent({
       if (id === 'settings') loadLLM()
     }
 
+    const hasAzureLuna = ref(false)
+    const azureLunaInfo = ref({ base: '', model: '' })
+
     const loadLLM = async () => {
       try {
-        const cfg = await wailsCall('GetLLMConfig')
+        const cfg = await wailsCall<any>('GetLLMConfig')
         if (cfg) {
           llmForm.value.api_base = cfg.api_base || llmForm.value.api_base
           llmForm.value.model = cfg.model || llmForm.value.model
           llmForm.value.fallback_model = cfg.fallback_model || ''
           apiStatus.value = { label: cfg.api_key_set ? 'API 已配置' : '未配置 Key', ok: !!cfg.api_key_set }
+          hasAzureLuna.value = !!cfg.has_azure_luna
+          azureLunaInfo.value = { base: cfg.azure_api_base || '', model: cfg.azure_model || 'gpt-6-luna' }
         }
       } catch { apiStatus.value = { label: '浏览器预览', ok: null } }
+    }
+
+    const applyAzureLuna = async () => {
+      try {
+        const res = await wailsCall<any>('LoadAzureLunaConfig')
+        if (res?.success) {
+          await loadLLM()
+          await testAPI()
+        }
+      } catch (e: any) {
+        console.error('[AgentGo] applyAzureLuna:', e)
+      }
     }
 
     const saveLLM = async () => {
@@ -542,7 +559,19 @@ export default defineComponent({
           </button>
         </div>
         <div class="settings-section">
-          <h3>LLM 配置</h3>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+            <h3 style={{ margin: 0 }}>LLM 配置</h3>
+            {hasAzureLuna.value && (
+              <button
+                class="settings-btn"
+                onClick={applyAzureLuna}
+                title={`快速切换至本地已配置的 Azure ${azureLunaInfo.value.model}`}
+                style={{ background: 'rgba(167, 139, 250, 0.16)', color: '#C4B5FD', border: '1px solid rgba(167, 139, 250, 0.35)', fontSize: '11px', padding: '3px 9px', borderRadius: '4px', cursor: 'pointer' }}
+              >
+                ⚡ 切换至本地 Azure Luna
+              </button>
+            )}
+          </div>
           <div class="settings-form">
             {([
               ['API Base URL', 'api_base', 'text', 'https://api.openai.com/v1'],
