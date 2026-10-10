@@ -57,7 +57,7 @@ func (h *ACPBridgeHandler) HandlePrompt(ctx context.Context, sessionID, prompt s
 			}
 			if len(parts) > 1 && parts[1] != "" {
 				emit(acp.SessionUpdate{
-					SessionUpdate: "thought",
+					SessionUpdate: "agent_thought_chunk",
 					Content:       &acp.UpdateContent{Type: "text", Text: parts[1]},
 				})
 			}
@@ -69,7 +69,7 @@ func (h *ACPBridgeHandler) HandlePrompt(ctx context.Context, sessionID, prompt s
 			parts := strings.Split(delta, "</think>")
 			if len(parts) > 0 && parts[0] != "" {
 				emit(acp.SessionUpdate{
-					SessionUpdate: "thought",
+					SessionUpdate: "agent_thought_chunk",
 					Content:       &acp.UpdateContent{Type: "text", Text: parts[0]},
 				})
 			}
@@ -84,7 +84,7 @@ func (h *ACPBridgeHandler) HandlePrompt(ctx context.Context, sessionID, prompt s
 
 		if inThinking {
 			emit(acp.SessionUpdate{
-				SessionUpdate: "thought",
+				SessionUpdate: "agent_thought_chunk",
 				Content:       &acp.UpdateContent{Type: "text", Text: delta},
 			})
 			return

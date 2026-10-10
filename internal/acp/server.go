@@ -69,6 +69,12 @@ func (s *Server) Serve(ctx context.Context) error {
 			continue
 		}
 
+		if req.Method == "" {
+			// A response to an agent->client request (fs/*, terminal/*, session/request_permission).
+			// Never answer it with "Method not found".
+			continue
+		}
+
 		s.handleRequest(ctx, req)
 	}
 
@@ -183,7 +189,7 @@ func (s *Server) handleRequest(ctx context.Context, req Request) {
 		go func() {
 			emit := func(update SessionUpdate) {
 				// Standard ACP sessionUpdate notification
-				s.sendNotification("sessionUpdate", SessionUpdateNotification{
+				s.sendNotification("session/update", SessionUpdateNotification{
 					SessionID: p.SessionID,
 					Update:    update,
 				})
@@ -323,11 +329,17 @@ func (s *Server) handleRequest(ctx context.Context, req Request) {
 		}
 
 	default:
+		if req.ID == nil {
+			return
+		}
 		s.sendError(req.ID, -32601, "Method not found", fmt.Sprintf("unsupported method: %s", req.Method))
 	}
 }
 
 func (s *Server) sendResult(id any, result any) {
+	if id == nil {
+		return // JSON-RPC notification (e.g. session/cancel): no response
+	}
 	resp := Response{
 		JSONRPC: "2.0",
 		ID:      id,
