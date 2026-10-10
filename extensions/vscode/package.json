@@ -1,52 +1,43 @@
 {
   "name": "agentgo-vscode",
   "displayName": "AgentGo AI Assistant",
-  "description": "High-performance AgentGo desktop & workspace AI assistant for VS Code",
-  "version": "0.10.0",
+  "description": "Chat with the resident AgentGo sidecar from VS Code",
+  "version": "0.11.0",
   "publisher": "agentgo",
   "engines": {
-    "vscode": "^1.90.0"
+    "vscode": "^1.95.0"
   },
   "categories": [
     "AI",
-    "Chat",
-    "Programming Languages"
+    "Chat"
   ],
   "activationEvents": [
     "onStartupFinished"
   ],
   "main": "./dist/extension.js",
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "test": "tsc -p ./ && node dist/sse.test.js"
+  },
   "contributes": {
     "chatParticipants": [
       {
         "id": "agentgo.chat",
         "name": "agentgo",
         "fullName": "AgentGo",
-        "description": "Ask AgentGo to inspect code, edit workspace files, run background jobs, and manage task plans.",
-        "isDefault": true,
+        "description": "Ask AgentGo to inspect code, edit workspace files, run background jobs, and watch for events.",
+        "isSticky": true,
         "commands": [
-          {
-            "name": "plan",
-            "description": "Create and inspect durable task plans with AgentGo"
-          },
-          {
-            "name": "code",
-            "description": "Execute multi-step batch scripts in Code Mode"
-          }
+          { "name": "plan", "description": "Create and inspect durable task plans with AgentGo" },
+          { "name": "code", "description": "Execute multi-step batch scripts in Code Mode" }
         ]
       }
     ],
     "commands": [
-      {
-        "command": "agentgo.openTasks",
-        "title": "AgentGo: Open Task Board",
-        "category": "AgentGo"
-      },
-      {
-        "command": "agentgo.cancelRun",
-        "title": "AgentGo: Cancel In-Flight Task",
-        "category": "AgentGo"
-      }
+      { "command": "agentgo.reconnect", "title": "Reconnect / Start Sidecar", "category": "AgentGo" },
+      { "command": "agentgo.newSession", "title": "New Session", "category": "AgentGo" },
+      { "command": "agentgo.cancelRun", "title": "Cancel In-Flight Run", "category": "AgentGo" }
     ],
     "configuration": {
       "title": "AgentGo",
@@ -54,19 +45,19 @@
         "agentgo.binaryPath": {
           "type": "string",
           "default": "agentgo",
-          "description": "Path to the AgentGo binary executable"
+          "description": "Path to the agentgo executable, used to launch `agentgo --serve` when no sidecar is running."
         },
-        "agentgo.model": {
+        "agentgo.serveFile": {
           "type": "string",
-          "default": "deepseek-chat",
-          "description": "Default LLM model name"
+          "default": "",
+          "description": "Override path of agentgo-serve.json (sidecar address and token). Empty = platform default data dir."
         }
       }
     }
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "@types/vscode": "^1.90.0",
+    "@types/vscode": "^1.95.0",
     "typescript": "^5.4.0"
   }
 }

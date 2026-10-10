@@ -1,127 +1,140 @@
 import * as vscode from 'vscode';
-import { spawn, ChildProcess } from 'child_process';
-import * as readline from 'readline';
+import { Conn, ensureSidecar } from './sidecar';
+import { cancelChat, streamChat } from './sse';
 
-class AgentGoClient {
-  private process: ChildProcess | null = null;
-  private reqId = 0;
-  private pending = new Map<number, { resolve: (val: any) => void; reject: (err: any) => void }>();
-  private eventHandlers = new Map<string, (data: any) => void>();
+const SESSION_KEY = 'agentgo.sessionId';
 
-  constructor(private binaryPath: string, private workspaceRoot: string) {}
-
-  public start() {
-    this.process = spawn(this.binaryPath, ['acp'], {
-      cwd: this.workspaceRoot,
-      stdio: ['pipe', 'pipe', 'inherit'],
-    });
-
-    const rl = readline.createInterface({
-      input: this.process.stdout!,
-      terminal: false,
-    });
-
-    rl.on('line', (line) => {
-      try {
-        const msg = JSON.parse(line);
-        if (msg.method === 'session/event') {
-          const handler = this.eventHandlers.get(msg.params.session_id);
-          if (handler) {
-            handler(msg.params);
-          }
-        } else if (msg.id !== undefined) {
-          const promise = this.pending.get(msg.id);
-          if (promise) {
-            this.pending.delete(msg.id);
-            if (msg.error) {
-              promise.reject(new Error(msg.error.message));
-            } else {
-              promise.resolve(msg.result);
-            }
-          }
-        }
-      } catch (e) {
-        console.error('Failed to parse ACP message:', line, e);
-      }
-    });
-
-    this.send('initialize', {
-      client_name: 'VSCode-AgentGo',
-      client_version: '0.10.0',
-    });
-  }
-
-  public send(method: string, params: any): Promise<any> {
-    const id = ++this.reqId;
-    return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
-      const payload = JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n';
-      this.process?.stdin?.write(payload);
-    });
-  }
-
-  public registerSessionEvents(sessionId: string, callback: (data: any) => void) {
-    this.eventHandlers.set(sessionId, callback);
-  }
-
-  public stop() {
-    if (this.process) {
-      this.process.kill();
-      this.process = null;
-    }
-  }
+function newSessionId(): string {
+  return `vscode_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
 export function activate(context: vscode.ExtensionContext) {
-  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd();
-  const config = vscode.workspace.getConfiguration('agentgo');
-  const binaryPath = config.get<string>('binaryPath', 'agentgo');
+  const out = vscode.window.createOutputChannel('AgentGo');
+  const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
+  status.command = 'agentgo.reconnect';
+  status.text = '$(circle-slash) AgentGo';
+  status.show();
+  context.subscriptions.push(out, status);
 
-  const client = new AgentGoClient(binaryPath, workspaceRoot);
-  try {
-    client.start();
-  } catch (err) {
-    vscode.window.showErrorMessage(`Failed to start AgentGo process: ${err}`);
-  }
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  let conn: Conn | undefined;
+  let connecting: Promise<Conn> | undefined;
 
-  const participant = vscode.chat.createChatParticipant('agentgo.chat', async (request, chatContext, stream, token) => {
-    const sessionId = `vscode_${Date.now()}`;
+  const connect = (): Promise<Conn> => {
+    if (conn) {
+      return Promise.resolve(conn);
+    }
+    if (!connecting) {
+      const cfg = vscode.workspace.getConfiguration('agentgo');
+      status.text = '$(sync~spin) AgentGo';
+      connecting = ensureSidecar({
+        binaryPath: cfg.get<string>('binaryPath', 'agentgo'),
+        serveFile: cfg.get<string>('serveFile', ''),
+        workspaceRoot,
+        log: (l) => out.appendLine(l),
+      })
+        .then((c) => {
+          conn = c;
+          status.text = '$(check) AgentGo';
+          status.tooltip = `Sidecar: ${c.baseUrl}`;
+          out.appendLine(`connected to ${c.baseUrl}`);
+          return c;
+        })
+        .catch((e) => {
+          status.text = '$(error) AgentGo';
+          status.tooltip = String(e?.message ?? e);
+          out.appendLine(`connect failed: ${e?.message ?? e}`);
+          throw e;
+        })
+        .finally(() => {
+          connecting = undefined;
+        });
+    }
+    return connecting;
+  };
 
-    client.registerSessionEvents(sessionId, (event) => {
-      if (event.type === 'chunk' && event.data?.delta) {
-        stream.markdown(event.data.delta);
-      } else if (event.type === 'tool_call') {
-        stream.progress(`Executing tool: ${event.data.name}...`);
-      }
-    });
+  const sessionId = (): string => {
+    let id = context.workspaceState.get<string>(SESSION_KEY);
+    if (!id) {
+      id = newSessionId();
+      void context.workspaceState.update(SESSION_KEY, id);
+    }
+    return id;
+  };
 
+  const participant = vscode.chat.createChatParticipant('agentgo.chat', async (request, _ctx, stream, token) => {
+    let c: Conn;
+    try {
+      c = await connect();
+    } catch (e: any) {
+      stream.markdown(`**无法连接 AgentGo Sidecar:** ${e?.message ?? e}\n\n请检查设置 \`agentgo.binaryPath\`。`);
+      return {};
+    }
+
+    let prompt = request.prompt;
+    if (request.command === 'plan') {
+      prompt = `[PlanTask Mode] ${prompt}`;
+    } else if (request.command === 'code') {
+      prompt = `[Code Mode] ${prompt}`;
+    }
+
+    const sid = sessionId();
+    const ac = new AbortController();
     token.onCancellationRequested(() => {
-      client.send('session/cancel', { session_id: sessionId });
+      ac.abort();
+      void cancelChat(c, sid);
     });
 
     try {
-      let prompt = request.prompt;
-      if (request.command === 'plan') {
-        prompt = `[PlanTask Mode] ${prompt}`;
-      } else if (request.command === 'code') {
-        prompt = `[Code Mode] ${prompt}`;
-      }
-
-      await client.send('session/prompt', {
-        session_id: sessionId,
-        prompt: prompt,
+      await streamChat(c, sid, prompt, ac.signal, (e) => {
+        if (e.event === 'chunk' && e.data?.delta) {
+          stream.markdown(e.data.delta);
+        } else if (e.event === 'interrupt') {
+          stream.markdown(
+            `\n\n> ⚠️ 工具 \`${e.data?.tool_name ?? '?'}\` 需要审批。VS Code 内审批尚未接入,请在 AgentGo 桌面端处理。\n`,
+          );
+        } else if (e.event === 'error') {
+          stream.markdown(`\n\n**错误:** ${e.data?.error ?? JSON.stringify(e.data)}`);
+        }
       });
-    } catch (error: any) {
-      stream.markdown(`\n**Error:** ${error.message}`);
+    } catch (e: any) {
+      if (!ac.signal.aborted) {
+        // Sidecar may have restarted: drop the cached connection so the next turn rediscovers it.
+        conn = undefined;
+        status.text = '$(error) AgentGo';
+        stream.markdown(`\n\n**请求失败:** ${e?.message ?? e}`);
+      }
     }
-
     return { metadata: { command: request.command } };
   });
+  participant.iconPath = new vscode.ThemeIcon('hubot');
 
-  context.subscriptions.push(participant);
-  context.subscriptions.push({
-    dispose: () => client.stop(),
-  });
+  context.subscriptions.push(
+    participant,
+    vscode.commands.registerCommand('agentgo.reconnect', async () => {
+      conn = undefined;
+      try {
+        await connect();
+        vscode.window.showInformationMessage('AgentGo: 已连接');
+      } catch (e: any) {
+        vscode.window.showErrorMessage(`AgentGo: ${e?.message ?? e}`);
+      }
+    }),
+    vscode.commands.registerCommand('agentgo.newSession', async () => {
+      await context.workspaceState.update(SESSION_KEY, newSessionId());
+      vscode.window.showInformationMessage('AgentGo: 已开启新会话');
+    }),
+    vscode.commands.registerCommand('agentgo.cancelRun', async () => {
+      if (conn) {
+        await cancelChat(conn, sessionId());
+      }
+    }),
+  );
+
+  // Connect eagerly so the status bar is truthful, but never block activation or nag on failure.
+  void connect().catch(() => undefined);
 }
 
-export function deactivate() {}
+export function deactivate() {
+  // The sidecar is deliberately left running.
+}
