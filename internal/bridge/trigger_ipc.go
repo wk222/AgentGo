@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
+	"agentgo/internal/tools"
 	"agentgo/internal/trigger"
 	"agentgo/internal/workflow"
 )
@@ -40,6 +42,71 @@ func (r *Runtime) triggerEngine() (*trigger.Engine, error) {
 		return nil, errors.New("trigger engine is disabled")
 	}
 	return r.triggers, nil
+}
+
+// --- tools.WatchHandler: lets the agent arm triggers that wake its own session ---
+
+const maxArmedPerSession = 20
+
+func (r *Runtime) CreateWatch(_ context.Context, req tools.WatchRequest) (any, error) {
+	e, err := r.triggerEngine()
+	if err != nil {
+		return nil, err
+	}
+	existing, err := e.List()
+	if err != nil {
+		return nil, err
+	}
+	armed := 0
+	for _, t := range existing {
+		if t.SessionID == req.SessionID && t.Status == trigger.StatusArmed {
+			armed++
+		}
+	}
+	if armed >= maxArmedPerSession {
+		return nil, fmt.Errorf("too many active triggers in this session (%d); cancel some first", armed)
+	}
+	t := trigger.Trigger{
+		Kind: trigger.Kind(req.Kind), PID: req.PID, Path: req.Path, Pattern: req.Pattern,
+		Title: req.Title, Action: trigger.ActionWakeSession, SessionID: req.SessionID, Prompt: req.Prompt,
+	}
+	if req.ExpiresInSec > 0 {
+		t.ExpiresAt = time.Now().Add(time.Duration(req.ExpiresInSec) * time.Second).Unix()
+	}
+	return e.Add(t)
+}
+
+func (r *Runtime) ListWatches(_ context.Context, sessionID string) (any, error) {
+	e, err := r.triggerEngine()
+	if err != nil {
+		return nil, err
+	}
+	all, err := e.List()
+	if err != nil {
+		return nil, err
+	}
+	out := []trigger.Trigger{}
+	for _, t := range all {
+		if t.SessionID == sessionID {
+			out = append(out, t)
+		}
+	}
+	return out, nil
+}
+
+func (r *Runtime) CancelWatch(_ context.Context, sessionID, id string) error {
+	e, err := r.triggerEngine()
+	if err != nil {
+		return err
+	}
+	t, err := e.Get(id)
+	if err != nil {
+		return err
+	}
+	if t.SessionID != sessionID {
+		return errors.New("trigger belongs to another session")
+	}
+	return e.Cancel(id)
 }
 
 // --- gateway.TriggerBackend ---

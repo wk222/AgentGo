@@ -14,6 +14,7 @@ import (
 
 	"agentgo/internal/applog"
 	"agentgo/internal/gateway"
+	"agentgo/internal/tools"
 	"agentgo/internal/trigger"
 	"agentgo/internal/ideruntime"
 	"agentgo/internal/kanban"
@@ -152,6 +153,8 @@ func (rt *Runtime) featurePlugins() []plugin.Plugin {
 			}
 			engine := trigger.NewEngine(store, rt.fireTrigger)
 			rt.triggers = engine
+			tools.SetWatchHandler(rt) // the agent's watch_event tool arms triggers through this
+			c.Effect("unset watch handler", func() { tools.SetWatchHandler(nil) })
 			if os.Getenv("AGENTGO_DISABLE_TRIGGERS") == "1" {
 				return nil
 			}
