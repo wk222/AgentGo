@@ -50,7 +50,7 @@ var coreRuntimePlugins = []string{
 	"tools", "agent", "workflow", "apps", "toolset", "kanban", "taskhub", "scheduler",
 }
 
-var optionalRuntimePlugins = []string{"gateway", "distill", "capability-sync", "ide"}
+var optionalRuntimePlugins = []string{"gateway", "distill", "capability-sync", "ide", "triggers"}
 
 func TestRuntimeIsAssembledByThePluginHost(t *testing.T) {
 	rt := boot(t)

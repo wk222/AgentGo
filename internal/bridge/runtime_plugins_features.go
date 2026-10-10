@@ -14,6 +14,7 @@ import (
 
 	"agentgo/internal/applog"
 	"agentgo/internal/gateway"
+	"agentgo/internal/trigger"
 	"agentgo/internal/ideruntime"
 	"agentgo/internal/kanban"
 	"agentgo/internal/memory"
@@ -134,6 +135,30 @@ func (rt *Runtime) featurePlugins() []plugin.Plugin {
 				runner.Start()
 				c.Effect("stop scheduler", runner.Stop)
 			}
+			return nil
+		}),
+
+		// Event triggers (process exit / marker file / log match / webhook) that wake an agent session.
+		// Persisted in SQLite, so they survive restarts; AGENTGO_DISABLE_TRIGGERS=1 turns the watchers off
+		// in a second process sharing the same data dir.
+		optionalPlugin("triggers", nil, []string{svcDB, svcTaskHub}, nil, func(c *plugin.Context) error {
+			db, err := plugin.Use[*sql.DB](c, svcDB)
+			if err != nil {
+				return err
+			}
+			store, err := trigger.NewStore(db)
+			if err != nil {
+				return err
+			}
+			engine := trigger.NewEngine(store, rt.fireTrigger)
+			rt.triggers = engine
+			if os.Getenv("AGENTGO_DISABLE_TRIGGERS") == "1" {
+				return nil
+			}
+			if err := engine.Start(scopedContext(c)); err != nil {
+				return err
+			}
+			c.Effect("stop triggers", engine.Stop)
 			return nil
 		}),
 

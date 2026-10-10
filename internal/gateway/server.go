@@ -41,6 +41,7 @@ func NewServer(cfg Config, backend Backend) *Server {
 	mux.HandleFunc("/api/v1/workflows/", s.handleWorkflowItem)
 	mux.HandleFunc("/api/v1/inner-apps", s.handleInnerApps)
 	mux.HandleFunc("/api/v1/inner-apps/", s.handleInnerApps)
+	s.registerTriggerRoutes(mux)
 	s.http = &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           corsMiddleware(authMiddleware(cfg.Token, mux)),
@@ -217,7 +218,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-AgentGo-Token")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
