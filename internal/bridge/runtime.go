@@ -14,6 +14,7 @@ import (
 	"agentgo/internal/capability"
 	"agentgo/internal/checkpoint"
 	"agentgo/internal/gateway"
+	"agentgo/internal/trigger"
 	"agentgo/internal/governance"
 	"agentgo/internal/ideruntime"
 	"agentgo/internal/kanban"
@@ -50,6 +51,7 @@ type Runtime struct {
 	taskHub          *taskhub.Hub
 	sched            *scheduler.Store
 	schedRunner      *scheduler.Runner
+	triggers         *trigger.Engine
 	skillLoader      *skills.Loader
 	wfStore          *workflow.Store
 	cpStore          *checkpoint.SQLiteStore

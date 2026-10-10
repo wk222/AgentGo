@@ -54,6 +54,7 @@ var PackageLayer = map[string]Layer{
 	"kanban":             LayerAssets,
 	"taskhub":            LayerAssets,
 	"scheduler":          LayerAssets,
+	"trigger":            LayerAssets,
 	"admin":              LayerAssets,
 	"terminal":           LayerAssets,
 	"evaluation":         LayerAssets,
