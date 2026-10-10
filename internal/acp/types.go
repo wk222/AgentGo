@@ -153,8 +153,13 @@ type SessionUpdateNotification struct {
 type SessionUpdate struct {
 	SessionUpdate string         `json:"sessionUpdate"` // "agent_message_chunk" | "thought" | "tool_call" | "current_mode_update"
 	Content       *UpdateContent `json:"content,omitempty"`
-	ToolCall      *ToolCallInfo  `json:"toolCall,omitempty"`
 	CurrentModeID string         `json:"currentModeId,omitempty"`
+
+	// tool_call / tool_call_update: ACP puts these fields directly on the update object.
+	ToolCallID string `json:"toolCallId,omitempty"`
+	Title      string `json:"title,omitempty"`
+	Kind       string `json:"kind,omitempty"`   // read | edit | execute | search | other ...
+	Status     string `json:"status,omitempty"` // pending | in_progress | completed | failed
 }
 
 // UpdateContent text content.

@@ -16,7 +16,7 @@ type dummyHandler struct{}
 
 func (d *dummyHandler) HandlePrompt(ctx context.Context, sessionID, prompt string, emit func(update SessionUpdate)) (string, error) {
 	emit(SessionUpdate{
-		SessionUpdate: "thought",
+		SessionUpdate: "agent_thought_chunk",
 		Content:       &UpdateContent{Type: "text", Text: "Analyzing request..."},
 	})
 	emit(SessionUpdate{
