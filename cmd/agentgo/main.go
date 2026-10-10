@@ -106,6 +106,17 @@ func handleAgentGoAPI(appService *bridge.AppService, w http.ResponseWriter, r *h
 }
 
 func main() {
+	serveMode := hasArg("--serve")
+	var serveAddr, serveToken string
+	if serveMode {
+		if info, ok := existingServe(bridge.DefaultDataDir()); ok {
+			log.Printf("[AgentGo] 已有常驻实例在运行: http://%s (pid=%d)，信息见 %s",
+				info.Addr, info.PID, serveInfoPath(bridge.DefaultDataDir()))
+			return
+		}
+		serveAddr, serveToken = prepareServeEnv()
+	}
+
 	rt, err := bridge.NewRuntime()
 	if err != nil {
 		log.Fatal(err)
@@ -136,6 +147,12 @@ func main() {
 		if err := bridge.ServeACP(context.Background(), rt, os.Stdin, os.Stdout); err != nil && err != io.EOF {
 			log.Fatalf("ACP server error: %v", err)
 		}
+		return
+	}
+
+	// 1b. Headless resident mode: gateway only, no window. Clients find it through serve.json.
+	if serveMode {
+		runServe(rt, serveAddr, serveToken)
 		return
 	}
 
@@ -194,7 +211,7 @@ func main() {
 		Width:                  1280,
 		Height:                 850,
 		URL:                    targetURL,
-		OpenInspectorOnStartup: true,
+		OpenInspectorOnStartup: hasArg("--dev") || os.Getenv("AGENTGO_DEV") == "1",
 		DevToolsEnabled:        true,
 		Mac: application.MacWindow{
 			InvisibleTitleBarHeight: 50,
