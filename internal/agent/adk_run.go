@@ -48,6 +48,14 @@ func (r *Runner) drainADKEvents(ctx context.Context, iter *adk.AsyncIterator[*ad
 			continue
 		}
 		mv := ev.Output.MessageOutput
+		// Tool results are not assistant prose: keep them out of the returned content and the
+		// streamed deltas, otherwise raw tool JSON gets prepended to the final answer.
+		if mv.Role == schema.Tool {
+			if mv.IsStreaming && mv.MessageStream != nil {
+				mv.MessageStream.Close()
+			}
+			continue
+		}
 		ro := reasoningObserverFrom(ctx)
 		extractReasoning := func(rc string, extra map[string]any) string {
 			if rc != "" {
