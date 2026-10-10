@@ -71,6 +71,9 @@ func RegisterWorkspaceBoundTools(r *Registry, workspaceRoot string) error {
 	if err := RegisterJobMonitorTool(r, workspaceRoot); err != nil {
 		_ = err
 	}
+	if err := RegisterWatchEventTool(r); err != nil {
+		_ = err
+	}
 	if rt, err := coderuntime.NewLocalProcessRuntime(workspaceRoot); err == nil && rt != nil {
 		if scriptTool, err := coderuntime.NewRunScriptTool(rt); err == nil && scriptTool != nil {
 			r.AddTool(scriptTool)
