@@ -28,7 +28,7 @@ type serveInfo struct {
 
 const defaultServeAddr = "127.0.0.1:8787"
 
-func serveInfoPath(dataDir string) string { return filepath.Join(dataDir, "serve.json") }
+func serveInfoPath(dataDir string) string { return filepath.Join(dataDir, "agentgo-serve.json") }
 
 func newToken() string {
 	b := make([]byte, 24)
