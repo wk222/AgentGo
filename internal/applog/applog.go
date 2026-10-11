@@ -10,11 +10,21 @@ import (
 )
 
 var (
-	mu   sync.Mutex
-	path string
+	mu    sync.Mutex
+	path  string
+	quiet bool
 )
 
-// Init appends process logs to dataDir/agentgo.log (and stderr).
+// SetQuiet keeps process logs out of stderr (they still go to the log file).
+// Terminal clients call it before Init so log lines do not interleave with the
+// conversation.
+func SetQuiet(q bool) {
+	mu.Lock()
+	quiet = q
+	mu.Unlock()
+}
+
+// Init appends process logs to dataDir/agentgo.log (and stderr unless quiet).
 func Init(dataDir string) error {
 	mu.Lock()
 	defer mu.Unlock()
@@ -26,7 +36,11 @@ func Init(dataDir string) error {
 	if err != nil {
 		return err
 	}
-	log.SetOutput(io.MultiWriter(os.Stderr, f))
+	if quiet {
+		log.SetOutput(f)
+	} else {
+		log.SetOutput(io.MultiWriter(os.Stderr, f))
+	}
 	log.Printf("[agentgo] logging to %s", path)
 	return nil
 }
