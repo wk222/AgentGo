@@ -37,7 +37,9 @@ func (p Policy) requiresApproval(toolName string) bool {
 	if p.BlockedTools != nil && p.BlockedTools[toolName] {
 		return true
 	}
-	switch p.ToolRiskLevels[toolName] {
+	// A tool's own declared risk counts too, so a plugin tool that declares HIGH is
+	// held for approval without anyone adding it to the table.
+	switch maxRisk(p.ToolRiskLevels[toolName], declaredRisk(toolName)) {
 	case RiskHigh, RiskCritical:
 		return true
 	default:

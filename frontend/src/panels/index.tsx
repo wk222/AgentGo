@@ -496,7 +496,7 @@ export const CapabilityPanel = defineComponent({
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
                     <span style={{ fontWeight: 650, color: 'var(--text-strong)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.name || g.id}</span>
                     {badge(g.kind || 'capability')}
-                    {g.risk_level ? badge(g.risk_level, g.risk_level === 'high' ? '#e05c5c' : undefined) : null}
+                    {g.risk_level ? badge(g.risk_level, g.risk_level === 'high' || g.risk_level === 'critical' ? '#e05c5c' : undefined) : null}
                   </div>
                   <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {g.id} · {g.scope || 'global'}{g.verify_result ? ` · verify:${g.verify_result}` : ''}

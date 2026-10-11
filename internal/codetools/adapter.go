@@ -39,6 +39,16 @@ func IsMutating(crushName string) bool {
 // Source names this package's tools in governance audit records.
 const Source = "codetools"
 
+// Risk is the baseline risk codetools declares for a Crush tool: the file-changing
+// ones need care, the readers are low risk. This used to live as a name list in
+// the governance risk table; the plugin now owns it.
+func Risk(crushName string) governance.RiskLevel {
+	if IsMutating(crushName) {
+		return governance.RiskMedium
+	}
+	return governance.RiskLow
+}
+
 // RegisterTraits declares each tool's traits to governance, so the policy
 // learns which tools change files from IsMutating alone instead of a second
 // list of names. The returned func withdraws them all.
@@ -46,7 +56,7 @@ func RegisterTraits(tools []ct.Tool) (dispose func()) {
 	disposers := make([]func(), 0, len(tools))
 	for _, t := range tools {
 		disposers = append(disposers, governance.RegisterToolTraits(ToolName(t.Name),
-			governance.ToolTraits{Source: Source, Mutating: IsMutating(t.Name)}))
+			governance.ToolTraits{Source: Source, Mutating: IsMutating(t.Name), Risk: Risk(t.Name)}))
 	}
 	return func() {
 		for _, d := range disposers {

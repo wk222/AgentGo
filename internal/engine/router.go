@@ -26,6 +26,7 @@ type ActiveRun struct {
 type activeRun struct {
 	ActiveRun
 	cancel context.CancelFunc
+	em     *emitter
 }
 
 // Router registers engines, assigns run ids, tracks and cancels runs, and
@@ -131,6 +132,14 @@ func (r *Router) Run(ctx context.Context, req RunRequest, sink EventSink) (res R
 	if req.RunID == "" {
 		req.RunID = r.NewRunID()
 	}
+	req = NormalizeRequest(req) // Blocks <-> Input/Images, so legacy and block-aware engines agree
+	if verr := ValidateBlocks(req.Blocks); verr != nil {
+		res = RunResult{RunID: req.RunID, Engine: req.Engine, Error: "invalid request: " + verr.Error()}
+		em := newEmitter(sink, req.RunID, req.SessionID, req.Engine)
+		em.Error(res.Error)
+		em.done(res)
+		return res
+	}
 	eng, err := r.resolve(req.Engine)
 	if err != nil {
 		res = RunResult{RunID: req.RunID, Engine: req.Engine, Error: err.Error()}
@@ -141,9 +150,11 @@ func (r *Router) Run(ctx context.Context, req RunRequest, sink EventSink) (res R
 
 	rctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	em := newEmitter(sink, req.RunID, req.SessionID, req.Engine)
 	ar := &activeRun{
 		ActiveRun: ActiveRun{RunID: req.RunID, Engine: req.Engine, SessionID: req.SessionID, StartedAt: time.Now()},
 		cancel:    cancel,
+		em:        em,
 	}
 	r.mu.Lock()
 	r.runs[req.RunID] = ar
@@ -154,7 +165,6 @@ func (r *Router) Run(ctx context.Context, req RunRequest, sink EventSink) (res R
 		r.mu.Unlock()
 	}()
 
-	em := newEmitter(sink, req.RunID, req.SessionID, req.Engine)
 	em.Status("started", nil)
 
 	func() {
@@ -168,6 +178,12 @@ func (r *Router) Run(ctx context.Context, req RunRequest, sink EventSink) (res R
 
 	res.RunID, res.Engine = req.RunID, req.Engine
 	switch {
+	case em.wasInterrupted() && ctx.Err() == nil:
+		// Interrupted (barge-in): not an error. The single done carries the reason.
+		res.Reason = "interrupted"
+		if err == nil || errors.Is(err, context.Canceled) || res.Error == "context canceled" {
+			res.Error = ""
+		}
 	case errors.Is(rctx.Err(), context.Canceled) && ctx.Err() == nil:
 		// cancelled via Router.Cancel (not by the caller's own ctx)
 		res.Error = "cancelled"
@@ -191,6 +207,43 @@ func (r *Router) Cancel(runID string) bool {
 		ar.cancel()
 	}
 	return ok
+}
+
+// Interrupt stops a run because the user took over (barge-in, "stop talking").
+// Unlike Cancel it is not an error: the run emits one EventInterrupted, drops any
+// further token/audio_chunk output, lets in-flight tool results/errors land, and
+// still ends with exactly one EventDone whose payload has reason="interrupted".
+// Returns false when the run is not active or was already interrupted.
+func (r *Router) Interrupt(runID, reason string) bool {
+	r.mu.RLock()
+	ar, ok := r.runs[runID]
+	r.mu.RUnlock()
+	if !ok || !ar.em.interrupt(reason) {
+		return false
+	}
+	ar.cancel()
+	return true
+}
+
+// InterruptSession interrupts every active run of a session (see Interrupt) and
+// returns how many were interrupted. This is what a voice session calls: it knows
+// the chat session, not the run id.
+func (r *Router) InterruptSession(sessionID, reason string) int {
+	r.mu.RLock()
+	var ids []string
+	for id, ar := range r.runs {
+		if ar.SessionID == sessionID {
+			ids = append(ids, id)
+		}
+	}
+	r.mu.RUnlock()
+	n := 0
+	for _, id := range ids {
+		if r.Interrupt(id, reason) {
+			n++
+		}
+	}
+	return n
 }
 
 // CancelSession cancels all active runs of a session and returns how many.

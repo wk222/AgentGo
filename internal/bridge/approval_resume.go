@@ -3,6 +3,7 @@ package bridge
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"strings"
 
@@ -11,6 +12,7 @@ import (
 	"agentgo/internal/engine"
 	"agentgo/internal/governance"
 	"agentgo/internal/sessions"
+	"agentgo/internal/workflow"
 )
 
 // This file is the single place where a user's decision on an approval turns
@@ -135,6 +137,26 @@ func (s *AppService) resolveApproval(ctx context.Context, approvalID string, app
 	if pr.ResumeKind == "workflow" {
 		wfOut, err := s.rt.resumeWorkflowAfterApproval(ctx, pr, resume)
 		if !approved {
+			return out
+		}
+		if ie, paused := workflow.AsInterrupt(err); paused {
+			// The resumed run stopped for another approval: register it like the
+			// first pause so approvals chain, instead of reporting a failure.
+			resp := s.rt.workflowInterruptResponse(pr.WorkflowID, ie)
+			out["interrupted"] = true
+			for _, k := range []string{"interrupt_kind", "approval_id", "tool_name", "arguments", "checkpoint_id"} {
+				if v, ok := resp[k]; ok {
+					out[k] = v
+				}
+			}
+			if s.app != nil {
+				if next, _ := resp["approval_id"].(string); next != "" {
+					s.app.Event.Emit("approval:pending", map[string]any{
+						"approval_id": next, "tool_name": resp["tool_name"],
+						"arguments": resp["arguments"], "prompt": "等待审批: " + fmt.Sprint(resp["tool_name"]),
+					})
+				}
+			}
 			return out
 		}
 		if err != nil {

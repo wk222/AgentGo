@@ -52,7 +52,6 @@ func TestE2ECrossSurfaceFixWithDesktopApproval(t *testing.T) {
 	t.Setenv("AGENTGO_CRUSHPROTO_ADDR", "")
 	t.Setenv("AGENTGO_CRUSHPROTO_YOLO", "") // approvals must really be asked
 	t.Setenv(hostlinkEnv, "")
-	t.Setenv(crushEnvExe, t.TempDir()+"/no-crush")
 	if os.Getenv("AGENTGO_REASONING_EFFORT") == "" {
 		t.Setenv("AGENTGO_REASONING_EFFORT", "none")
 	}

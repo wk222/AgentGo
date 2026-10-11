@@ -102,18 +102,24 @@ func codetoolsPlugin(env codetoolsEnv) (plugin.Plugin, bool) {
 			if err != nil {
 				return err
 			}
-			c.Effect("tool traits", codetools.RegisterTraits(tb.Tools))
 			for i, t := range adapted {
 				info, err := t.Info(context.Background())
 				if err != nil {
 					return err
 				}
 				name := info.Name
+				crush := tb.Tools[i].Name
+				// One declaration per tool (visibility, file-changing, risk), made
+				// before Contribute so the bus grant it creates sees the risk.
+				c.Effect("declare:"+name, tools.Declare(tools.Spec{
+					Name:     name,
+					Source:   codetools.Source,
+					Static:   codetools.AlwaysVisible(crush),
+					Mutating: codetools.IsMutating(crush),
+					Risk:     codetools.Risk(crush),
+				}))
 				reg.AddTool(t)
 				c.Contribute("tool", name, func() { reg.RemoveTool(name) })
-				if codetools.AlwaysVisible(tb.Tools[i].Name) {
-					c.Effect("static:"+name, tools.RegisterStaticTool(name, codetools.IsMutating(tb.Tools[i].Name)))
-				}
 			}
 			log.Printf("[codetools] %d tools bound to %s", len(adapted), root)
 			return nil

@@ -40,7 +40,6 @@ func TestE2EEinoAgentFixesCodeWithCodetools(t *testing.T) {
 	if deployment == "" {
 		deployment = "gpt-6-luna"
 	}
-	t.Setenv(crushEnvExe, filepath.Join(t.TempDir(), "no-crush")) // prove Crush's own loop is not involved
 
 	ws := t.TempDir()
 	file := filepath.Join(ws, "main.go")

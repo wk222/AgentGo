@@ -47,7 +47,6 @@ func TestE2ECrushprotoStateAfterFix(t *testing.T) {
 	_ = ln.Close()
 	t.Setenv("AGENTGO_CRUSHPROTO_ADDR", addr)
 	t.Setenv("AGENTGO_CRUSHPROTO_YOLO", "1")
-	t.Setenv(crushEnvExe, filepath.Join(t.TempDir(), "no-crush"))
 	if os.Getenv("AGENTGO_REASONING_EFFORT") == "" {
 		t.Setenv("AGENTGO_REASONING_EFFORT", "none")
 	}

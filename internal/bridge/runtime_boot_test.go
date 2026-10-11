@@ -50,6 +50,23 @@ var coreRuntimePlugins = []string{
 	"tools", "agent", "workflow", "apps", "toolset", "kanban", "taskhub", "scheduler",
 }
 
+// The set of Protected plugins is an explicit allowlist (docs/kernel-plugin-consensus.md
+// decision B): making another plugin Protected means changing coreRuntimePlugins in
+// this file and recording why. Protected plugins cannot be stopped or disabled, so
+// each addition is a decision about what the runtime cannot work without.
+func TestProtectedPluginsAreAnExplicitAllowlist(t *testing.T) {
+	rt := boot(t)
+	allowed := map[string]bool{}
+	for _, n := range coreRuntimePlugins {
+		allowed[n] = true
+	}
+	for name, st := range statusMap(rt) {
+		if st.Protected && !allowed[name] {
+			t.Errorf("plugin %q is Protected but not in coreRuntimePlugins; add it there with a decision record, or make it an optionalPlugin", name)
+		}
+	}
+}
+
 var optionalRuntimePlugins = []string{"gateway", "distill", "capability-sync", "ide", "triggers"}
 
 func TestRuntimeIsAssembledByThePluginHost(t *testing.T) {

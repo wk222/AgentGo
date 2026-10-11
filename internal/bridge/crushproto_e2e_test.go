@@ -54,7 +54,6 @@ func TestE2ECrushClientDrivesEino(t *testing.T) {
 	_ = ln.Close()
 	t.Setenv("AGENTGO_CRUSHPROTO_ADDR", addr) // set BEFORE NewAppService: the plugin is opt-in at init
 	t.Setenv("AGENTGO_CRUSHPROTO_YOLO", "1")
-	t.Setenv(crushEnvExe, filepath.Join(t.TempDir(), "no-crush"))
 	if os.Getenv("AGENTGO_REASONING_EFFORT") == "" {
 		t.Setenv("AGENTGO_REASONING_EFFORT", "none")
 	}

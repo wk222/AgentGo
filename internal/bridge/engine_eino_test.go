@@ -1,7 +1,6 @@
 package bridge
 
 import (
-	"path/filepath"
 	"testing"
 
 	"agentgo/internal/engine"
@@ -25,7 +24,6 @@ func (r *recEmitter) Error(string)                          {}
 var _ engine.Emitter = (*recEmitter)(nil)
 
 func TestNewAppServiceRegistersEinoAsDefault(t *testing.T) {
-	t.Setenv(crushEnvExe, filepath.Join(t.TempDir(), "no-such-crush")) // keep the opt-in sidecar out of this test
 	s := NewAppService(nil)
 	ids := s.ListEngines()
 	if len(ids) != 1 || ids[0] != EinoEngineID {

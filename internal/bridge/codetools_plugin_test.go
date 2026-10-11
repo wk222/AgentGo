@@ -13,6 +13,7 @@ import (
 	einotool "github.com/cloudwego/eino/components/tool"
 
 	"agentgo/internal/capability"
+	"agentgo/internal/governance"
 	"agentgo/internal/plugin"
 	"agentgo/internal/tools"
 )
@@ -45,7 +46,6 @@ func invoke(t *testing.T, tool einotool.InvokableTool, args map[string]any) stri
 
 func newCodetoolsService(t *testing.T, workspace string) (*AppService, *tools.Registry, *capability.Bus) {
 	t.Helper()
-	t.Setenv(crushEnvExe, filepath.Join(t.TempDir(), "no-crush"))
 	reg := tools.NewRegistry()
 	bus := capability.NewBus()
 	rt := &Runtime{capBus: bus, toolReg: reg, workspace: workspace, dataDir: t.TempDir()}
@@ -65,7 +65,26 @@ func TestCodetoolsPluginContributesAndRetiresTools(t *testing.T) {
 			t.Fatalf("grant %s: %v %v", n, st, ok)
 		}
 	}
+	// The plugin declares risk itself (no entry in the governance table), and the
+	// bus grant carries it: writers MEDIUM, readers LOW.
+	for n, want := range map[string]string{"code_edit": "medium", "code_write": "medium", "code_view": "low", "lsp_diagnostics": "low"} {
+		found := false
+		for _, g := range bus.List("tool") {
+			if g.Name == n {
+				found = true
+				if g.RiskLevel != want {
+					t.Errorf("bus risk of %s = %q, want %q", n, g.RiskLevel, want)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("no bus grant for %s", n)
+		}
+	}
 	s.StopPlugin("codetools")
+	if _, ok := governance.ToolTraitsOf("code_edit"); ok {
+		t.Error("code_edit traits survived plugin stop")
+	}
 	for _, bt := range reg.GetAllTools() {
 		if info, _ := bt.Info(context.Background()); strings.HasPrefix(info.Name, "code_") || strings.HasPrefix(info.Name, "lsp_") {
 			t.Fatalf("tool %s survived plugin stop", info.Name)
