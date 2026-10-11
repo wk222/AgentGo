@@ -108,6 +108,7 @@ L4 Consumer (Wails IPC, desktop windows, Web/SSE Gateway)
 
 ```text
 cmd/agentgo/          Wails v3 desktop entrypoint
+cmd/agentgo-cli/      Own terminal client (chat, `run "task"`, approvals); no Crush needed
 frontend/src/         Vue 3 TSX UI, panels, Wails bridge, mock runtime
 internal/agent/       Session orchestration, modes, ADK/Eino integration
 internal/bridge/      Wails-facing application service and IPC methods
