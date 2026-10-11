@@ -7,8 +7,9 @@ import "sync"
 // and withdraw them when unloaded; the policy consults them at decision time,
 // so a tool added later is covered without editing any name list here.
 type ToolTraits struct {
-	Source   string // contributing plugin or subsystem, for audit
-	Mutating bool   // changes files in the workspace
+	Source   string    // contributing plugin or subsystem, for audit
+	Mutating bool      // changes files in the workspace
+	Risk     RiskLevel // baseline risk the tool declares; "" = no declaration (LOW)
 }
 
 var (
@@ -49,6 +50,43 @@ func ToolTraitsOf(name string) (ToolTraits, bool) {
 func declaredMutating(name string) bool {
 	t, ok := ToolTraitsOf(name)
 	return ok && t.Mutating
+}
+
+// declaredRisk is the risk a tool declared for itself, or "".
+func declaredRisk(name string) RiskLevel {
+	t, ok := ToolTraitsOf(name)
+	if !ok {
+		return ""
+	}
+	return t.Risk
+}
+
+// StaticRisk is the baseline risk of a tool, independent of the control mode and
+// of per-call analysis. It is the ONE answer to "how risky is this tool" that
+// the policy table, the plugin declarations and the capability bus all agree on:
+// the highest of
+//
+//   - the built-in table (defaultRiskTable),
+//   - the risk the tool declared through RegisterToolTraits,
+//   - CRITICAL for the always-approve host-execution tools,
+//   - MEDIUM for any file-changing tool (built-in workspace mutation or declared).
+//
+// Unknown tools are LOW.
+func StaticRisk(name string) RiskLevel {
+	risk := RiskLow
+	if lvl, ok := defaultRiskTable()[name]; ok {
+		risk = maxRisk(risk, lvl)
+	}
+	if lvl := declaredRisk(name); lvl != "" {
+		risk = maxRisk(risk, lvl)
+	}
+	if contains(alwaysApproveTools, name) {
+		risk = maxRisk(risk, RiskCritical)
+	}
+	if declaredMutating(name) || contains(workspaceMutationTools, name) {
+		risk = maxRisk(risk, RiskMedium)
+	}
+	return risk
 }
 
 // mutationNeedsApproval: every mode except open holds declared file-changing

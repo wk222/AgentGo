@@ -105,6 +105,14 @@ func metaFromPauseInfo(info any, interruptID string) InterruptMeta {
 				Signal:      sig,
 			}
 		}
+	case codingAgentState:
+		return InterruptMeta{
+			Kind:        InterruptToolApproval,
+			InterruptID: interruptID,
+			ApprovalID:  v.ApprovalID,
+			ToolName:    v.ToolName,
+			Arguments:   v.Arguments,
+		}
 	case askUserState:
 		return InterruptMeta{
 			Kind:        InterruptAskUser,

@@ -6,15 +6,14 @@ import (
 	"strings"
 	"sync"
 
-
 	"agentgo/internal/admin"
 	"agentgo/internal/agent"
 	"agentgo/internal/agentpack"
 	"agentgo/internal/apps"
 	"agentgo/internal/capability"
 	"agentgo/internal/checkpoint"
+	"agentgo/internal/engine"
 	"agentgo/internal/gateway"
-	"agentgo/internal/trigger"
 	"agentgo/internal/governance"
 	"agentgo/internal/ideruntime"
 	"agentgo/internal/kanban"
@@ -25,8 +24,8 @@ import (
 	"agentgo/internal/skills"
 	"agentgo/internal/taskhub"
 	"agentgo/internal/tools"
+	"agentgo/internal/trigger"
 	"agentgo/internal/workflow"
-	"agentgo/internal/engine"
 	"agentgo/internal/workspace"
 )
 
@@ -91,12 +90,11 @@ type Runtime struct {
 	nextBinderID int
 }
 
-
-func (r *Runtime) Supervisor() *ideruntime.ProcessSupervisor       { return r.supervisor }
-func (r *Runtime) WorkspaceFS() *ideruntime.WorkspaceFS             { return r.workspaceFS }
-func (r *Runtime) TerminalService() *ideruntime.TerminalService     { return r.terminalSvc }
-func (r *Runtime) SearchService() *ideruntime.SearchService         { return r.searchSvc }
-func (r *Runtime) GitService() *ideruntime.GitService               { return r.gitSvc }
+func (r *Runtime) Supervisor() *ideruntime.ProcessSupervisor    { return r.supervisor }
+func (r *Runtime) WorkspaceFS() *ideruntime.WorkspaceFS         { return r.workspaceFS }
+func (r *Runtime) TerminalService() *ideruntime.TerminalService { return r.terminalSvc }
+func (r *Runtime) SearchService() *ideruntime.SearchService     { return r.searchSvc }
+func (r *Runtime) GitService() *ideruntime.GitService           { return r.gitSvc }
 
 func registerActivateSkillOnRegistry(r *tools.Registry, loader *skills.Loader) error {
 	return tools.RegisterActivateSkill(r, loader)
@@ -230,6 +228,7 @@ func (r *Runtime) syncAllCapabilities(ctx context.Context) {
 					Name:        info.Name,
 					Description: info.Desc,
 					Scope:       "agent",
+					RiskLevel:   toolRiskLabel(info.Name),
 				})
 			}
 		}

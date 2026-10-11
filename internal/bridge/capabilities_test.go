@@ -36,7 +36,6 @@ func TestProbeSaysWhyACapabilityIsUnavailable(t *testing.T) {
 		"scheduler":      `skipped`,
 		"workflow":       "is stopped",
 		"approvals":      "has not started",
-		"chat.crush":     "AGENTGO_CRUSH_EXE", // not registered at all: how to enable it
 		"gateway":        "AGENTGO_GATEWAY_ADDR",
 	} {
 		c := capByID(cs, id)
@@ -65,7 +64,7 @@ func TestProbeWithNoHostReportsEverythingUnavailable(t *testing.T) {
 // Every plugin a capability names must exist, or the probe would report
 // "not enabled" for a typo forever.
 func TestCapabilitiesNameRealPlugins(t *testing.T) {
-	known := map[string]bool{"eino": true, "crush": true, "crushproto": true, "codetools": true, "host": true}
+	known := map[string]bool{"eino": true, "coding-agent": true, "officedoc": true, "crushproto": true, "codetools": true, "host": true}
 	for _, p := range (&Runtime{}).runtimePlugins() {
 		known[p.Name] = true
 	}
@@ -81,7 +80,6 @@ func TestCapabilitiesNameRealPlugins(t *testing.T) {
 // On a real runtime the probe follows the host: disabling or failing a plugin
 // changes the answer, and restoring it restores the answer.
 func TestCapabilitiesFollowTheRunningHost(t *testing.T) {
-	t.Setenv("AGENTGO_CRUSH_EXE", "")
 	rt := boot(t)
 	s := NewAppService(rt)
 	t.Cleanup(s.Close)

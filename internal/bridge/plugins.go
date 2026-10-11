@@ -3,19 +3,20 @@ package bridge
 import (
 	"context"
 	"log"
+	"strings"
 
 	"agentgo/internal/capability"
 	"agentgo/internal/engine"
+	"agentgo/internal/governance"
 	"agentgo/internal/plugin"
 )
 
 // Core services every plugin may Inject.
 const (
-	svcEngines    = "engines"    // *engine.Router
-	svcCapability = "capability" // *capability.Bus
-	svcTools      = "tools"      // *tools.Registry
-	svcBrain      = "brain"      // *AppService: the chat path and session API that engines and protocol adapters drive
-	svcCrush      = "crush-engine" // *crushengine.Engine, while the crush plugin runs
+	svcEngines    = "engines"      // *engine.Router
+	svcCapability = "capability"   // *capability.Bus
+	svcTools      = "tools"        // *tools.Registry
+	svcBrain      = "brain"        // *AppService: the chat path and session API that engines and protocol adapters drive
 )
 
 // chatBackend is all the Eino engine needs from the application: run one chat
@@ -27,6 +28,13 @@ type chatBackend interface {
 func pluginScope(p string) string { return "plugin:" + p }
 
 func grantID(plug, kind, name string) string { return kind + ":" + name + ":" + pluginScope(plug) }
+
+// toolRiskLabel is the capability bus's risk vocabulary for a tool: governance's
+// StaticRisk, lower-cased. Every path that creates or syncs a tool grant uses it,
+// so the bus, the policy and the plugin declarations cannot disagree.
+func toolRiskLabel(name string) string {
+	return strings.ToLower(string(governance.StaticRisk(name)))
+}
 
 // governanceHooks mirrors plugin contributions into the capability bus, so each
 // contribution gets a grant (audit, risk, lifecycle) without the plugin doing
@@ -49,6 +57,9 @@ func governanceHooksFor(bus func() *capability.Bus) plugin.Hooks {
 				return
 			}
 			g := b.Register(kind, name, pluginScope(plug), map[string]string{"plugin": plug})
+			if kind == "tool" {
+				b.SetRisk(g.ID, toolRiskLabel(name))
+			}
 			if g.Status == capability.StatusRetired {
 				_ = b.Transition(g.ID, capability.StatusDraft)
 				_ = b.Transition(g.ID, capability.StatusPublished)
@@ -105,12 +116,13 @@ func (s *AppService) initPlugins() {
 		}
 	}
 	register(einoPlugin(), true)
-	register(crushPlugin(s.rt))
+	register(codingAgentPlugin(s.rt))
 	ctPlugin, ctEnabled := codetoolsPlugin(s.codetoolsEnv())
 	register(ctPlugin, ctEnabled)
 	if ctEnabled {
 		s.unbindWorkspace = s.rt.AddWorkspaceBinder(s.rebindCodetools)
 	}
+	register(officedocPlugin(s.officedocEnv()))
 	register(crushprotoPlugin(s.rt))
 	register(hostlinkPlugin(s.rt))
 

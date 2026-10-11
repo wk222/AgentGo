@@ -25,6 +25,13 @@ const (
 	EventApprovalRequest EventType = "approval_request" // human approval needed
 	EventError           EventType = "error"
 	EventDone            EventType = "done" // terminal event, exactly one per run
+
+	// Protocol v1 additions (docs/kernel-plugin-consensus.md §4). A consumer
+	// must ignore event types it does not know.
+	EventAudioChunk      EventType = "audio_chunk"      // payload.block: audio ContentBlock (media ref, never inline bytes)
+	EventCard            EventType = "card"             // payload.block: card ContentBlock rendered by the host
+	EventInterrupted     EventType = "interrupted"      // NOT terminal: barge-in/cancel by the user; a single done still follows
+	EventInputTranscript EventType = "input_transcript" // payload.text: recognised user speech (partial=true while unfinished)
 )
 
 // Event is the unified progress record.
@@ -70,6 +77,10 @@ type RunRequest struct {
 	SessionID string
 	Input     string
 	Images    []string
+	// Blocks is the protocol-v1 input. When set it is authoritative; the Router
+	// fills Input/Images from it for legacy engines, and builds Blocks from
+	// Input/Images when it is empty (see NormalizeRequest). New code writes Blocks.
+	Blocks    []ContentBlock
 	Workspace string         // optional cwd override
 	Meta      map[string]any // engine-specific options
 }
@@ -93,6 +104,9 @@ type RunResult struct {
 	Error    string    `json:"error,omitempty"`
 	// Pending is true when the run stopped waiting for approval/answer.
 	Pending bool `json:"pending,omitempty"`
+	// Reason qualifies how the run ended when that is not an error, e.g.
+	// "interrupted" after Router.Interrupt. Set by the Router, not by engines.
+	Reason string `json:"reason,omitempty"`
 }
 
 // AgentEngine executes RunRequests. Cancellation is via ctx; Router owns it.
@@ -114,4 +128,35 @@ type Emitter interface {
 	FileChange(path, before, after, unifiedDiff string)
 	ApprovalRequest(approvalID, toolName, arguments, prompt string)
 	Error(msg string)
+}
+
+// BlockEmitter is the protocol-v1 extension of Emitter. It is a separate
+// interface on purpose: adding methods to Emitter would break every existing
+// implementer (compatibility rule: only add). The Router's emitter implements
+// it; engines use EmitBlock / EmitInputTranscript, which degrade to a no-op
+// for emitters that do not.
+type BlockEmitter interface {
+	// Block emits an event carrying a ContentBlock in payload.block
+	// (audio_chunk, card, ...). An invalid block becomes an error event.
+	Block(t EventType, b ContentBlock)
+	// InputTranscript reports recognised user speech for this run.
+	InputTranscript(text string, partial bool)
+}
+
+// EmitBlock emits a block event; it reports false when em cannot carry blocks.
+func EmitBlock(em Emitter, t EventType, b ContentBlock) bool {
+	be, ok := em.(BlockEmitter)
+	if ok {
+		be.Block(t, b)
+	}
+	return ok
+}
+
+// EmitInputTranscript reports recognised speech; false when em cannot carry it.
+func EmitInputTranscript(em Emitter, text string, partial bool) bool {
+	be, ok := em.(BlockEmitter)
+	if ok {
+		be.InputTranscript(text, partial)
+	}
+	return ok
 }

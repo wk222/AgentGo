@@ -15,6 +15,7 @@ func init() {
 	schema.RegisterName[waitSignalState]("_agentgo_wait_signal_state")
 	schema.RegisterName[waitResumeData]("_agentgo_wait_resume_data")
 	schema.RegisterName[askUserState]("_agentgo_ask_user_state")
+	schema.RegisterName[codingAgentState]("_agentgo_coding_agent_state")
 }
 
 // waitSignalState is persisted across wait_signal compose interrupts.

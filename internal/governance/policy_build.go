@@ -39,21 +39,9 @@ func defaultRiskTable() map[string]RiskLevel {
 		"run_swarm":                 RiskHigh,
 		"workflow_trigger":          RiskMedium,
 		"send_email":                RiskMedium,
-		// Crush code tools (codetools plugin): mutating ones need care, readers are low risk.
-		"code_edit":          RiskMedium,
-		"code_multiedit":     RiskMedium,
-		"code_write":         RiskMedium,
-		"lsp_rename":         RiskMedium,
-		"lsp_replace_symbol": RiskMedium,
-		"code_view":          RiskLow,
-		"code_grep":          RiskLow,
-		"code_glob":          RiskLow,
-		"code_ls":            RiskLow,
-		"lsp_diagnostics":    RiskLow,
-		"lsp_references":     RiskLow,
-		"lsp_symbols":        RiskLow,
-		"lsp_definition":     RiskLow,
-		"lsp_call_hierarchy": RiskLow,
+		// Plugin tools (e.g. the codetools plugin's code_* / lsp_*) are NOT listed
+		// here: a plugin declares the risk of the tools it contributes through
+		// RegisterToolTraits, and StaticRisk / EffectiveRisk read it from there.
 		// OpenIPA Distributed RPA & Automation Tools (5 大领域分层治理策略)
 		"open_ipa_list_projects":         RiskLow,
 		"open_ipa_inspect_project":       RiskLow,
@@ -134,6 +122,9 @@ func (p Policy) EffectiveRisk(toolName string, pipeline ToolControlDecision) Ris
 	}
 	if static := p.ToolRiskLevels[toolName]; static != "" {
 		risk = maxRisk(risk, static)
+	}
+	if declared := declaredRisk(toolName); declared != "" {
+		risk = maxRisk(risk, declared)
 	}
 	// A declared file-changing tool is never "low": the middleware lets low-risk
 	// calls bypass approval before RequiresApprovalFor is even asked.

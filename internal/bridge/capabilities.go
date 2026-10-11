@@ -28,13 +28,13 @@ type capabilityDef struct {
 
 var capabilityDefs = []capabilityDef{
 	{id: "chat.eino", title: "Eino agent chat", needs: []string{"eino"}},
-	{id: "chat.crush", title: "Crush coding engine", needs: []string{"crush"},
-		hint: "no Crush executable was found; set AGENTGO_CRUSH_EXE"},
+	{id: "coding.agent", title: "Coding agent workflow node", needs: []string{"coding-agent"}},
 	{id: "protocol.crush", title: "Crush TUI protocol server", needs: []string{"crushproto"},
 		hint: "set AGENTGO_CRUSHPROTO_ADDR to serve the Crush protocol"},
 	{id: "host.attach", title: "Attach other terminals to this process", needs: []string{"host"},
 		hint: "the host endpoint is switched off (AGENTGO_HOSTLINK)"},
 	{id: "code.tools", title: "Code-aware tools (LSP, edit, search)", needs: []string{"codetools"}},
+	{id: "office.docs", title: "Word and Excel generation", needs: []string{"officedoc"}},
 	{id: "tools.builtin", title: "Built-in agent tools", needs: []string{"toolset"}},
 	{id: "workflow", title: "Workflows", needs: []string{"workflow"}},
 	{id: "approvals", title: "Human approval of risky actions", needs: []string{"approvals"}},

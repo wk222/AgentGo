@@ -150,6 +150,24 @@ func (b *Bus) SeedDefaults() {
 	b.Register("channel", "wecom", "integration", map[string]string{"status": "disabled"})
 }
 
+// SetRisk records the risk level of a grant. The caller owns the vocabulary
+// (the runtime uses governance.StaticRisk, lower-cased) so the bus never keeps
+// a second, drifting opinion about how risky a tool is.
+func (b *Bus) SetRisk(id, level string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	g, ok := b.grants[id]
+	if !ok || g.RiskLevel == level {
+		return
+	}
+	g.RiskLevel = level
+	g.UpdatedAt = time.Now().Unix()
+	b.grants[id] = g
+	if b.store != nil {
+		_ = b.store.Upsert(g)
+	}
+}
+
 // Verify updates verification timestamp and result.
 func (b *Bus) Verify(id string, result string) {
 	b.mu.Lock()

@@ -97,7 +97,9 @@ func parsePDF(ctx context.Context, data []byte) (parseFileOutput, error) {
 }
 
 func parseDOCX(ctx context.Context, data []byte) (parseFileOutput, error) {
-	p, err := docxparser.NewDocxParser(ctx, nil)
+	// The default config drops table text, headers and footers, which is most of
+	// what a report or a form contains.
+	p, err := docxparser.NewDocxParser(ctx, &docxparser.Config{IncludeTables: true, IncludeHeaders: true, IncludeFooters: true})
 	if err != nil {
 		return parseFileOutput{}, fmt.Errorf("docx parser init: %w", err)
 	}

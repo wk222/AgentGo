@@ -42,9 +42,10 @@ var PackageLayer = map[string]Layer{
 	"hostlink":           LayerFoundation, // host discovery, token auth, loopback guard, attach proxy; stdlib only
 	"shellcmd":           LayerFoundation, // runs a command line through the platform shell and ends its process tree; stdlib only
 	"plugin":             LayerFoundation, // plugin host: services, scopes, event middleware; stdlib only
+	"officedoc":          LayerAssets,     // native Word/Excel generation (docx writer, excelize) as Eino tools
 	"codetools":          LayerAssets,     // Crush code-aware tools adapted to Eino tools
 	"engine":             LayerSystems,    // unified AgentEngine/EventSink contracts; stdlib only
-	"engine/crushengine": LayerSystems,    // Crush sidecar engine (HTTP/SSE client; imports engine only)
+	"audio":              LayerSystems,    // kernel side of voice: frames, events, interrupt contract; stdlib only (VAD/ASR/TTS are plugins)
 	"crushproto":         LayerSystems,    // serves Crush's /v1 protocol so the stock Crush TUI can front AgentGo; stdlib only
 	"tools":              LayerAssets,
 	"skills":             LayerAssets,
@@ -62,6 +63,7 @@ var PackageLayer = map[string]Layer{
 	"bridge":             LayerConsumer,
 	"acp":                LayerConsumer,
 	"tui":                LayerConsumer,
+	"cli":                LayerConsumer,   // AgentGo's own terminal client; drives the brain through bridge.AppService
 	"arch":               LayerFoundation, // meta; only stdlib imports allowed
 }
 

@@ -16,8 +16,8 @@ import (
 // the plugin impossible to replace or leave out.
 var concretePlugins = []string{
 	"agentgo/internal/codetools",
+	"agentgo/internal/officedoc",
 	"agentgo/internal/crushproto",
-	"agentgo/internal/engine/crushengine",
 }
 
 // contractOnlyStdlib packages are contracts or the host itself; they may not
@@ -97,8 +97,8 @@ func TestConcretePluginsAreOnlyReachedThroughTheAssembly(t *testing.T) {
 func TestHostAndContractPackagesImportOnlyTheStdlib(t *testing.T) {
 	for _, pkg := range contractOnlyStdlib {
 		for rel, imps := range importsOf(t, filepath.Join(repoRoot(), "internal", pkg)) {
-			// Only the package itself: engine/crushengine is an implementation of
-			// the engine contract and rightly imports it.
+			// Only the package itself: an engine implementation under
+			// internal/engine/ rightly imports the engine contract.
 			if filepath.ToSlash(filepath.Dir(rel)) != "internal/"+pkg {
 				continue
 			}
@@ -195,7 +195,7 @@ func TestPluginConstructorsDoNotDependOnAppService(t *testing.T) {
 			t.Errorf("%q no longer references AppService; remove it from appServiceCoupled", name)
 		}
 	}
-	for _, want := range []string{"einoPlugin", "crushPlugin", "crushprotoPlugin", "hostlinkPlugin", "codetoolsPlugin", "dataPlugins", "agentPlugins", "featurePlugins"} {
+	for _, want := range []string{"einoPlugin", "codingAgentPlugin", "crushprotoPlugin", "hostlinkPlugin", "codetoolsPlugin", "dataPlugins", "agentPlugins", "featurePlugins"} {
 		if !seen[want] {
 			t.Errorf("constructor %s was not found; the check is not looking at the right code", want)
 		}
