@@ -1,4 +1,4 @@
-import { defineComponent, onMounted, onUnmounted, ref, watch } from 'vue'
+import { defineComponent, onMounted, onUnmounted, ref, watch, PropType } from 'vue'
 import { wailsCall } from './wails'
 
 const escapeScript = (s: string) => s.replace(/<\/script/gi, '<\\/script')
@@ -13,6 +13,22 @@ const helperScript = (name: string, sessionId: string, nonce: string, manifest: 
   const openPolicy = manifest.export_policy === 'open';
   let seq = 0;
   const pending = new Map();
+  window.addEventListener('error', function (ev) {
+    window.parent.postMessage({
+      type: 'agentgo:inner-app-runtime-error',
+      app: appName,
+      session_id: sessionId,
+      error: (ev && ev.message) ? String(ev.message) : 'Unknown runtime error'
+    }, '*');
+  });
+  window.addEventListener('unhandledrejection', function (ev) {
+    window.parent.postMessage({
+      type: 'agentgo:inner-app-runtime-error',
+      app: appName,
+      session_id: sessionId,
+      error: (ev && ev.reason) ? String(ev.reason.message || ev.reason) : 'Unhandled promise rejection'
+    }, '*');
+  });
   window.addEventListener('message', function (ev) {
     const msg = ev.data || {};
     if (msg.type !== 'agentgo:inner-app-api:result') return;
@@ -62,11 +78,18 @@ const helperScript = (name: string, sessionId: string, nonce: string, manifest: 
 })();
 </script>`
 
+interface AppHtmlSnapshot {
+  version: number
+  time: string
+  html: string
+}
+
 export default defineComponent({
   name: 'InnerAppHost',
   props: {
     appName: { type: String, required: true },
     title: { type: String, default: '' },
+    onSendToAgent: { type: Function as PropType<(text: string) => void>, default: undefined },
   },
   setup(props) {
     const html = ref('')
@@ -75,6 +98,18 @@ export default defineComponent({
     const frameRef = ref<HTMLIFrameElement | null>(null)
     const session = ref<any | null>(null)
     const manifest = ref<any | null>(null)
+
+    // OpenBitFun creationRuntime-style handshake & snapshot rollback state
+    const handshakeState = ref<'pending' | 'ready' | 'runtime_error'>('pending')
+    const runtimeErrors = ref<string[]>([])
+    const snapshots = ref<AppHtmlSnapshot[]>([])
+    const activeSnapshotIdx = ref(-1)
+
+    // OpenBitFun FloatingMiniChat-style companion state
+    const companionOpen = ref(false)
+    const companionPrompt = ref('')
+    const evolving = ref(false)
+    const evolveStatus = ref('')
 
     const readAssetText = async (name: string, rel: string) => {
       const r = await wailsCall('ReadInnerAppFile', name, rel)
@@ -114,6 +149,31 @@ export default defineComponent({
       return out
     }
 
+    const recordSnapshot = (preparedHtml: string) => {
+      if (!preparedHtml) return
+      const last = snapshots.value[snapshots.value.length - 1]
+      if (last && last.html === preparedHtml) {
+        activeSnapshotIdx.value = snapshots.value.length - 1
+        return
+      }
+      const nextVer = snapshots.value.length + 1
+      const nowStr = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      snapshots.value.push({ version: nextVer, time: nowStr, html: preparedHtml })
+      activeSnapshotIdx.value = snapshots.value.length - 1
+    }
+
+    const rollbackSnapshot = () => {
+      if (activeSnapshotIdx.value <= 0) return
+      activeSnapshotIdx.value -= 1
+      const target = snapshots.value[activeSnapshotIdx.value]
+      if (target) {
+        runtimeErrors.value = []
+        handshakeState.value = 'pending'
+        html.value = target.html
+        evolveStatus.value = `已回滚至快照 v${target.version} (${target.time})`
+      }
+    }
+
     const load = async () => {
       const name = props.appName.trim()
       if (!name) return
@@ -122,6 +182,8 @@ export default defineComponent({
       html.value = ''
       session.value = null
       manifest.value = null
+      handshakeState.value = 'pending'
+      runtimeErrors.value = []
       try {
         const hostSession = await wailsCall('OpenInnerAppSession', name)
         if (hostSession?.success === false) {
@@ -132,7 +194,9 @@ export default defineComponent({
         manifest.value = hostSession?.manifest || null
         const r = await wailsCall('GetInnerAppPageHTML', name)
         if (r?.success) {
-          html.value = await prepareHTML(name, r.html || '', hostSession)
+          const prepared = await prepareHTML(name, r.html || '', hostSession)
+          html.value = prepared
+          recordSnapshot(prepared)
         } else {
           error.value = r?.error || '打开 Inner App UI 失败'
         }
@@ -143,12 +207,78 @@ export default defineComponent({
       }
     }
 
+    const evolveInPlace = async (instructionText?: string) => {
+      const prompt = (instructionText ?? companionPrompt.value).trim()
+      const name = props.appName.trim()
+      if (!prompt || !name || evolving.value) return
+      evolving.value = true
+      evolveStatus.value = '正在热演进生成新版本 Bundle…'
+      try {
+        const errContext = runtimeErrors.value.length
+          ? `\n当前运行时异常需一并修复：${runtimeErrors.value.join('; ')}`
+          : ''
+        const r = await wailsCall(
+          'BuildInnerAppIteratively',
+          name,
+          props.title || name,
+          `在保留现有核心功能的基础上迭代修改 Inner App (${name})：${prompt}${errContext}`,
+          'static',
+          '',
+          '',
+          2,
+          true,
+        )
+        if (r?.success) {
+          companionPrompt.value = ''
+          await load()
+          evolveStatus.value = `热更新完成 (v${snapshots.value.length})，若效果不佳可一键回滚`
+        } else {
+          evolveStatus.value = r?.error || '热演进失败，已保持原版本'
+        }
+      } catch (e: any) {
+        evolveStatus.value = e?.message || '热演进失败'
+      } finally {
+        evolving.value = false
+      }
+    }
+
+    const sendCompanionToMainChat = () => {
+      const prompt = companionPrompt.value.trim()
+      const name = props.appName.trim()
+      if (!prompt || !props.onSendToAgent) return
+      const errBlock = runtimeErrors.value.length
+        ? `\n当前检测到运行时报错：\`${runtimeErrors.value.join(' | ')}\``
+        : ''
+      props.onSendToAgent(
+        `[Creative Mode · InnerApp 演进] 请针对内置应用 \`${name}\` 进行迭代修改：\n${prompt}${errBlock}`,
+      )
+      companionPrompt.value = ''
+      evolveStatus.value = '已发送至右侧 Agent 控制台'
+    }
+
     const handleInnerAppMessage = async (ev: MessageEvent) => {
       const msg: any = ev.data || {}
-      if (msg.type !== 'agentgo:inner-app-api') return
       const source = ev.source as Window | null
       if (!source) return
       if (frameRef.value?.contentWindow && source !== frameRef.value.contentWindow) return
+
+      if (msg.type === 'agentgo:inner-app-ready') {
+        if (handshakeState.value !== 'runtime_error') {
+          handshakeState.value = 'ready'
+        }
+        return
+      }
+
+      if (msg.type === 'agentgo:inner-app-runtime-error') {
+        handshakeState.value = 'runtime_error'
+        const errText = String(msg.error || 'Runtime error')
+        if (!runtimeErrors.value.includes(errText)) {
+          runtimeErrors.value.push(errText)
+        }
+        return
+      }
+
+      if (msg.type !== 'agentgo:inner-app-api') return
       const name = String(msg.app || props.appName || '').trim()
       const currentSession = session.value
       try {
@@ -172,30 +302,163 @@ export default defineComponent({
       void load()
     })
     onUnmounted(() => window.removeEventListener('message', handleInnerAppMessage))
-    watch(() => props.appName, () => { void load() })
+    watch(() => props.appName, () => {
+      snapshots.value = []
+      activeSnapshotIdx.value = -1
+      void load()
+    })
 
-    return () => (
-      <div class="inner-app-host">
-        {props.title && (
-          <div class="inner-app-host-head">
-            <span>{props.title}</span>
-            {loading.value && <span class="inner-app-host-status">加载中...</span>}
+    return () => {
+      const currentSnap = snapshots.value[activeSnapshotIdx.value]
+      const canRollback = activeSnapshotIdx.value > 0
+
+      return (
+        <div class="inner-app-host" style={{ position: 'relative' }}>
+          <div class="inner-app-manifest-bar" style={{ justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <span
+                class={[
+                  'inner-app-handshake-badge',
+                  handshakeState.value === 'ready' && 'ok',
+                  handshakeState.value === 'runtime_error' && 'err',
+                ]}
+                title="OpenBitFun 风格宿主握手与运行时状态监控"
+              >
+                {handshakeState.value === 'ready'
+                  ? `● Ready${currentSnap ? ` · v${currentSnap.version}` : ''}`
+                  : handshakeState.value === 'runtime_error'
+                    ? `⚠ 运行时异常 (${runtimeErrors.value.length})`
+                    : '◌ 握手中…'}
+              </span>
+              {manifest.value && (
+                <>
+                  <span>{manifest.value.export_policy === 'open' ? 'open policy' : 'exports'}</span>
+                  {(manifest.value.actions || []).slice(0, 6).map((a: any) => (
+                    <code key={String(a.name || a)}>{String(a.name || a)}</code>
+                  ))}
+                </>
+              )}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              {canRollback && (
+                <button
+                  type="button"
+                  class="inner-app-bar-btn warn"
+                  onClick={rollbackSnapshot}
+                  title="回滚到上一个可用快照版本"
+                >
+                  ↶ 回滚上一版 (v{snapshots.value[activeSnapshotIdx.value - 1]?.version})
+                </button>
+              )}
+              <button
+                type="button"
+                class="inner-app-bar-btn"
+                onClick={() => void load()}
+                disabled={loading.value}
+                title="重新加载当前 Inner App"
+              >
+                ↺ 热重载
+              </button>
+              <button
+                type="button"
+                class={['inner-app-bar-btn', 'accent', companionOpen.value && 'active']}
+                onClick={() => { companionOpen.value = !companionOpen.value }}
+                title="打开 OpenBitFun 风格创造模式伴随悬浮窗，边用边改"
+              >
+                ✨ 伴随演进
+              </button>
+            </div>
           </div>
-        )}
-        {manifest.value && (
-          <div class="inner-app-manifest-bar">
-            <span>{manifest.value.export_policy === 'open' ? 'open policy' : 'exports'}</span>
-            {(manifest.value.actions || []).slice(0, 8).map((a: any) => (
-              <code key={String(a.name || a)}>{String(a.name || a)}</code>
-            ))}
-          </div>
-        )}
-        {error.value
-          ? <div class="inner-app-host-error">{error.value}</div>
-          : html.value
-            ? <iframe ref={frameRef} class="inner-app-frame" sandbox="allow-scripts allow-forms allow-popups" srcdoc={html.value}></iframe>
-            : <div class="inner-app-host-empty">{loading.value ? '加载中...' : '暂无 UI'}</div>}
-      </div>
-    )
+
+          {error.value
+            ? <div class="inner-app-host-error">{error.value}</div>
+            : html.value
+              ? <iframe ref={frameRef} class="inner-app-frame" sandbox="allow-scripts allow-forms allow-popups" srcdoc={html.value}></iframe>
+              : <div class="inner-app-host-empty">{loading.value ? '加载中...' : '暂无 UI'}</div>}
+
+          {/* OpenBitFun FloatingMiniChat-inspired Creative Companion Overlay */}
+          {companionOpen.value && (
+            <div class="inner-app-companion-card">
+              <div class="inner-app-companion-head">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span class="inner-app-companion-badge">Creative · 创造伴随窗</span>
+                  <span style={{ fontSize: '11.5px', fontWeight: 600 }}>{props.appName}</span>
+                </div>
+                <button
+                  type="button"
+                  class="inner-app-companion-close"
+                  onClick={() => { companionOpen.value = false }}
+                >
+                  ✕
+                </button>
+              </div>
+
+              {runtimeErrors.value.length > 0 && (
+                <div class="inner-app-companion-errbox">
+                  <div style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    捕获异常：{runtimeErrors.value[0]}
+                  </div>
+                  <button
+                    type="button"
+                    class="inner-app-bar-btn warn"
+                    disabled={evolving.value}
+                    onClick={() => void evolveInPlace(`修复运行时报错：${runtimeErrors.value.join('; ')}`)}
+                  >
+                    一键热修复
+                  </button>
+                </div>
+              )}
+
+              <div class="inner-app-companion-chips">
+                {['优化紧凑排版与配色', '增加数据导出与筛选栏', '适配深色模式与响应式布局'].map(chip => (
+                  <button
+                    key={chip}
+                    type="button"
+                    class="inner-app-companion-chip"
+                    onClick={() => { companionPrompt.value = chip }}
+                  >
+                    {chip}
+                  </button>
+                ))}
+              </div>
+
+              <textarea
+                class="inner-app-companion-input"
+                rows={2}
+                placeholder="边用边改：描述你想给当前应用增加的交互或修复点…"
+                value={companionPrompt.value}
+                onInput={(e: Event) => { companionPrompt.value = (e.target as HTMLTextAreaElement).value }}
+                disabled={evolving.value}
+              ></textarea>
+
+              {evolveStatus.value && (
+                <div class="inner-app-companion-status">{evolveStatus.value}</div>
+              )}
+
+              <div class="inner-app-companion-actions">
+                <button
+                  type="button"
+                  class="inner-app-bar-btn accent"
+                  disabled={evolving.value || !companionPrompt.value.trim()}
+                  onClick={() => void evolveInPlace()}
+                >
+                  {evolving.value ? '正在热演进…' : '⚡ 原位热更新 Bundle'}
+                </button>
+                {props.onSendToAgent && (
+                  <button
+                    type="button"
+                    class="inner-app-bar-btn"
+                    disabled={!companionPrompt.value.trim()}
+                    onClick={sendCompanionToMainChat}
+                  >
+                    ↗ 发送到主对话
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )
+    }
   },
 })

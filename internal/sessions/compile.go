@@ -10,9 +10,15 @@ import (
 // CompileOptions configures message → ProjectedRuntimeView classification.
 type CompileOptions struct {
 	MaxActiveTurns int
-	DurableTasks   []string
-	WorkspaceRules string // SOUL/TEAM/rules preloaded (optional)
-	Snapshot       SpineSnapshot
+	// RecentTailTurns controls how many most-recent messages keep full tool outputs
+	// before Reasonix-style deterministic head/tail snipping applies (default 6).
+	RecentTailTurns int
+	// MaxStaleToolChars is the character threshold above which older tool results
+	// are deterministically snipped to preserve prompt prefix cache economics (default 1600).
+	MaxStaleToolChars int
+	DurableTasks      []string
+	WorkspaceRules    string // SOUL/TEAM/rules preloaded (optional)
+	Snapshot          SpineSnapshot
 }
 
 const (
@@ -95,12 +101,79 @@ func CompileProjectedView(messages []*schema.Message, opt CompileOptions) *Proje
 
 	var dropped int
 	active, dropped = pruneAndNormalizeActive(active, opt.MaxActiveTurns)
-	if dropped > 0 {
+	var snipped int
+	active, snipped = snipStaleToolResults(active, opt.RecentTailTurns, opt.MaxStaleToolChars)
+	if dropped > 0 || snipped > 0 {
 		view.ContextHygiene = append(view.ContextHygiene,
-			fmt.Sprintf("活跃窗口保留最近 %d 条消息；另有 %d 条较早轮次已自动归一化或未送入本轮模型（请依赖 episodic_summary）。", len(active), dropped))
+			fmt.Sprintf("活跃窗口保留最近 %d 条消息（裁剪较早 %d 条，确定性折叠旧工具长输出 %d 处以保护 Prefix Cache；需要更早细节请参考 episodic_summary）。", len(active), dropped, snipped))
 	}
 	view.ActiveTurn = active
 	return view
+}
+
+// snipStaleToolResults implements Reasonix SPEC §3.6 tiered tool-result snipping:
+// Tool outputs before the recent tail that exceed maxChars are shortened with deterministic
+// head/tail markers while preserving message pairing and keeping error/failed outputs intact.
+func snipStaleToolResults(active []FlatMessage, recentTail int, maxChars int) ([]FlatMessage, int) {
+	if len(active) == 0 {
+		return active, 0
+	}
+	if recentTail <= 0 {
+		recentTail = 6
+	}
+	if maxChars <= 0 {
+		maxChars = 1600
+	}
+	cutoff := len(active) - recentTail
+	if cutoff <= 0 {
+		return active, 0
+	}
+
+	snippedCount := 0
+	out := make([]FlatMessage, len(active))
+	copy(out, active)
+
+	headKeep := maxChars * 5 / 8
+	tailKeep := maxChars - headKeep
+
+	for i := 0; i < cutoff; i++ {
+		if out[i].Role != "tool" {
+			continue
+		}
+		content := out[i].Content
+		if len(content) <= maxChars {
+			continue
+		}
+		// KeepErrors: preserve error or blocked tool outputs so the model does not lose failure diagnostics
+		if looksLikeErrorToolOutput(content) {
+			continue
+		}
+		omitted := len(content) - (headKeep + tailKeep)
+		if omitted <= 120 {
+			continue
+		}
+		out[i].Content = fmt.Sprintf(
+			"%s\n...[snip: %d chars omitted for prefix-cache hygiene]...\n%s",
+			content[:headKeep],
+			omitted,
+			content[len(content)-tailKeep:],
+		)
+		snippedCount++
+	}
+	return out, snippedCount
+}
+
+func looksLikeErrorToolOutput(content string) bool {
+	lower := strings.ToLower(content)
+	if len(lower) > 512 {
+		lower = lower[:512]
+	}
+	return strings.Contains(lower, "\"error\"") ||
+		strings.Contains(lower, "error:") ||
+		strings.Contains(lower, "panic:") ||
+		strings.Contains(lower, "failed:") ||
+		strings.Contains(lower, "exit code: 1") ||
+		strings.Contains(lower, "blocked")
 }
 
 // pruneAndNormalizeActive prunes messages exceeding maxTurns while strictly preserving

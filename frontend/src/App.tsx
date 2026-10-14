@@ -7,6 +7,7 @@ import ChatPanel from './ChatPanel'
 import RightPanel from './RightPanel'
 import InnerAppHost from './InnerAppHost'
 import MemoryPanel from './panels/MemoryPanel'
+import { SettingsPanel } from './panels/SettingsPanel'
 import { WorkflowPanel, TasksPanel, CapabilityPanel, SkillsPanel, ChannelsPanel, AppsPanel, CodeWorkspacePanel } from './panels'
 import AppTitleBar from './components/AppTitleBar'
 import AppStatusBar from './components/AppStatusBar'
@@ -195,6 +196,16 @@ export default defineComponent({
 
     const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n))
 
+    // Borrowed from OpenBitFun panelConfig.ts: snap points & double-click mode toggle
+    const SIDEBAR_SNAP_POINTS = [200, 240, 300, 360]
+    const RIGHT_PANEL_SNAP_POINTS = [340, 420, 540, 680]
+    const snapToNearest = (val: number, points: number[], range = 16) => {
+      for (const p of points) {
+        if (Math.abs(val - p) <= range) return p
+      }
+      return val
+    }
+
     const startResize = (pane: 'sidebar' | 'right', e: PointerEvent) => {
       e.preventDefault()
       resizingPane.value = pane
@@ -205,16 +216,31 @@ export default defineComponent({
       if (resizingPane.value === 'sidebar') {
         sidebarWidth.value = clamp(e.clientX, 200, 380)
       } else if (resizingPane.value === 'right') {
-        rightPanelWidth.value = clamp(window.innerWidth - e.clientX, 240, 560)
+        rightPanelWidth.value = clamp(window.innerWidth - e.clientX, 320, 720)
       }
     }
 
     const stopResize = () => {
       if (!resizingPane.value) return
-      localStorage.setItem('agentgo-sidebar-width', String(sidebarWidth.value))
-      localStorage.setItem('agentgo-rightpanel-width', String(rightPanelWidth.value))
+      if (resizingPane.value === 'sidebar') {
+        sidebarWidth.value = snapToNearest(sidebarWidth.value, SIDEBAR_SNAP_POINTS)
+        localStorage.setItem('agentgo-sidebar-width', String(sidebarWidth.value))
+      } else if (resizingPane.value === 'right') {
+        rightPanelWidth.value = snapToNearest(rightPanelWidth.value, RIGHT_PANEL_SNAP_POINTS)
+        localStorage.setItem('agentgo-rightpanel-width', String(rightPanelWidth.value))
+      }
       resizingPane.value = ''
       document.body.classList.remove('pane-resizing')
+    }
+
+    const togglePaneModeWidth = (pane: 'sidebar' | 'right') => {
+      if (pane === 'sidebar') {
+        sidebarWidth.value = sidebarWidth.value >= 290 ? 240 : 320
+        localStorage.setItem('agentgo-sidebar-width', String(sidebarWidth.value))
+      } else {
+        rightPanelWidth.value = rightPanelWidth.value >= 500 ? 400 : 540
+        localStorage.setItem('agentgo-rightpanel-width', String(rightPanelWidth.value))
+      }
     }
 
     const switchView = (id: string) => {
@@ -549,66 +575,6 @@ export default defineComponent({
       localStorage.setItem('agentgo-center-open', 'true')
     }
 
-    /* ── Settings panel ── */
-    const SettingsPanel = () => (
-      <div class="settings-panel">
-        <div class="settings-header">
-          <h2>设置</h2>
-          <button class="icon-btn" onClick={closeSettings} title="返回工作区">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-          </button>
-        </div>
-        <div class="settings-section">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-            <h3 style={{ margin: 0 }}>LLM 配置</h3>
-            {hasAzureLuna.value && (
-              <button
-                class="settings-btn"
-                onClick={applyAzureLuna}
-                title={`快速切换至本地已配置的 Azure ${azureLunaInfo.value.model}`}
-                style={{ background: 'rgba(167, 139, 250, 0.16)', color: '#C4B5FD', border: '1px solid rgba(167, 139, 250, 0.35)', fontSize: '11px', padding: '3px 9px', borderRadius: '4px', cursor: 'pointer' }}
-              >
-                ⚡ 切换至本地 Azure Luna
-              </button>
-            )}
-          </div>
-          <div class="settings-form">
-            {([
-              ['API Base URL', 'api_base', 'text', 'https://api.openai.com/v1'],
-              ['API Key', 'api_key', 'password', 'sk-…'],
-              ['模型', 'model', 'text', 'gpt-4o'],
-              ['备用模型（可选）', 'fallback_model', 'text', 'gpt-3.5-turbo'],
-            ] as Array<[string, string, string, string]>).map(([label, key, type, ph]) => (
-              <div key={key}>
-                <label class="settings-label">{label}</label>
-                <input
-                  class="settings-input"
-                  type={type}
-                  placeholder={ph}
-                  value={(llmForm.value as any)[key]}
-                  onInput={(e: Event) => llmForm.value = { ...llmForm.value, [key]: (e.target as HTMLInputElement).value }}
-                />
-              </div>
-            ))}
-          </div>
-          <div class="settings-actions">
-            <button class="settings-btn primary" onClick={saveLLM}>保存配置</button>
-            <button class="settings-btn" onClick={testAPI} disabled={testing.value}>
-              {testing.value ? '测试中…' : '测试连接'}
-            </button>
-            {testResult.value && (
-              <span class={['settings-test-result', testResult.value.ok ? 'ok' : 'fail']}>
-                {testResult.value.ok ? '✓ 连接正常' : '✗ ' + (testResult.value.message || '连接失败')}
-              </span>
-            )}
-          </div>
-          <div class={['settings-api-status', apiStatus.value.ok === true ? 'ok' : apiStatus.value.ok === false ? 'fail' : 'neutral']}>
-            {apiStatus.value.label}
-          </div>
-        </div>
-      </div>
-    )
-
     /* ── Real panels ── */
     const PANEL_COMPONENTS: Record<string, any> = {
       code: CodeWorkspacePanel,
@@ -749,7 +715,8 @@ export default defineComponent({
               <div
                 class={['pane-resizer', 'pane-resizer-left', resizingPane.value === 'sidebar' && 'active']}
                 onPointerdown={(e: PointerEvent) => startResize('sidebar', e)}
-                title="拖动调整侧栏宽度"
+                onDblclick={() => togglePaneModeWidth('sidebar')}
+                title="拖动调整侧栏宽度（双击切换紧凑/展开）"
               ></div>
             </>
           )}
@@ -769,7 +736,17 @@ export default defineComponent({
               }}
             >
               {activeView.value === 'code' && <CodeWorkspacePanel onSendToAgent={sendToAgent} sessionId={chat.sessionId.value} />}
-              {activeView.value === 'settings' && <SettingsPanel />}
+              {activeView.value === 'settings' && (
+                <SettingsPanel
+                  theme={isDark.value ? 'dark' : 'light'}
+                  onToggleTheme={toggleDark}
+                  modeProfile={modeProfile.value}
+                  executionCanvas={modeCanvas.value}
+                  onModeChange={changeSessionMode}
+                  onSaved={loadLLM}
+                  onClose={closeSettings}
+                />
+              )}
               {activeView.value !== 'code' && activeView.value !== 'settings' && ActivePanel(activeView.value)}
             </div>
           )}
@@ -779,7 +756,8 @@ export default defineComponent({
             <div
               class={['pane-resizer', 'pane-resizer-right', resizingPane.value === 'right' && 'active']}
               onPointerdown={(e: PointerEvent) => startResize('right', e)}
-              title="拖动调整 Agent 控制台宽度"
+              onDblclick={() => togglePaneModeWidth('right')}
+              title="拖动调整 Agent 控制台宽度（双击切换舒适 400px / 展开 540px）"
             ></div>
           )}
 

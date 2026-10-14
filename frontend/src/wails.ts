@@ -678,10 +678,16 @@ async function mockCall(method: string, ...params: any[]): Promise<any> {
     }
 
     case 'GetLLMConfig':
-      return readJSON(PREVIEW_LLM_KEY, { api_base: 'https://api.openai.com/v1', api_key: '', model: 'gpt-4o', fallback_model: '', has_azure_luna: true, azure_api_base: 'https://azure.openai.mock/openai/v1/', azure_model: 'gpt-6-luna' })
+      return readJSON(PREVIEW_LLM_KEY, { api_base: 'https://api.openai.com/v1', api_key: '', model: 'gpt-4o', fallback_model: '', has_azure_luna: true, azure_api_base: 'https://azure.openai.mock/openai/v1/', azure_model: 'gpt-6-luna', has_deepseek: true })
     case 'LoadAzureLunaConfig':
       writeJSON(PREVIEW_LLM_KEY, { api_base: 'https://azure.openai.mock/openai/v1/', api_key: 'mock-azure-luna-key', model: 'gpt-6-luna', fallback_model: '' })
       return { success: true, model: 'gpt-6-luna', api_base: 'https://azure.openai.mock/openai/v1/' }
+    case 'LoadDeepSeekConfig': {
+      const m = String(params[0] || 'deepseek-reasoner')
+      const fb = m === 'deepseek-chat' ? 'deepseek-reasoner' : 'deepseek-chat'
+      writeJSON(PREVIEW_LLM_KEY, { api_base: 'https://api.deepseek.com/v1', api_key: 'mock-deepseek-key', model: m, fallback_model: fb, has_deepseek: true })
+      return { success: true, model: m, api_base: 'https://api.deepseek.com/v1', api_key_set: true, from_env_key: true }
+    }
     case 'SetLLMConfig': {
       const cfg = { api_base: params[0] || '', api_key: params[1] || '', model: params[2] || '', fallback_model: params[3] || '' }
       writeJSON(PREVIEW_LLM_KEY, cfg)

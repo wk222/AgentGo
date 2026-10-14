@@ -19,14 +19,27 @@ function EmptyState(msg: string) {
   )
 }
 
+const PANEL_HEADER_SVGS: Record<string, string> = {
+  '⚡': '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>',
+  '📋': '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M9 12h6"/><path d="M9 16h6"/></svg>',
+  '🛡': '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
+  '⭐': '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
+  '🌐': '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>',
+  '📦': '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>',
+}
+
 function PanelHeader(icon: string, title: string) {
   return (
     <div style={{
-      display: 'flex', alignItems: 'center', gap: '10px',
-      padding: '18px 20px 14px', borderBottom: '1px solid var(--border-subtle)', flexShrink: 0,
+      display: 'flex', alignItems: 'center', gap: '8px',
+      padding: '10px 16px', borderBottom: '1px solid var(--border-subtle)', flexShrink: 0,
+      background: 'var(--topbar-bg)',
     }}>
-      <span style={{ fontSize: '18px' }}>{icon}</span>
-      <span style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-strong)' }}>{title}</span>
+      <span
+        style={{ display: 'inline-flex', alignItems: 'center', color: 'var(--accent-text)' }}
+        innerHTML={PANEL_HEADER_SVGS[icon] || PANEL_HEADER_SVGS['⚡']}
+      ></span>
+      <span style={{ fontSize: '13.5px', fontWeight: 600, color: 'var(--text-strong)' }}>{title}</span>
     </div>
   )
 }
@@ -748,7 +761,7 @@ export const AppsPanel = defineComponent({
                 <span>{appName(viewerApp.value)}</span>
                 <button style={miniButtonStyle()} onClick={() => { viewerApp.value = null }}>关闭</button>
               </div>
-              <InnerAppHost appName={appName(viewerApp.value)} />
+              <InnerAppHost appName={appName(viewerApp.value)} onSendToAgent={props.onSendToAgent} />
             </div>
           )}
           {loading.value ? EmptyState('加载中…')
