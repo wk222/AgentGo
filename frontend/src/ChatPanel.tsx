@@ -2,364 +2,53 @@ import { defineComponent, ref, computed, nextTick, watch, onMounted, onBeforeUnm
 import type { Message, Session } from './composables/useChat'
 import { sessionTitle, sessionIdOf } from './composables/useChat'
 import { wailsCall } from './wails'
-import ReasoningBubble from './components/chat/ReasoningBubble'
-import ToolCallBubble from './components/chat/ToolCallBubble'
 import PromptSuggestions from './components/chat/PromptSuggestions'
+import FlowChatTranscript from './components/chat/FlowChatTranscript'
 
-function extractThinking(content: string): { thinking: string; main: string } {
-  if (!content) return { thinking: '', main: '' }
-  const match = content.match(/<think>([\s\S]*?)<\/think>/i)
-  if (match) {
-    return {
-      thinking: match[1].trim(),
-      main: content.replace(/<think>[\s\S]*?<\/think>/i, '').trim(),
-    }
-  }
-  const openMatch = content.match(/<think>([\s\S]*)$/i)
-  if (openMatch) {
-    return {
-      thinking: openMatch[1].trim(),
-      main: content.replace(/<think>[\s\S]*$/i, '').trim(),
-    }
-  }
-  return { thinking: '', main: content }
+interface SlashCommandOption {
+  cmd: string
+  label: string
+  desc: string
+  action: 'exec' | 'insert'
+  insertText?: string
 }
 
-/* ── A2UI Card components ── */
-const AUICard = ({
-  msg, index, formInputs, onSubmitAUI, onSubmitAUIAction, onFormInput,
-}: {
-  msg: Message; index: number; formInputs: Record<string, any>
-  onSubmitAUI: (m: Message, v: string, i: number) => void
-  onSubmitAUIAction: (m: Message, v: string, i: number) => void
-  onFormInput: (key: string, field: string, val: any) => void
-}) => {
-  const comp = String(msg.component || 'card').toLowerCase()
-  const data = msg.data || {}
-  const title = msg.content || data.title || data.heading || data.name || ''
-  const actions: any[] = Array.isArray(data.actions) ? data.actions : []
-  const surface = msg.surface || data.__surface || 'chat'
+const SLASH_COMMANDS: SlashCommandOption[] = [
+  { cmd: '/plan', label: '深度规划模式', desc: '切换至 Deep Canvas 并要求先输出架构/修改计划再执行', action: 'insert', insertText: '[Plan Mode] 请先梳理架构边界、影响面与分步实施计划，确认后再修改代码：\n' },
+  { cmd: '/goal', label: '目标闭环驱动', desc: '按 Reasonix Goal Contract 模式拆解目标并逐步验证闭环', action: 'insert', insertText: '[Goal Contract] 目标与验收标准如下，请自主推进工具调用并验证结果：\n' },
+  { cmd: '/review', label: '审查工作区改动', desc: '结合 @Git 检查当前未提交 Diff 的潜在缺陷与回归风险', action: 'insert', insertText: '@Git 请审查当前工作区的代码改动，指出潜在 Bug、边界遗漏与优化建议。' },
+  { cmd: '/compact', label: '整理会话上下文', desc: '提炼当前会话关键决策与状态，释放冗余上下文', action: 'insert', insertText: '请总结当前会话的核心进展、已确认结论与下一步待办事项。' },
+  { cmd: '/new', label: '新建对话 (Ctrl+L)', desc: '立即开启一个干净的新会话', action: 'exec' },
+  { cmd: '/clear', label: '清空当前会话', desc: '清空当前会话中的全部历史消息', action: 'exec' },
+]
 
-  const Actions = () => actions.length > 0 ? (
-    <div class="aui-actions">
-      {actions.map((a: any, i: number) => (
-        <button
-          key={i}
-          class={['aui-action-btn', i === 0 && 'primary']}
-          disabled={!!msg.resolved}
-          onClick={() => onSubmitAUIAction(msg, a.value || a.id || a.label, index)}
-        >{a.label || a.title || `操作 ${i + 1}`}</button>
-      ))}
-    </div>
-  ) : null
+const WELCOME_CARDS = [
+  {
+    title: '架构与上下文梳理',
+    cmd: '@Codebase',
+    desc: '扫描当前仓库核心模块职责、关键调用链与改进切入点',
+    prompt: '@Codebase 请梳理当前项目的核心模块架构、关键数据流与可优化点。',
+  },
+  {
+    title: '深度规划与重构方案',
+    cmd: '/plan',
+    desc: '先对齐目标、文件边界与验证步骤，再安全落地代码修改',
+    prompt: '[Plan Mode] 我想优化当前项目的核心模块，请先列出分步计划与涉及文件。',
+  },
+  {
+    title: 'Git 变更与风险审查',
+    cmd: '/review',
+    desc: '自动拉取工作区未提交 Diff，检查行为回归与边界漏洞',
+    prompt: '@Git 请审查当前工作区的所有未提交改动，检查是否有潜在回归风险。',
+  },
+  {
+    title: '目标契约闭环执行',
+    cmd: '/goal',
+    desc: '设定明确验收准则，由 Agent 自主调用工具与测试直至通过',
+    prompt: '[Goal Contract] 请检查当前工作区的编译与测试状态，若有问题请定位并修复。',
+  },
+]
 
-  if (surface !== 'chat') {
-    data.surface = surface
-  }
-
-  /* Markdown */
-  if (comp.includes('markdown')) {
-    const text = data.markdown || data.content || data.text || title
-    return (
-      <div class="aui-card aui-markdown">
-        {title && text !== title && <div class="aui-title">{title}</div>}
-        <div class="aui-markdown-text">{String(text || '')}</div>
-        <Actions />
-      </div>
-    )
-  }
-
-  /* Code block */
-  if (comp.includes('code')) {
-    const code = data.code || data.content || data.text || ''
-    const language = data.language || data.lang || 'text'
-    return (
-      <div class="aui-card aui-code-card">
-        {title && <div class="aui-title">{title}</div>}
-        <div class="aui-code-lang">{language}</div>
-        <pre class="aui-code-block"><code>{String(code)}</code></pre>
-        <Actions />
-      </div>
-    )
-  }
-
-  /* Progress */
-  if (comp.includes('progress')) {
-    const value = Math.max(0, Math.min(100, Number(data.value ?? data.percent ?? data.progress ?? 0)))
-    return (
-      <div class="aui-card aui-progress-card">
-        {title && <div class="aui-title">{title}</div>}
-        <div class="aui-progress-track"><div class="aui-progress-fill" style={{ width: `${value}%` }}></div></div>
-        <div class="aui-progress-meta">
-          <span>{data.label || data.message || '进度'}</span>
-          <strong>{value}%</strong>
-        </div>
-        <Actions />
-      </div>
-    )
-  }
-
-  /* List */
-  if (comp.includes('list')) {
-    const items: any[] = Array.isArray(data.items) ? data.items
-      : Array.isArray(data.rows) ? data.rows
-      : Array.isArray(data) ? data : []
-    return (
-      <div class="aui-card aui-list-card">
-        {title && <div class="aui-title">{title}</div>}
-        <div class="aui-list">
-          {items.slice(0, 20).map((item: any, i: number) => (
-            <div key={i} class="aui-list-item">
-              <span class="aui-list-index">{i + 1}</span>
-              <span>{typeof item === 'object' ? (item.title || item.label || item.name || JSON.stringify(item)) : String(item)}</span>
-            </div>
-          ))}
-        </div>
-        <Actions />
-      </div>
-    )
-  }
-
-  /* Accordion */
-  if (comp.includes('accordion')) {
-    const items: any[] = Array.isArray(data.items) ? data.items : []
-    return (
-      <div class="aui-card aui-accordion-card">
-        {title && <div class="aui-title">{title}</div>}
-        {items.map((item: any, i: number) => (
-          <details key={i} class="aui-accordion-item" open={i === 0}>
-            <summary>{item.title || item.label || `条目 ${i + 1}`}</summary>
-            <div>{item.content || item.description || item.text || ''}</div>
-          </details>
-        ))}
-        <Actions />
-      </div>
-    )
-  }
-
-  /* Image gallery */
-  if (comp.includes('image')) {
-    const images: any[] = Array.isArray(data.images) ? data.images
-      : Array.isArray(data.items) ? data.items
-      : []
-    return (
-      <div class="aui-card aui-image-gallery">
-        {title && <div class="aui-title">{title}</div>}
-        <div class="aui-image-grid">
-          {images.slice(0, 8).map((img: any, i: number) => {
-            const src = typeof img === 'string' ? img : (img.url || img.src)
-            const alt = typeof img === 'string' ? '' : (img.alt || img.title || '')
-            return src ? <img key={i} src={src} alt={alt} /> : null
-          })}
-        </div>
-        <Actions />
-      </div>
-    )
-  }
-
-  /* Metrics */
-  if (comp.includes('metric')) {
-    const metrics: any[] = Array.isArray(data.metrics) ? data.metrics : []
-    return (
-      <div class="aui-card aui-metrics">
-        {title && <div class="aui-title">{title}</div>}
-        <div class="aui-metrics-grid">
-          {metrics.map((m: any, i: number) => (
-            <div key={i} class="aui-metric-item">
-              <div class="aui-metric-value">{m.value ?? m.count ?? '—'}</div>
-              <div class="aui-metric-label">{m.label || m.name || `指标 ${i + 1}`}</div>
-              {m.change != null && (
-                <div class={['aui-metric-change', m.change > 0 ? 'up' : 'down']}>
-                  {m.change > 0 ? '↑' : '↓'} {Math.abs(Number(m.change))}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-        <Actions />
-      </div>
-    )
-  }
-
-  /* Table */
-  if (comp.includes('table')) {
-    const rows: any[] = Array.isArray(data) ? data
-      : Array.isArray(data.rows) ? data.rows
-      : Array.isArray(data.records) ? data.records
-      : []
-    const cols = rows.length > 0 ? Object.keys(rows[0]).slice(0, 6) : []
-    return (
-      <div class="aui-card aui-table-card">
-        {title && <div class="aui-title">{title}</div>}
-        <div class="aui-table-wrap">
-          <table class="aui-table">
-            <thead><tr>{cols.map(c => <th key={c}>{c}</th>)}</tr></thead>
-            <tbody>
-              {rows.slice(0, 12).map((row: any, i: number) => (
-                <tr key={i}>{cols.map(c => <td key={c}>{String(row[c] ?? '')}</td>)}</tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    )
-  }
-
-  /* Chart / Bar */
-  if (comp.includes('chart') || comp.includes('bar')) {
-    const rows: any[] = Array.isArray(data.rows) ? data.rows
-      : Array.isArray(data) ? data : []
-    const max = Math.max(1, ...rows.map((r: any) => Number(r.value ?? r.count ?? 0)))
-    return (
-      <div class="aui-card aui-chart">
-        {title && <div class="aui-title">{title}</div>}
-        <div class="aui-bars">
-          {rows.slice(0, 8).map((row: any, i: number) => {
-            const val = Number(row.value ?? row.count ?? 0)
-            const label = row.label || row.name || row.category || String(i + 1)
-            return (
-              <div key={i} class="aui-bar-row">
-                <span class="aui-bar-label">{label}</span>
-                <div class="aui-bar-track">
-                  <div class="aui-bar-fill" style={{ width: Math.max(4, Math.round(val / max * 100)) + '%' }}></div>
-                </div>
-                <span class="aui-bar-val">{val}</span>
-              </div>
-            )
-          })}
-        </div>
-      </div>
-    )
-  }
-
-  /* Timeline */
-  if (comp.includes('timeline')) {
-    const items: any[] = Array.isArray(data.items) ? data.items
-      : Array.isArray(data.steps) ? data.steps : []
-    return (
-      <div class="aui-card aui-timeline">
-        {title && <div class="aui-title">{title}</div>}
-        <div class="aui-timeline-list">
-          {items.map((item: any, i: number) => (
-            <div key={i} class={['aui-tl-item', item.status || '']}>
-              <div class="aui-tl-dot"></div>
-              <div class="aui-tl-content">
-                <div class="aui-tl-title">{item.title || item.name || item.step || ''}</div>
-                {item.description && <div class="aui-tl-desc">{item.description}</div>}
-                {item.time && <div class="aui-tl-time">{item.time}</div>}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    )
-  }
-
-  /* Form */
-  if (comp.includes('form')) {
-    const fields: any[] = Array.isArray(data.fields) ? data.fields : []
-    const key = msg.interactId || String(index)
-    const formData = formInputs[key] || {}
-    return (
-      <div class={['aui-card aui-form', msg.resolved && 'resolved']}>
-        {title && <div class="aui-title">{title}</div>}
-        {data.description && <div class="aui-form-desc">{data.description}</div>}
-        <div class="aui-form-fields">
-          {fields.map((f: any, i: number) => {
-            const fname = f.name || f.key || `field_${i}`
-            return (
-              <div key={fname} class="aui-form-field">
-                <label class="aui-field-label">{f.label || fname}</label>
-                {f.type === 'select' ? (
-                  <select
-                    class="aui-field-input"
-                    disabled={msg.resolved}
-                    value={formData[fname] ?? f.default ?? ''}
-                    onChange={(e: Event) => onFormInput(key, fname, (e.target as HTMLSelectElement).value)}
-                  >
-                    {(f.options || []).map((opt: any) => (
-                      <option key={opt.value ?? opt} value={opt.value ?? opt}>{opt.label ?? opt}</option>
-                    ))}
-                  </select>
-                ) : f.type === 'textarea' ? (
-                  <textarea
-                    class="aui-field-input"
-                    rows={3}
-                    placeholder={f.placeholder || ''}
-                    disabled={msg.resolved}
-                    value={formData[fname] ?? f.default ?? ''}
-                    onInput={(e: Event) => onFormInput(key, fname, (e.target as HTMLTextAreaElement).value)}
-                  ></textarea>
-                ) : (
-                  <input
-                    class="aui-field-input"
-                    type={f.type === 'number' ? 'number' : f.type === 'password' ? 'password' : 'text'}
-                    placeholder={f.placeholder || ''}
-                    disabled={msg.resolved}
-                    value={formData[fname] ?? f.default ?? ''}
-                    onInput={(e: Event) => onFormInput(key, fname, (e.target as HTMLInputElement).value)}
-                  />
-                )}
-              </div>
-            )
-          })}
-        </div>
-        {!msg.resolved && actions.length > 0 && (
-          <div class="aui-actions">
-            {actions.map((a: any, i: number) => (
-              <button
-                key={i}
-                class={['aui-action-btn', i === 0 && 'primary']}
-                onClick={() => onSubmitAUI(msg, a.value || a.id || a.label, index)}
-              >{a.label || a.title || `操作 ${i + 1}`}</button>
-            ))}
-          </div>
-        )}
-        {msg.resolved && <div class="aui-resolved-badge">已提交 ✓</div>}
-      </div>
-    )
-  }
-
-  /* Status */
-  if (comp.includes('status')) {
-    const status = data.status || 'info'
-    const statusClass = { success: 'ok', error: 'fail', warning: 'warn', info: 'info' }[status] || 'info'
-    const icon = status === 'success' ? '✓' : status === 'error' ? '✗' : 'ℹ'
-    return (
-      <div class={['aui-card aui-status', statusClass]}>
-        <div class="aui-status-icon">{icon}</div>
-        <div class="aui-status-text">
-          {title && <div class="aui-title">{title}</div>}
-          {data.message && <div class="aui-status-msg">{data.message}</div>}
-        </div>
-      </div>
-    )
-  }
-
-  /* Default key-value card */
-  const entries = Object.entries(data)
-    .filter(([k]) => !['title', 'heading', 'name', 'actions', 'component', 'rows', 'items', 'fields', 'metrics', 'records'].includes(k))
-    .filter(([, v]) => !Array.isArray(v) && typeof v !== 'object')
-    .slice(0, 10)
-  return (
-    <div class="aui-card">
-      {title && <div class="aui-title">{title}</div>}
-      {entries.length > 0 && (
-        <div class="aui-kv-list">
-          {entries.map(([k, v]) => (
-            <div key={k} class="aui-kv-row">
-              <span class="aui-kv-key">{k}</span>
-              <span class="aui-kv-val">{String(v)}</span>
-            </div>
-          ))}
-        </div>
-      )}
-      <Actions />
-    </div>
-  )
-}
-
-/* ── Main ChatPanel ── */
 export default defineComponent({
   name: 'ChatPanel',
   props: {
@@ -396,8 +85,6 @@ export default defineComponent({
     const inputText = ref('')
     const threadEl = ref<HTMLElement>()
     const textareaEl = ref<HTMLTextAreaElement>()
-    const questionInput = ref<Record<string, string>>({})
-    const questionChoices = ref<Record<string, string[]>>({})
     const pastedImages = ref<string[]>([])
 
     const scrollToBottom = async () => {
@@ -405,7 +92,86 @@ export default defineComponent({
       if (threadEl.value) threadEl.value.scrollTop = threadEl.value.scrollHeight
     }
 
+    const scrollEdge = (edge: 'top' | 'bottom') => {
+      if (!threadEl.value) return
+      threadEl.value.scrollTo({
+        top: edge === 'top' ? 0 : threadEl.value.scrollHeight,
+        behavior: 'smooth',
+      })
+    }
+
+    const jumpToMessageIndex = (msgIndex: number) => {
+      if (!threadEl.value) return
+      const target = threadEl.value.querySelector(`[data-msg-idx="${msgIndex}"]`) as HTMLElement | null
+      if (target) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
+    }
+
     watch(() => [props.messages.length, props.chatPaneKey], () => { void scrollToBottom() })
+
+    const activeHarness = computed(() => {
+      if (props.modeProfile === 'app_matrix' || props.modeProfile === 'matrix') return 'Creative'
+      if (props.modeCanvas === 'deep' || props.modeProfile === 'admin') return 'Ultimate'
+      if (props.modeCanvas === 'focused') return 'Minimal'
+      return 'Standard'
+    })
+
+    const pendingInteractMsg = computed(() => {
+      for (let i = props.messages.length - 1; i >= 0; i--) {
+        const m = props.messages[i]
+        if ((m.type === 'approval' || m.type === 'question') && !m.resolved) {
+          return { msg: m, index: i }
+        }
+      }
+      return null
+    })
+
+    const selectHarnessMode = (id: 'Minimal' | 'Standard' | 'Ultimate' | 'Creative') => {
+      if (id === 'Minimal') props.onModeChange('assistant', 'focused')
+      else if (id === 'Standard') props.onModeChange('assistant', 'balanced')
+      else if (id === 'Ultimate') props.onModeChange('admin', 'deep')
+      else if (id === 'Creative') props.onModeChange('app_matrix', 'balanced')
+    }
+
+    // Slash Command Menu State
+    const showSlashMenu = ref(false)
+    const slashFilter = ref('')
+    const slashIndex = ref(0)
+
+    const filteredSlashCommands = computed(() => {
+      const q = slashFilter.value.toLowerCase()
+      return SLASH_COMMANDS.filter(item =>
+        item.cmd.toLowerCase().includes(q) ||
+        item.label.toLowerCase().includes(q) ||
+        item.desc.toLowerCase().includes(q),
+      )
+    })
+
+    const selectSlashCommand = (opt: SlashCommandOption) => {
+      showSlashMenu.value = false
+      if (opt.cmd === '/new') {
+        inputText.value = ''
+        props.onNewChat()
+        return
+      }
+      if (opt.cmd === '/clear') {
+        inputText.value = ''
+        props.onClearChat()
+        return
+      }
+      if (opt.cmd === '/plan' || opt.cmd === '/goal') {
+        selectHarnessMode('Ultimate')
+      }
+      inputText.value = opt.insertText || ''
+      nextTick(() => {
+        if (textareaEl.value) {
+          textareaEl.value.focus()
+          const len = inputText.value.length
+          textareaEl.value.setSelectionRange(len, len)
+        }
+      })
+    }
 
     const handleSend = async () => {
       const text = inputText.value.trim()
@@ -417,14 +183,11 @@ export default defineComponent({
         return
       }
       if (props.sending) {
-        // Codex & Cursor parity: Mid-turn Steer!
         inputText.value = ''
         try {
           const res = await wailsCall<{ success?: boolean; steered?: boolean }>('SteerSession', props.sessionId, text)
           if (res?.steered) {
             console.info('[ChatPanel] Mid-turn steer queued:', text)
-          } else {
-            console.warn('[ChatPanel] SteerSession rejected, session may not be actively running')
           }
         } catch (e) {
           console.error('[ChatPanel] SteerSession failed:', e)
@@ -432,6 +195,7 @@ export default defineComponent({
         return
       }
       inputText.value = ''
+      if (textareaEl.value) textareaEl.value.style.height = 'auto'
       const imgs = [...pastedImages.value]
       pastedImages.value = []
       props.onSend(text, imgs)
@@ -482,10 +246,10 @@ export default defineComponent({
     const workspaceFiles = ref<string[]>([])
 
     const BUILTIN_MENTIONS: MentionOption[] = [
-      { id: 'codebase', label: '@Codebase', desc: '检索整个工作区项目代码与语义上下文', icon: '⚡', insertText: '@Codebase ' },
-      { id: 'git', label: '@Git', desc: '引入当前分支改动、未提交 Diff 与状态', icon: '🌿', insertText: '@Git ' },
-      { id: 'terminal', label: '@Terminal', desc: '引入当前终端最近会话与运行输出', icon: '📟', insertText: '@Terminal ' },
-      { id: 'problems', label: '@Problems', desc: '引入当前工作区代码错误与诊断信息', icon: '⚠️', insertText: '@Problems ' },
+      { id: 'codebase', label: '@Codebase', desc: '检索整个工作区项目代码与语义上下文', icon: '⌘', insertText: '@Codebase ' },
+      { id: 'git', label: '@Git', desc: '引入当前分支改动、未提交 Diff 与状态', icon: '⎇', insertText: '@Git ' },
+      { id: 'terminal', label: '@Terminal', desc: '引入当前终端最近会话与运行输出', icon: '>_', insertText: '@Terminal ' },
+      { id: 'problems', label: '@Problems', desc: '引入当前工作区代码错误与诊断信息', icon: '!', insertText: '@Problems ' },
     ]
 
     const fetchWorkspaceFiles = async () => {
@@ -508,7 +272,7 @@ export default defineComponent({
     const filteredMentions = computed(() => {
       const q = mentionFilter.value.toLowerCase()
       const builtin = BUILTIN_MENTIONS.filter(m =>
-        m.label.toLowerCase().includes(q) || m.desc.toLowerCase().includes(q)
+        m.label.toLowerCase().includes(q) || m.desc.toLowerCase().includes(q),
       )
       const files = workspaceFiles.value
         .filter(f => f.toLowerCase().includes(q))
@@ -517,7 +281,7 @@ export default defineComponent({
           id: `file:${f}`,
           label: `@${f.split(/[\/\\]/).pop()}`,
           desc: f,
-          icon: '📄',
+          icon: '·',
           insertText: `@${f} `,
         }))
       return [...builtin, ...files]
@@ -544,6 +308,16 @@ export default defineComponent({
       inputText.value = target.value
       autoResize(e)
 
+      const trimmed = target.value.trimStart()
+      if (trimmed.startsWith('/') && !/\s/.test(trimmed)) {
+        slashFilter.value = trimmed
+        showSlashMenu.value = true
+        slashIndex.value = 0
+        showMentionMenu.value = false
+        return
+      }
+      showSlashMenu.value = false
+
       const pos = target.selectionStart || 0
       const beforeCursor = target.value.slice(0, pos)
       const lastAt = beforeCursor.lastIndexOf('@')
@@ -563,6 +337,29 @@ export default defineComponent({
     }
 
     const handleKeydown = (e: KeyboardEvent) => {
+      if (showSlashMenu.value && filteredSlashCommands.value.length > 0) {
+        if (e.key === 'ArrowDown') {
+          e.preventDefault()
+          slashIndex.value = (slashIndex.value + 1) % filteredSlashCommands.value.length
+          return
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault()
+          slashIndex.value = (slashIndex.value - 1 + filteredSlashCommands.value.length) % filteredSlashCommands.value.length
+          return
+        }
+        if (e.key === 'Enter' || e.key === 'Tab') {
+          e.preventDefault()
+          selectSlashCommand(filteredSlashCommands.value[slashIndex.value])
+          return
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault()
+          showSlashMenu.value = false
+          return
+        }
+      }
+
       if (showMentionMenu.value && filteredMentions.value.length > 0) {
         if (e.key === 'ArrowDown') {
           e.preventDefault()
@@ -599,7 +396,7 @@ export default defineComponent({
     }
 
     const currentSession = () => props.sessions.find(s =>
-      (s.id || s.session_id || '') === props.sessionId
+      (s.id || s.session_id || '') === props.sessionId,
     )
 
     const historyOpen = ref(false)
@@ -634,25 +431,9 @@ export default defineComponent({
     onMounted(() => window.addEventListener('keydown', globalKey))
     onBeforeUnmount(() => window.removeEventListener('keydown', globalKey))
 
-    const setModeProfile = (profile: string) => props.onModeChange(profile, props.modeCanvas)
-    const setModeCanvas = (canvas: string) => props.onModeChange(props.modeProfile, canvas)
-
-    const toggleQuestionChoice = (key: string, value: string) => {
-      const list = questionChoices.value[key] || []
-      questionChoices.value[key] = list.includes(value)
-        ? list.filter(x => x !== value)
-        : [...list, value]
-    }
-
-    const SUGGESTIONS = [
-      '帮我分析一下数据集的关键指标',
-      '制定一个工作计划并拆解任务',
-      '写一份技术方案文档',
-    ]
-
     return () => {
       const hasMessages = props.messages.some(m =>
-        m.type === 'aui' || m.role === 'user' || (m.role === 'assistant' && (m.content || '').trim())
+        m.type === 'aui' || m.role === 'user' || (m.role === 'assistant' && (m.content || '').trim()),
       )
       const isWelcome = !hasMessages && !props.sessionLoading
 
@@ -661,15 +442,20 @@ export default defineComponent({
 
       return (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-          {/* Top bar */}
+          {/* Compact Desktop Top bar */}
           <div class="chat-topbar">
             <span class="chat-topbar-title">{title}</span>
+            <div class="chat-topbar-badges">
+              <span class="chat-harness-badge active" title="已启用 Reasonix 风格前缀缓存工具裁剪">
+                Cache-First
+              </span>
+            </div>
             <button class="topbar-btn topbar-btn-accent" onClick={doNew} title="新会话 (Ctrl+L，或输入 /new)">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             </button>
             <div class="chat-history-wrap">
               <button class={['topbar-btn', historyOpen.value && 'active']} onClick={() => { historyOpen.value = !historyOpen.value }} title="历史会话">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg>
               </button>
               {historyOpen.value && (
                 <>
@@ -693,7 +479,7 @@ export default defineComponent({
                             </div>
                             <button class="chat-history-del" title="删除"
                               onClick={(e: MouseEvent) => { e.stopPropagation(); props.onDeleteSession(sid) }}>
-                              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
                             </button>
                           </div>
                         )
@@ -704,45 +490,19 @@ export default defineComponent({
               )}
             </div>
             <button class="topbar-btn" onClick={doClear} title="清除当前会话 (Ctrl+Shift+L，或输入 /clear)">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>
             </button>
-            <div class="chat-mode-controls">
-              <select
-                class="chat-mode-select"
-                value={props.modeProfile}
-                disabled={props.modeSaving}
-                title="智能体模式"
-                onChange={(e: Event) => setModeProfile((e.target as HTMLSelectElement).value)}
-              >
-                <option value="assistant">Assistant</option>
-                <option value="app_matrix">App Matrix</option>
-                <option value="admin">Admin</option>
-              </select>
-              <select
-                class="chat-mode-select"
-                value={props.modeCanvas}
-                disabled={props.modeSaving}
-                title="执行深度"
-                onChange={(e: Event) => setModeCanvas((e.target as HTMLSelectElement).value)}
-              >
-                <option value="focused">Focused</option>
-                <option value="balanced">Balanced</option>
-                <option value="deep">Deep</option>
-              </select>
-            </div>
-
-            <button class="topbar-btn" onClick={props.onReload} title="重新加载">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.15"/></svg>
+            <button class="topbar-btn" onClick={props.onReload} title="重新加载会话">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.15"/></svg>
             </button>
-
             <button
               class="topbar-btn"
               onClick={props.onToggleWorkspace}
-              title={props.workspacePanelOpen ? '隐藏工作区' : '显示工作区'}
+              title={props.workspacePanelOpen ? '收起上下文抽屉' : '打开上下文抽屉'}
             >
               {props.workspacePanelOpen
-                ? <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M15 3v18"/></svg>
-                : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>
+                ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M15 3v18"/></svg>
+                : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>
               }
             </button>
           </div>
@@ -759,172 +519,49 @@ export default defineComponent({
             )}
 
             {!props.sessionLoading && isWelcome && (
-              <div class="chat-empty">
-                <div class="chat-empty-icon">✦</div>
-                <h3>AgentGo</h3>
-                <p>本地桌面智能体客户端，由 Wails v3 + Eino 驱动</p>
-                <div class="chat-suggestions">
-                  {SUGGESTIONS.map((s, i) => (
-                    <button key={i} class="chat-suggestion" onClick={() => { inputText.value = s; handleSend() }}>
-                      {s}
+              <div class="chat-empty chat-welcome">
+                <div class="chat-welcome-header">
+                  <span class="chat-welcome-badge">Eino Runtime · Reasonix Context Harness</span>
+                  <h3>AgentGo 工程控制台</h3>
+                  <p>支持 @ 上下文注入、/ 斜杠模式切换、运行中实时纠偏 (Steer) 与前缀缓存优化</p>
+                </div>
+                <div class="chat-welcome-grid">
+                  {WELCOME_CARDS.map((card, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      class="chat-welcome-card"
+                      onClick={() => {
+                        if (card.cmd === '/plan' || card.cmd === '/goal') selectHarnessMode('Ultimate')
+                        inputText.value = card.prompt
+                        nextTick(() => textareaEl.value?.focus())
+                      }}
+                    >
+                      <div class="chat-welcome-card-top">
+                        <span class="chat-welcome-card-title">{card.title}</span>
+                        <span class="chat-welcome-card-cmd">{card.cmd}</span>
+                      </div>
+                      <div class="chat-welcome-card-desc">{card.desc}</div>
                     </button>
                   ))}
                 </div>
               </div>
             )}
 
-            {!props.sessionLoading && !isWelcome && props.messages.map((msg, index) => {
-              if (msg.type === 'aui') {
-                return (
-                  <div key={msg._key || index} class="msg-row assistant">
-                    <AUICard
-                      msg={msg}
-                      index={index}
-                      formInputs={props.formInputs}
-                      onSubmitAUI={props.onSubmitAUI}
-                      onSubmitAUIAction={props.onSubmitAUIAction}
-                      onFormInput={props.onFormInput}
-                    />
-                  </div>
-                )
-              }
-
-              if (msg.type === 'approval') {
-                return (
-                  <div key={msg._key || index} class="msg-row assistant">
-                    <div class={['msg-approval', msg.resolved && 'resolved']}>
-                      <div class="msg-approval-label">{msg.resolved ? '已处理' : '需要批准'}</div>
-                      <div class="msg-approval-prompt">{msg.content || '需要您的批准才能继续'}</div>
-                      {msg.resolved && <div class="msg-approval-state">Agent 已收到您的选择并继续执行。</div>}
-                      <div class="msg-approval-actions">
-                        <button class="msg-approve-btn ok" disabled={msg.resolved} onClick={() => props.onApprove(msg.approval_id || '')}>批准</button>
-                        <button class="msg-approve-btn no" disabled={msg.resolved} onClick={() => props.onReject(msg.approval_id || '')}>拒绝</button>
-                      </div>
-                    </div>
-                  </div>
-                )
-              }
-
-              if (msg.type === 'question') {
-                const key = msg.interactId || String(index)
-                const qData = msg.data || {}
-                const choices: any[] = Array.isArray(qData.choices) ? qData.choices : []
-                const multiple = !!qData.multiple
-                const freeText = qData.free_text !== false && qData.freeText !== false
-                const selected = questionChoices.value[key] || []
-                return (
-                  <div key={msg._key || index} class="msg-row assistant">
-                    <div class={['msg-approval', msg.resolved && 'resolved']} style={{ borderLeftColor: 'var(--info)' }}>
-                      <div class="msg-approval-label" style={{ color: 'var(--info)' }}>需要输入</div>
-                      <div class="msg-approval-prompt">{msg.content || '请输入您的回答：'}</div>
-                      {choices.length > 0 && (
-                        <div class="msg-choice-list">
-                          {choices.map((c: any, i: number) => {
-                            const val = String(c.id || c.value || c.label || c.title || i)
-                            const label = c.label || c.title || c.name || val
-                            return multiple ? (
-                              <label key={val} class="msg-choice-check">
-                                <input
-                                  type="checkbox"
-                                  checked={selected.includes(val)}
-                                  disabled={msg.resolved}
-                                  onChange={() => toggleQuestionChoice(key, val)}
-                                />
-                                <span>{label}</span>
-                              </label>
-                            ) : (
-                              <button
-                                key={val}
-                                class="msg-choice-btn"
-                                disabled={msg.resolved}
-                                onClick={() => props.onSubmitQuestion(msg, val, index)}
-                              >{label}</button>
-                            )
-                          })}
-                        </div>
-                      )}
-                      <div style={{ display: 'flex', gap: '8px' }}>
-                        {freeText && (
-                          <input
-                            style={{ flex: 1, padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', background: 'var(--input-bg)', color: 'var(--text)', fontSize: '13px' }}
-                            placeholder="输入回答…"
-                            disabled={msg.resolved}
-                            value={questionInput.value[key] || ''}
-                            onInput={(e: Event) => questionInput.value[key] = (e.target as HTMLInputElement).value}
-                            onKeydown={(e: KeyboardEvent) => {
-                              if (e.key === 'Enter') props.onSubmitQuestion(msg, questionInput.value[key] || '', index)
-                            }}
-                          />
-                        )}
-                        <button
-                          class="msg-approve-btn ok"
-                          disabled={msg.resolved}
-                          onClick={() => {
-                            const answer = multiple ? JSON.stringify(selected) : (questionInput.value[key] || selected[0] || '')
-                            props.onSubmitQuestion(msg, answer, index)
-                          }}
-                        >{msg.resolved ? '已提交' : '发送'}</button>
-                      </div>
-                    </div>
-                  </div>
-                )
-              }
-
-              if (msg.type === 'tool_call') {
-                return (
-                  <div key={msg._key || index} class="msg-row assistant tool-call-row">
-                    <ToolCallBubble
-                      toolName={msg.toolName || 'tool'}
-                      arguments={msg.arguments}
-                      content={msg.content}
-                      status={msg.status}
-                    />
-                  </div>
-                )
-              }
-
-              /* Text message */
-              const { thinking, main } = extractThinking(msg.content || '')
-              return (
-                <div key={msg._key || index} class={['msg-row', msg.role]}>
-                  {msg.role === 'user' ? (
-                    <div class="msg-bubble user-bubble">
-                      {msg.content}
-                      {msg.meta?.images && msg.meta.images.length > 0 && (
-                        <div class="msg-images" style={{ display: 'flex', gap: '8px', marginTop: msg.content ? '8px' : '0', flexWrap: 'wrap' }}>
-                          {msg.meta.images.map((imgUrl: string) => (
-                            <img
-                              key={imgUrl}
-                              src={imgUrl}
-                              style={{ maxWidth: '240px', maxHeight: '180px', borderRadius: 'var(--radius-md)', cursor: 'pointer', border: '1px solid var(--border)' }}
-                              onClick={() => window.open(imgUrl, '_blank')}
-                            />
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div class="msg-bubble assistant-bubble">
-                      {thinking && (
-                        <ReasoningBubble thinking={thinking} streaming={msg.streaming} />
-                      )}
-                      {(main || msg.streaming) && (
-                        <div class="msg-main-content">
-                          {msg.html && !thinking ? (
-                            <div class={msg.streaming ? 'msg-streaming' : ''} innerHTML={msg.html}></div>
-                          ) : (
-                            <span class={msg.streaming ? 'msg-streaming' : ''}>{main}</span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {msg.role === 'user' && msg.content && (
-                    <button class="msg-copy" onClick={() => navigator.clipboard?.writeText(msg.content || '').catch(() => {})}>复制</button>
-                  )}
-                </div>
-              )
-            })}
+            {!props.sessionLoading && !isWelcome && (
+              <FlowChatTranscript
+                messages={props.messages}
+                formInputs={props.formInputs}
+                onApprove={props.onApprove}
+                onReject={props.onReject}
+                onSubmitAUI={props.onSubmitAUI}
+                onSubmitAUIAction={props.onSubmitAUIAction}
+                onSubmitQuestion={props.onSubmitQuestion}
+                onFormInput={props.onFormInput}
+                onJumpTurn={jumpToMessageIndex}
+                onScrollEdge={scrollEdge}
+              />
+            )}
           </div>
 
           {/* Run status */}
@@ -937,59 +574,53 @@ export default defineComponent({
 
           {/* Composer */}
           <div class="composer" style={{ position: 'relative' }}>
-            {showMentionMenu.value && filteredMentions.value.length > 0 && (
-              <div
-                class="composer-mention-menu"
-                style={{
-                  position: 'absolute',
-                  bottom: '100%',
-                  left: '12px',
-                  right: '12px',
-                  maxHeight: '240px',
-                  overflowY: 'auto',
-                  backgroundColor: '#18181B',
-                  border: '1px solid rgba(255,255,255,0.12)',
-                  borderRadius: '8px',
-                  boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
-                  zIndex: 100,
-                  padding: '4px',
-                  marginBottom: '8px',
-                }}
-              >
-                <div style={{ fontSize: '10px', color: '#71717A', padding: '4px 8px', fontWeight: 600, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                  添加上下文引用 (↑↓ 选择，Enter / Tab 确认)
+            {/* Slash Command Popover (Reasonix style) */}
+            {showSlashMenu.value && filteredSlashCommands.value.length > 0 && (
+              <div class="chat-composer-popover">
+                <div class="chat-composer-popover-head">
+                  <span>斜杠指令 (Slash Commands)</span>
+                  <span>↑↓ 选择 · Enter 确认</span>
                 </div>
-                {filteredMentions.value.map((item, idx) => {
-                  const isSelected = idx === mentionIndex.value
-                  return (
-                    <div
-                      key={item.id}
-                      onClick={() => selectMention(item)}
-                      onMouseenter={() => { mentionIndex.value = idx }}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        padding: '6px 10px',
-                        borderRadius: '6px',
-                        backgroundColor: isSelected ? 'rgba(56, 189, 248, 0.15)' : 'transparent',
-                        color: isSelected ? '#38BDF8' : '#E4E4E7',
-                        cursor: 'pointer',
-                        fontSize: '12px',
-                      }}
-                    >
-                      <span style={{ fontSize: '14px' }}>{item.icon}</span>
-                      <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                        <span style={{ fontWeight: 600 }}>{item.label}</span>
-                        <span style={{ fontSize: '10px', color: '#71717A', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
-                          {item.desc}
-                        </span>
-                      </div>
+                {filteredSlashCommands.value.map((item, idx) => (
+                  <div
+                    key={item.cmd}
+                    class={['chat-composer-popover-item', idx === slashIndex.value && 'active']}
+                    onClick={() => selectSlashCommand(item)}
+                    onMouseenter={() => { slashIndex.value = idx }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                      <span class="chat-composer-popover-cmd">{item.cmd}</span>
+                      <span style={{ fontWeight: 500, fontSize: '12px' }}>{item.label}</span>
                     </div>
-                  )
-                })}
+                    <span class="chat-composer-popover-desc">{item.desc}</span>
+                  </div>
+                ))}
               </div>
             )}
+
+            {/* Theme-aware @ Mention Popover */}
+            {showMentionMenu.value && filteredMentions.value.length > 0 && (
+              <div class="chat-composer-popover">
+                <div class="chat-composer-popover-head">
+                  <span>添加上下文引用 (@Context)</span>
+                  <span>↑↓ 选择 · Enter 确认</span>
+                </div>
+                {filteredMentions.value.map((item, idx) => (
+                  <div
+                    key={item.id}
+                    class={['chat-composer-popover-item', idx === mentionIndex.value && 'active']}
+                    onClick={() => selectMention(item)}
+                    onMouseenter={() => { mentionIndex.value = idx }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                      <span class="chat-composer-popover-cmd">{item.icon} {item.label}</span>
+                    </div>
+                    <span class="chat-composer-popover-desc">{item.desc}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <PromptSuggestions
               disabled={props.sending || props.awaitingInteract}
               onSelect={(prompt) => {
@@ -997,6 +628,49 @@ export default defineComponent({
                 nextTick(() => textareaEl.value?.focus())
               }}
             />
+
+            {/* OpenBitFun-style ChatInputApprovalBand: sticky pending confirmation bar above Composer */}
+            {pendingInteractMsg.value && (
+              <div class="chat-approval-band">
+                <div class="chat-approval-band-info">
+                  <span class="chat-approval-band-badge">
+                    {pendingInteractMsg.value.msg.type === 'approval' ? '待审批' : '待回答'}
+                  </span>
+                  <span class="chat-approval-band-text">
+                    {pendingInteractMsg.value.msg.content || 'Agent 正在等待您的确认以继续执行'}
+                  </span>
+                </div>
+                <div class="chat-approval-band-actions">
+                  {pendingInteractMsg.value.msg.type === 'approval' ? (
+                    <>
+                      <button
+                        type="button"
+                        class="msg-approve-btn ok"
+                        onClick={() => props.onApprove(pendingInteractMsg.value!.msg.approval_id || '')}
+                      >
+                        批准
+                      </button>
+                      <button
+                        type="button"
+                        class="msg-approve-btn no"
+                        onClick={() => props.onReject(pendingInteractMsg.value!.msg.approval_id || '')}
+                      >
+                        拒绝
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      class="msg-approve-btn ok"
+                      onClick={() => jumpToMessageIndex(pendingInteractMsg.value!.index)}
+                    >
+                      查看并回答
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
             {pastedImages.value.length > 0 && (
               <div class="composer-previews" style={{ display: 'flex', gap: '8px', padding: '4px 2px 8px', flexWrap: 'wrap' }}>
                 {pastedImages.value.map((imgUrl, idx) => (
@@ -1011,11 +685,12 @@ export default defineComponent({
                 ))}
               </div>
             )}
+
             <div class="composer-box">
               <textarea
                 ref={textareaEl}
                 class="composer-input"
-                placeholder="输入消息… (Enter 发送, Shift+Enter 换行, 输入 @ 引用文件或上下文)"
+                placeholder="输入指令或问题… (@ 引用文件/Git，/ 调出模式指令，Enter 发送)"
                 rows={1}
                 value={inputText.value}
                 onInput={handleInput}
@@ -1029,6 +704,7 @@ export default defineComponent({
                   title="添加上下文 (@ 引用文件/代码库/Git)"
                   onClick={() => {
                     if (!showMentionMenu.value) {
+                      showSlashMenu.value = false
                       showMentionMenu.value = true
                       mentionFilter.value = ''
                       mentionStartIndex.value = inputText.value.length
@@ -1041,9 +717,8 @@ export default defineComponent({
                       showMentionMenu.value = false
                     }
                   }}
-                  style={{ color: showMentionMenu.value ? '#38BDF8' : 'inherit' }}
                 >
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.92 7.94"/></svg>
                 </button>
                 {props.sending ? (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -1052,13 +727,13 @@ export default defineComponent({
                         class="composer-send"
                         onClick={handleSend}
                         title="发送中途纠偏指引 (Enter)"
-                        style={{ backgroundColor: '#F59E0B', color: '#18181B', width: 'auto', padding: '0 8px', borderRadius: '4px' }}
+                        style={{ backgroundColor: 'var(--warning)', color: '#fff', width: 'auto', padding: '0 8px', borderRadius: '4px' }}
                       >
-                        <span style={{ fontSize: '11px', fontWeight: 700 }}>⚡ 纠偏</span>
+                        <span style={{ fontSize: '11px', fontWeight: 600 }}>纠偏</span>
                       </button>
                     )}
-                    <button class="composer-send composer-stop" onClick={props.onStop} title="停止">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+                    <button class="composer-send composer-stop" onClick={props.onStop} title="停止生成">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
                     </button>
                   </div>
                 ) : (
@@ -1068,12 +743,50 @@ export default defineComponent({
                     disabled={!inputText.value.trim() || props.awaitingInteract}
                     title="发送 (Enter)"
                   >
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
                   </button>
                 )}
               </div>
             </div>
-            <div class="composer-hint">Vite + Vue3 TSX · AgentGo</div>
+
+            {/* OpenBitFun-style Four Agent Harness Modes + Slash Trigger */}
+            <div class="chat-composer-toolbar">
+              <div class="chat-composer-pills">
+                <div class="chat-pill-group" title="OpenBitFun 四种 Agent Harness 协作模式">
+                  {([
+                    ['Minimal', '极简 Minimal', '即时协作：目标明确、快速直接执行'],
+                    ['Standard', '标准 Standard', '日常多步任务：有序规划、逐步执行并检查结果'],
+                    ['Ultimate', '极致 Ultimate', '复杂深度任务：深度拆解、全量工具编排与闭环验证'],
+                    ['Creative', '创造 Creative', '应用与工作台定制：构建与演进 Inner App / Mini App'],
+                  ] as const).map(([id, label, tip]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      disabled={props.modeSaving}
+                      title={tip}
+                      class={['chat-pill-btn', activeHarness.value === id && 'active']}
+                      onClick={() => selectHarnessMode(id)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <button
+                type="button"
+                class="chat-slash-trigger"
+                onClick={() => {
+                  showMentionMenu.value = false
+                  showSlashMenu.value = !showSlashMenu.value
+                  slashFilter.value = ''
+                  slashIndex.value = 0
+                  if (showSlashMenu.value) nextTick(() => textareaEl.value?.focus())
+                }}
+                title="查看斜杠命令 (/plan, /goal, /review, /compact)"
+              >
+                / 指令
+              </button>
+            </div>
           </div>
         </div>
       )

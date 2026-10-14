@@ -136,6 +136,8 @@ func (s *AppService) GetLLMConfig() map[string]any {
 	if azureModel == "" {
 		azureModel = "gpt-6-luna"
 	}
+	dsKey := strings.TrimSpace(os.Getenv("DEEPSEEK_API_KEY"))
+	hasDeepSeek := dsKey != ""
 	return map[string]any{
 		"api_base":       cfg.APIBase,
 		"api_key_set":    cfg.APIKey != "",
@@ -145,6 +147,36 @@ func (s *AppService) GetLLMConfig() map[string]any {
 		"has_azure_luna": hasAzureLuna,
 		"azure_api_base": azureBase,
 		"azure_model":    azureModel,
+		"has_deepseek":   hasDeepSeek,
+	}
+}
+
+// LoadDeepSeekConfig switches the current LLM configuration to the DeepSeek preset (Reasonix style).
+func (s *AppService) LoadDeepSeekConfig(model string) map[string]any {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		model = "deepseek-reasoner"
+	}
+	fallback := "deepseek-chat"
+	if model == "deepseek-chat" {
+		fallback = "deepseek-reasoner"
+	}
+	cfg := s.rt.LLMConfig()
+	cfg.APIBase = "https://api.deepseek.com/v1"
+	cfg.Model = model
+	cfg.FallbackModel = fallback
+	if dsKey := strings.TrimSpace(os.Getenv("DEEPSEEK_API_KEY")); dsKey != "" {
+		cfg.APIKey = dsKey
+	}
+	if err := s.rt.SetLLMConfig(cfg); err != nil {
+		return map[string]any{"success": false, "error": err.Error()}
+	}
+	return map[string]any{
+		"success":      true,
+		"model":        cfg.Model,
+		"api_base":     cfg.APIBase,
+		"api_key_set":  cfg.APIKey != "",
+		"from_env_key": os.Getenv("DEEPSEEK_API_KEY") != "",
 	}
 }
 

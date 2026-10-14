@@ -1,6 +1,13 @@
 import { defineComponent } from 'vue'
 import { Activity, Cpu, HardDrive, Terminal } from 'lucide-vue-next'
 
+function formatHarnessLabel(profile: string, canvas: string): string {
+  if (profile === 'app_matrix' || profile === 'matrix') return 'Creative · 创造'
+  if (canvas === 'deep' || profile === 'admin') return 'Ultimate · 极致'
+  if (canvas === 'focused') return 'Minimal · 极简'
+  return 'Standard · 标准'
+}
+
 export default defineComponent({
   name: 'AppStatusBar',
   props: {
@@ -27,9 +34,9 @@ export default defineComponent({
             <span class="statusbar-badge">{props.model || 'GPT-4o'}</span>
           </span>
 
-          <span class="statusbar-item" title="智能体运行模式与深度">
+          <span class="statusbar-item" title={`Agent Harness: ${props.modeProfile} · ${props.modeCanvas}`}>
             <Activity size={12} class="statusbar-icon" />
-            <span>{props.modeProfile} · {props.modeCanvas}</span>
+            <span>{formatHarnessLabel(props.modeProfile, props.modeCanvas)}</span>
           </span>
         </div>
 

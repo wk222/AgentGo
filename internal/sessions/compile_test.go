@@ -2,6 +2,7 @@ package sessions
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/cloudwego/eino/schema"
@@ -101,3 +102,61 @@ func TestCompileProjectedView_AtomicToolPairNormalization(t *testing.T) {
 		}
 	}
 }
+
+func TestCompileProjectedView_ReasonixStyleToolResultSnip(t *testing.T) {
+	longNormalOutput := "HEAD_MARKER_" + strings.Repeat("x", 2400) + "_TAIL_MARKER"
+	longErrorOutput := "Error: compilation failed\n" + strings.Repeat("e", 2400)
+	longRecentOutput := "RECENT_FULL_" + strings.Repeat("r", 2400)
+
+	msgs := []*schema.Message{
+		schema.UserMessage("step 1"),
+		schema.AssistantMessage("", []schema.ToolCall{{
+			ID:       "tc_stale_ok",
+			Function: schema.FunctionCall{Name: "read_file", Arguments: `{}`},
+		}}),
+		schema.ToolMessage(longNormalOutput, "tc_stale_ok"),
+		schema.UserMessage("step 2"),
+		schema.AssistantMessage("", []schema.ToolCall{{
+			ID:       "tc_stale_err",
+			Function: schema.FunctionCall{Name: "bash", Arguments: `{}`},
+		}}),
+		schema.ToolMessage(longErrorOutput, "tc_stale_err"),
+		// Recent tail (last 4 messages)
+		schema.UserMessage("step 3"),
+		schema.AssistantMessage("", []schema.ToolCall{{
+			ID:       "tc_recent",
+			Function: schema.FunctionCall{Name: "read_file", Arguments: `{}`},
+		}}),
+		schema.ToolMessage(longRecentOutput, "tc_recent"),
+		schema.AssistantMessage("done", nil),
+	}
+
+	view := CompileProjectedView(msgs, CompileOptions{
+		MaxActiveTurns:    20,
+		RecentTailTurns:   4,
+		MaxStaleToolChars: 600,
+	})
+
+	if len(view.ActiveTurn) != 10 {
+		t.Fatalf("expected all 10 messages paired in active turn, got %d", len(view.ActiveTurn))
+	}
+
+	// 1. Stale normal tool output must be deterministically snipped with head & tail preserved
+	staleOk := view.ActiveTurn[2].Content
+	if !strings.Contains(staleOk, "...[snip:") || !strings.HasPrefix(staleOk, "HEAD_MARKER_") || !strings.HasSuffix(staleOk, "_TAIL_MARKER") {
+		t.Fatalf("expected deterministic head/tail snip on stale normal tool output, got len=%d", len(staleOk))
+	}
+
+	// 2. Stale error tool output must be preserved intact (KeepErrors)
+	staleErr := view.ActiveTurn[5].Content
+	if staleErr != longErrorOutput {
+		t.Fatalf("expected error tool output to be preserved intact, got len=%d", len(staleErr))
+	}
+
+	// 3. Recent tail tool output must be preserved intact
+	recentTool := view.ActiveTurn[8].Content
+	if recentTool != longRecentOutput {
+		t.Fatalf("expected recent tool output to be preserved intact, got len=%d", len(recentTool))
+	}
+}
+

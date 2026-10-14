@@ -362,13 +362,20 @@ export const Workspace = defineComponent({
     }
   },
   render() {
+    const navItems = [
+      { id: 'explorer' as const, title: '资源管理器 (Explorer)', Icon: Files },
+      { id: 'search' as const, title: '全局搜索 (Search)', Icon: Search },
+      { id: 'git' as const, title: '源代码管理 (Git)', Icon: GitBranch },
+      { id: 'outline' as const, title: '代码大纲 (Outline)', Icon: ListTree },
+      { id: 'review' as const, title: 'AI 变更审查 (Review)', Icon: Sparkles },
+    ]
     return (
       <div
         style={{
           display: 'flex',
           width: '100%',
           height: '100%',
-          backgroundColor: '#18181B',
+          backgroundColor: 'var(--bg)',
           overflow: 'hidden',
           fontFamily: 'var(--font-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif)',
         }}
@@ -390,165 +397,42 @@ export const Workspace = defineComponent({
             zIndex: 10,
           }}
         >
-          {/* Explorer Icon Button */}
-          <button
-            onClick={() => {
-              if (this.activeSidebarView === 'explorer' && this.isSidebarVisible) {
-                this.isSidebarVisible = false
-              } else {
-                this.activeSidebarView = 'explorer'
-                this.isSidebarVisible = true
-              }
-            }}
-            title="资源管理器 (Explorer)"
-            style={{
-              width: '36px',
-              height: '36px',
-              borderRadius: '6px',
-              border: 'none',
-              backgroundColor: this.isSidebarVisible && this.activeSidebarView === 'explorer' ? 'var(--accent-bg)' : 'transparent',
-              color: this.isSidebarVisible && this.activeSidebarView === 'explorer' ? 'var(--accent)' : 'var(--activitybar-fg)',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              position: 'relative',
-              transition: 'all 0.12s ease',
-            }}
-          >
-            {this.isSidebarVisible && this.activeSidebarView === 'explorer' && (
-              <span style={{ position: 'absolute', left: 0, top: '8px', bottom: '8px', width: '2px', backgroundColor: 'var(--accent)', borderRadius: '0 2px 2px 0' }} />
-            )}
-            <Files size={18} strokeWidth={1.8} />
-          </button>
-
-          {/* Search Icon Button */}
-          <button
-            onClick={() => {
-              if (this.activeSidebarView === 'search' && this.isSidebarVisible) {
-                this.isSidebarVisible = false
-              } else {
-                this.activeSidebarView = 'search'
-                this.isSidebarVisible = true
-              }
-            }}
-            title="全局搜索 (Search)"
-            style={{
-              width: '36px',
-              height: '36px',
-              borderRadius: '6px',
-              border: 'none',
-              backgroundColor: this.isSidebarVisible && this.activeSidebarView === 'search' ? 'var(--accent-bg)' : 'transparent',
-              color: this.isSidebarVisible && this.activeSidebarView === 'search' ? 'var(--accent)' : 'var(--activitybar-fg)',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              position: 'relative',
-              transition: 'all 0.12s ease',
-            }}
-          >
-            {this.isSidebarVisible && this.activeSidebarView === 'search' && (
-              <span style={{ position: 'absolute', left: 0, top: '8px', bottom: '8px', width: '2px', backgroundColor: 'var(--accent)', borderRadius: '0 2px 2px 0' }} />
-            )}
-            <Search size={18} strokeWidth={1.8} />
-          </button>
-
-          {/* Git Source Control Icon Button */}
-          <button
-            onClick={() => {
-              if (this.activeSidebarView === 'git' && this.isSidebarVisible) {
-                this.isSidebarVisible = false
-              } else {
-                this.activeSidebarView = 'git'
-                this.isSidebarVisible = true
-              }
-            }}
-            title="源代码管理 (Git)"
-            style={{
-              width: '36px',
-              height: '36px',
-              borderRadius: '6px',
-              border: 'none',
-              backgroundColor: this.isSidebarVisible && this.activeSidebarView === 'git' ? 'var(--accent-bg)' : 'transparent',
-              color: this.isSidebarVisible && this.activeSidebarView === 'git' ? 'var(--accent)' : 'var(--activitybar-fg)',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              position: 'relative',
-              transition: 'all 0.12s ease',
-            }}
-          >
-            {this.isSidebarVisible && this.activeSidebarView === 'git' && (
-              <span style={{ position: 'absolute', left: 0, top: '8px', bottom: '8px', width: '2px', backgroundColor: 'var(--accent)', borderRadius: '0 2px 2px 0' }} />
-            )}
-            <GitBranch size={18} strokeWidth={1.8} />
-          </button>
-
-          {/* Outline Icon Button */}
-          <button
-            onClick={() => {
-              if (this.activeSidebarView === 'outline' && this.isSidebarVisible) {
-                this.isSidebarVisible = false
-              } else {
-                this.activeSidebarView = 'outline'
-                this.isSidebarVisible = true
-              }
-            }}
-            title="代码大纲 (Outline)"
-            style={{
-              width: '36px',
-              height: '36px',
-              borderRadius: '6px',
-              border: 'none',
-              backgroundColor: this.isSidebarVisible && this.activeSidebarView === 'outline' ? 'var(--accent-bg)' : 'transparent',
-              color: this.isSidebarVisible && this.activeSidebarView === 'outline' ? 'var(--accent)' : 'var(--activitybar-fg)',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              position: 'relative',
-              transition: 'all 0.12s ease',
-            }}
-          >
-            {this.isSidebarVisible && this.activeSidebarView === 'outline' && (
-              <span style={{ position: 'absolute', left: 0, top: '8px', bottom: '8px', width: '2px', backgroundColor: 'var(--accent)', borderRadius: '0 2px 2px 0' }} />
-            )}
-            <ListTree size={18} strokeWidth={1.8} />
-          </button>
-
-          {/* Agent change review */}
-          <button
-            onClick={() => {
-              if (this.activeSidebarView === 'review' && this.isSidebarVisible) {
-                this.isSidebarVisible = false
-              } else {
-                this.activeSidebarView = 'review'
-                this.isSidebarVisible = true
-              }
-            }}
-            title="AI 变更审查"
-            style={{
-              width: '36px',
-              height: '36px',
-              borderRadius: '6px',
-              border: 'none',
-              backgroundColor: this.isSidebarVisible && this.activeSidebarView === 'review' ? 'var(--accent-bg-strong)' : 'transparent',
-              color: this.isSidebarVisible && this.activeSidebarView === 'review' ? 'var(--accent)' : 'var(--activitybar-fg)',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              position: 'relative',
-              transition: 'all 0.12s ease',
-            }}
-          >
-            {this.isSidebarVisible && this.activeSidebarView === 'review' && (
-              <span style={{ position: 'absolute', left: 0, top: '8px', bottom: '8px', width: '2px', backgroundColor: 'var(--accent)', borderRadius: '0 2px 2px 0' }} />
-            )}
-            <Sparkles size={18} strokeWidth={1.8} />
-          </button>
+          {navItems.map(({ id, title, Icon }) => {
+            const active = this.isSidebarVisible && this.activeSidebarView === id
+            return (
+              <button
+                key={id}
+                onClick={() => {
+                  if (active) {
+                    this.isSidebarVisible = false
+                  } else {
+                    this.activeSidebarView = id
+                    this.isSidebarVisible = true
+                  }
+                }}
+                title={title}
+                style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  backgroundColor: active ? 'var(--accent-bg)' : 'transparent',
+                  color: active ? 'var(--accent)' : 'var(--activitybar-fg)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  position: 'relative',
+                  transition: 'all 0.12s ease',
+                }}
+              >
+                {active && (
+                  <span style={{ position: 'absolute', left: 0, top: '8px', bottom: '8px', width: '2px', backgroundColor: 'var(--accent)', borderRadius: '0 2px 2px 0' }} />
+                )}
+                <Icon size={18} strokeWidth={1.8} />
+              </button>
+            )
+          })}
 
           {/* Bottom Activity Bar Icons */}
           <div style={{ marginTop: 'auto', marginBottom: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -945,65 +829,27 @@ export const Workspace = defineComponent({
         />
 
         {this.wsState.deleteModal.visible && this.wsState.deleteModal.item && (
-          <div
-            style={{
-              position: 'fixed',
-              inset: 0,
-              zIndex: 1100,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              backgroundColor: 'rgba(0, 0, 0, 0.62)',
-            }}
-            onClick={this.wsState.cancelDelete}
-          >
-            <div
-              style={{
-                width: '380px',
-                maxWidth: 'calc(100vw - 32px)',
-                padding: '18px',
-                borderRadius: '10px',
-                border: '1px solid rgba(255,255,255,0.12)',
-                backgroundColor: '#1E1E22',
-                boxShadow: '0 18px 48px rgba(0,0,0,0.5)',
-                color: '#E4E4E7',
-              }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div style={{ fontSize: '15px', fontWeight: 700, marginBottom: '8px' }}>确认删除</div>
-              <div style={{ fontSize: '12px', lineHeight: 1.6, color: '#A1A1AA', wordBreak: 'break-all' }}>
+          <div class="ws-modal-backdrop" onClick={this.wsState.cancelDelete}>
+            <div class="ws-modal-card" onClick={(e) => e.stopPropagation()}>
+              <div style={{ fontSize: '14px', fontWeight: 700, marginBottom: '8px', color: 'var(--text-strong)' }}>确认删除</div>
+              <div style={{ fontSize: '12px', lineHeight: 1.6, color: 'var(--text-dim)', wordBreak: 'break-all' }}>
                 将永久删除“{this.wsState.deleteModal.item.path}”。此操作无法撤销。
               </div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '18px' }}>
-                <button
-                  onClick={this.wsState.cancelDelete}
-                  style={{ padding: '6px 12px', borderRadius: '5px', border: '1px solid rgba(255,255,255,0.12)', background: 'transparent', color: '#D4D4D8', cursor: 'pointer' }}
-                >
-                  取消
-                </button>
-                <button
-                  onClick={this.wsState.executeDelete}
-                  style={{ padding: '6px 12px', borderRadius: '5px', border: 'none', background: '#DC2626', color: '#FFFFFF', cursor: 'pointer', fontWeight: 700 }}
-                >
-                  删除
-                </button>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '16px' }}>
+                <button class="btn-secondary" onClick={this.wsState.cancelDelete}>取消</button>
+                <button class="btn-danger" onClick={this.wsState.executeDelete}>删除</button>
               </div>
             </div>
           </div>
         )}
 
         {this.rootPickerVisible && (
-          <div
-            style={{ position: 'fixed', inset: 0, zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.62)' }}
-            onClick={() => { this.rootPickerVisible = false }}
-          >
-            <div
-              style={{ width: '520px', maxWidth: 'calc(100vw - 32px)', padding: '18px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.12)', backgroundColor: '#1E1E22', boxShadow: '0 18px 48px rgba(0,0,0,0.5)', color: '#E4E4E7' }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div style={{ fontSize: '15px', fontWeight: 700, marginBottom: '8px' }}>打开工作区</div>
-              <div style={{ fontSize: '12px', color: '#A1A1AA', marginBottom: '10px' }}>输入本机项目文件夹的完整路径。</div>
+          <div class="ws-modal-backdrop" onClick={() => { this.rootPickerVisible = false }}>
+            <div class="ws-modal-card wide" onClick={(e) => e.stopPropagation()}>
+              <div style={{ fontSize: '14px', fontWeight: 700, marginBottom: '6px', color: 'var(--text-strong)' }}>打开工作区</div>
+              <div style={{ fontSize: '12px', color: 'var(--text-dim)', marginBottom: '10px' }}>输入本机项目文件夹的完整路径。</div>
               <input
+                class="ws-modal-input"
                 value={this.rootDraft}
                 autofocus
                 onInput={(e) => { this.rootDraft = (e.target as HTMLInputElement).value }}
@@ -1011,12 +857,11 @@ export const Workspace = defineComponent({
                   if (e.key === 'Enter') void this.applyWorkspaceRoot()
                   if (e.key === 'Escape') this.rootPickerVisible = false
                 }}
-                style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: '5px', border: '1px solid rgba(255,255,255,0.14)', outline: 'none', backgroundColor: '#121214', color: '#FFFFFF', fontSize: '12px', fontFamily: 'monospace' }}
               />
-              {this.wsState.errorMsg.value && <div style={{ marginTop: '8px', color: '#F87171', fontSize: '11px' }}>{this.wsState.errorMsg.value}</div>}
+              {this.wsState.errorMsg.value && <div style={{ marginTop: '8px', color: 'var(--error)', fontSize: '11px' }}>{this.wsState.errorMsg.value}</div>}
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '16px' }}>
-                <button onClick={() => { this.rootPickerVisible = false }} style={{ padding: '6px 12px', borderRadius: '5px', border: '1px solid rgba(255,255,255,0.12)', background: 'transparent', color: '#D4D4D8', cursor: 'pointer' }}>取消</button>
-                <button onClick={this.applyWorkspaceRoot} style={{ padding: '6px 12px', borderRadius: '5px', border: 'none', background: '#38BDF8', color: '#09090B', cursor: 'pointer', fontWeight: 700 }}>打开</button>
+                <button class="btn-secondary" onClick={() => { this.rootPickerVisible = false }}>取消</button>
+                <button class="btn-primary" onClick={this.applyWorkspaceRoot}>打开</button>
               </div>
             </div>
           </div>

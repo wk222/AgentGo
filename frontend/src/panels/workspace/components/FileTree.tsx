@@ -97,15 +97,15 @@ export const FileTree = defineComponent({
               height: '24px',
               fontSize: '12px',
               fontFamily: 'var(--font-ui, sans-serif)',
-              color: isActive ? 'var(--text-strong, #FFFFFF)' : 'var(--text, #E4E4E7)',
-              backgroundColor: isActive ? 'rgba(56, 189, 248, 0.12)' : 'transparent',
-              borderLeft: isActive ? '2px solid var(--accent, #38BDF8)' : '2px solid transparent',
+              color: isActive ? 'var(--text-strong)' : 'var(--text)',
+              backgroundColor: isActive ? 'var(--accent-bg)' : 'transparent',
+              borderLeft: isActive ? '2px solid var(--accent)' : '2px solid transparent',
               cursor: 'pointer',
               userSelect: 'none',
               transition: 'background-color 0.1s ease',
             }}
             onMouseenter={(e) => {
-              if (!isActive) (e.currentTarget as HTMLElement).style.backgroundColor = 'rgba(255,255,255,0.04)'
+              if (!isActive) (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--hover-bg)'
             }}
             onMouseleave={(e) => {
               if (!isActive) (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent'
@@ -153,9 +153,9 @@ export const FileTree = defineComponent({
                   height: '20px',
                   fontSize: '12px',
                   padding: '0 4px',
-                  backgroundColor: '#27272A',
-                  color: '#FFFFFF',
-                  border: '1px solid var(--accent, #38BDF8)',
+                  backgroundColor: 'var(--input-bg)',
+                  color: 'var(--text)',
+                  border: '1px solid var(--accent)',
                   borderRadius: '3px',
                   outline: 'none',
                 }}
@@ -207,9 +207,9 @@ export const FileTree = defineComponent({
                   height: '20px',
                   fontSize: '12px',
                   padding: '0 4px',
-                  backgroundColor: '#27272A',
-                  color: '#FFFFFF',
-                  border: '1px solid var(--accent, #38BDF8)',
+                  backgroundColor: 'var(--input-bg)',
+                  color: 'var(--text)',
+                  border: '1px solid var(--accent)',
                   borderRadius: '3px',
                   outline: 'none',
                 }}
@@ -316,10 +316,10 @@ export const FileTree = defineComponent({
             style={{
               width: '100%',
               height: '24px',
-              backgroundColor: 'rgba(0,0,0,0.25)',
-              border: '1px solid var(--border-subtle, rgba(255,255,255,0.1))',
+              backgroundColor: 'var(--input-bg)',
+              border: '1px solid var(--border-subtle)',
               borderRadius: '4px',
-              color: 'var(--text, #E4E4E7)',
+              color: 'var(--text)',
               fontSize: '11px',
               padding: '0 8px',
               outline: 'none',
@@ -346,9 +346,9 @@ export const FileTree = defineComponent({
                 height: '20px',
                 fontSize: '12px',
                 padding: '0 4px',
-                backgroundColor: '#27272A',
-                color: '#FFFFFF',
-                border: '1px solid var(--accent, #38BDF8)',
+                backgroundColor: 'var(--input-bg)',
+                color: 'var(--text)',
+                border: '1px solid var(--accent)',
                 borderRadius: '3px',
                 outline: 'none',
               }}
