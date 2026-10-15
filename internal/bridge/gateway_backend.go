@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"agentgo/internal/agent"
 	"agentgo/internal/gateway"
@@ -45,6 +46,8 @@ func (g *RuntimeGateway) StreamChat(ctx context.Context, req gateway.ChatRequest
 	}
 	llm := agent.LLMSettings{APIBase: cfg.APIBase, APIKey: cfg.APIKey, Model: cfg.Model}
 	var full string
+	meter := &agent.RunMeter{}
+	ctx = agent.WithRunMeter(ctx, meter)
 	res, err := runner.GenerateStream(ctx, llm, req.SessionID, req.Message, nil, func(delta string) {
 		full += delta
 		_ = emit("chunk", mustJSON(map[string]string{"delta": delta, "session_id": req.SessionID}))
@@ -63,7 +66,12 @@ func (g *RuntimeGateway) StreamChat(ctx context.Context, req gateway.ChatRequest
 			"tool_name":   res.PendingApproval.ToolName,
 		}))
 	}
-	return &gateway.ChatResult{Content: content}, nil
+	meter.Wait(2 * time.Second)
+	u := meter.Snapshot()
+	return &gateway.ChatResult{Content: content, Usage: &gateway.UsageStats{
+		ModelCalls: u.ModelCalls, PromptTokens: u.PromptTokens, CachedTokens: u.CachedTokens,
+		CompletionTokens: u.CompletionTokens, ReasoningTokens: u.ReasoningTokens, ToolCalls: u.ToolCalls,
+	}}, nil
 }
 
 func (g *RuntimeGateway) ReplayTaskEvents(ctx context.Context, taskID string, afterSeq int64, emit func(event string, data []byte) error) error {

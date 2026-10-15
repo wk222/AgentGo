@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"sync"
 
 	"github.com/cloudwego/eino/callbacks"
 	"github.com/cloudwego/eino/components/model"
@@ -30,6 +31,13 @@ func usageObserverFrom(ctx context.Context) UsageObserver {
 	return obs
 }
 
+func usageModelName(mo *model.CallbackOutput) string {
+	if mo == nil || mo.Config == nil {
+		return ""
+	}
+	return mo.Config.Model
+}
+
 func isChatModel(info *callbacks.RunInfo) bool {
 	return info != nil && (string(info.Component) == "ChatModel" || string(info.Component) == "chat_model")
 }
@@ -38,11 +46,21 @@ func isChatModel(info *callbacks.RunInfo) bool {
 // calls (the normal path) never reach OnEnd; their usage rides on the last
 // chunk(s) of the stream copy handed to OnEndWithStreamOutput.
 func newUsageCallbackHandler(obs UsageObserver) callbacks.Handler {
+	return newUsageSinkHandler(func(_ string, tu *model.TokenUsage) {
+		obs.ModelUsage(tu.PromptTokens, tu.CompletionTokens)
+	}, nil)
+}
+
+// newUsageSinkHandler hands the full TokenUsage (cache/reasoning included) and the
+// model name of every chat-model call to sink. pending, when non-nil, is held
+// from the moment a streamed call starts until its usage was delivered, so the
+// caller can wait for the last call before reading totals.
+func newUsageSinkHandler(sink func(modelName string, tu *model.TokenUsage), pending *sync.WaitGroup) callbacks.Handler {
 	return callbacks.NewHandlerBuilder().
 		OnEndFn(func(ctx context.Context, info *callbacks.RunInfo, out callbacks.CallbackOutput) context.Context {
 			if isChatModel(info) {
 				if mo := model.ConvCallbackOutput(out); mo != nil && mo.TokenUsage != nil {
-					obs.ModelUsage(mo.TokenUsage.PromptTokens, mo.TokenUsage.CompletionTokens)
+					sink(usageModelName(mo), mo.TokenUsage)
 				}
 			}
 			return ctx
@@ -52,20 +70,32 @@ func newUsageCallbackHandler(obs UsageObserver) callbacks.Handler {
 				out.Close()
 				return ctx
 			}
+			if pending != nil {
+				pending.Add(1)
+			}
 			go func() {
+				if pending != nil {
+					defer pending.Done()
+				}
 				defer out.Close()
 				var last *model.TokenUsage
+				name := ""
 				for {
 					chunk, err := out.Recv()
 					if err != nil {
 						break
 					}
-					if mo := model.ConvCallbackOutput(chunk); mo != nil && mo.TokenUsage != nil {
-						last = mo.TokenUsage
+					if mo := model.ConvCallbackOutput(chunk); mo != nil {
+						if n := usageModelName(mo); n != "" {
+							name = n
+						}
+						if mo.TokenUsage != nil {
+							last = mo.TokenUsage
+						}
 					}
 				}
 				if last != nil {
-					obs.ModelUsage(last.PromptTokens, last.CompletionTokens)
+					sink(name, last)
 				}
 			}()
 			return ctx

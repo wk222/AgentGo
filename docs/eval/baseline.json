@@ -1,0 +1,474 @@
+{
+  "eval_set_id": "agentgo-default-v1",
+  "overall_passed": true,
+  "passing_rate": 1,
+  "average_score": 1,
+  "duration": 122976269500,
+  "cases": [
+    {
+      "case_id": "fact-busy-timeout",
+      "average_score": 1,
+      "passed_runs": 3,
+      "total_runs": 3,
+      "passed": true,
+      "details": [
+        {
+          "case_id": "fact-busy-timeout",
+          "run_id": 1,
+          "output": "10000",
+          "score": 1,
+          "passed": true,
+          "duration": 7031005200,
+          "metrics": {
+            "model_calls": 4,
+            "prompt_tokens": 19548,
+            "cached_tokens": 0,
+            "completion_tokens": 68,
+            "reasoning_tokens": 0,
+            "tool_calls": 3
+          }
+        },
+        {
+          "case_id": "fact-busy-timeout",
+          "run_id": 2,
+          "output": "10000",
+          "score": 1,
+          "passed": true,
+          "duration": 4456650600,
+          "metrics": {
+            "model_calls": 3,
+            "prompt_tokens": 13972,
+            "cached_tokens": 0,
+            "completion_tokens": 58,
+            "reasoning_tokens": 0,
+            "tool_calls": 2
+          }
+        },
+        {
+          "case_id": "fact-busy-timeout",
+          "run_id": 3,
+          "output": "10000",
+          "score": 1,
+          "passed": true,
+          "duration": 6582464100,
+          "metrics": {
+            "model_calls": 3,
+            "prompt_tokens": 13972,
+            "cached_tokens": 0,
+            "completion_tokens": 58,
+            "reasoning_tokens": 0,
+            "tool_calls": 2
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "fact-default-mode-key",
+      "average_score": 1,
+      "passed_runs": 3,
+      "total_runs": 3,
+      "passed": true,
+      "details": [
+        {
+          "case_id": "fact-default-mode-key",
+          "run_id": 1,
+          "output": "__default__",
+          "score": 1,
+          "passed": true,
+          "duration": 5755258500,
+          "metrics": {
+            "model_calls": 3,
+            "prompt_tokens": 14407,
+            "cached_tokens": 0,
+            "completion_tokens": 50,
+            "reasoning_tokens": 0,
+            "tool_calls": 2
+          }
+        },
+        {
+          "case_id": "fact-default-mode-key",
+          "run_id": 2,
+          "output": "__default__",
+          "score": 1,
+          "passed": true,
+          "duration": 9395157200,
+          "metrics": {
+            "model_calls": 3,
+            "prompt_tokens": 14417,
+            "cached_tokens": 0,
+            "completion_tokens": 60,
+            "reasoning_tokens": 0,
+            "tool_calls": 2
+          }
+        },
+        {
+          "case_id": "fact-default-mode-key",
+          "run_id": 3,
+          "output": "__default__",
+          "score": 1,
+          "passed": true,
+          "duration": 5503999100,
+          "metrics": {
+            "model_calls": 3,
+            "prompt_tokens": 14407,
+            "cached_tokens": 0,
+            "completion_tokens": 50,
+            "reasoning_tokens": 0,
+            "tool_calls": 2
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "fact-keep-recent-turns",
+      "average_score": 1,
+      "passed_runs": 3,
+      "total_runs": 3,
+      "passed": true,
+      "details": [
+        {
+          "case_id": "fact-keep-recent-turns",
+          "run_id": 1,
+          "output": "6",
+          "score": 1,
+          "passed": true,
+          "duration": 8025497700,
+          "metrics": {
+            "model_calls": 4,
+            "prompt_tokens": 22153,
+            "cached_tokens": 0,
+            "completion_tokens": 71,
+            "reasoning_tokens": 0,
+            "tool_calls": 3
+          }
+        },
+        {
+          "case_id": "fact-keep-recent-turns",
+          "run_id": 2,
+          "output": "6",
+          "score": 1,
+          "passed": true,
+          "duration": 5459918300,
+          "metrics": {
+            "model_calls": 3,
+            "prompt_tokens": 14974,
+            "cached_tokens": 0,
+            "completion_tokens": 50,
+            "reasoning_tokens": 0,
+            "tool_calls": 2
+          }
+        },
+        {
+          "case_id": "fact-keep-recent-turns",
+          "run_id": 3,
+          "output": "6",
+          "score": 1,
+          "passed": true,
+          "duration": 6076208300,
+          "metrics": {
+            "model_calls": 4,
+            "prompt_tokens": 21328,
+            "cached_tokens": 0,
+            "completion_tokens": 81,
+            "reasoning_tokens": 0,
+            "tool_calls": 3
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "fact-harness-ids",
+      "average_score": 1,
+      "passed_runs": 3,
+      "total_runs": 3,
+      "passed": true,
+      "details": [
+        {
+          "case_id": "fact-harness-ids",
+          "run_id": 1,
+          "output": "`frontend/src/harness.ts` 定义的四个 harness id 是：\n\n- `minimal`\n- `standard`\n- `ultimate`\n- `creative`",
+          "score": 1,
+          "passed": true,
+          "duration": 4598009700,
+          "metrics": {
+            "model_calls": 3,
+            "prompt_tokens": 14058,
+            "cached_tokens": 4474,
+            "completion_tokens": 88,
+            "reasoning_tokens": 0,
+            "tool_calls": 2
+          }
+        },
+        {
+          "case_id": "fact-harness-ids",
+          "run_id": 2,
+          "output": "`frontend/src/harness.ts` 定义的四个 harness id 是：\n\n- `minimal`\n- `standard`\n- `ultimate`\n- `creative`",
+          "score": 1,
+          "passed": true,
+          "duration": 7371815500,
+          "metrics": {
+            "model_calls": 4,
+            "prompt_tokens": 19891,
+            "cached_tokens": 0,
+            "completion_tokens": 98,
+            "reasoning_tokens": 0,
+            "tool_calls": 3
+          }
+        },
+        {
+          "case_id": "fact-harness-ids",
+          "run_id": 3,
+          "output": "`frontend/src/harness.ts` 定义的四个 harness id 是：\n\n- `minimal`\n- `standard`\n- `ultimate`\n- `creative`",
+          "score": 1,
+          "passed": true,
+          "duration": 4585977300,
+          "metrics": {
+            "model_calls": 3,
+            "prompt_tokens": 14058,
+            "cached_tokens": 0,
+            "completion_tokens": 88,
+            "reasoning_tokens": 0,
+            "tool_calls": 2
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "fact-cancel-route",
+      "average_score": 1,
+      "passed_runs": 3,
+      "total_runs": 3,
+      "passed": true,
+      "details": [
+        {
+          "case_id": "fact-cancel-route",
+          "run_id": 1,
+          "output": "取消一次聊天运行的路由是 **`POST /api/v1/chat/cancel`**。请求体需要包含 `session_id`。",
+          "score": 1,
+          "passed": true,
+          "duration": 7842732800,
+          "metrics": {
+            "model_calls": 4,
+            "prompt_tokens": 22325,
+            "cached_tokens": 0,
+            "completion_tokens": 107,
+            "reasoning_tokens": 0,
+            "tool_calls": 3
+          }
+        },
+        {
+          "case_id": "fact-cancel-route",
+          "run_id": 2,
+          "output": "取消一次聊天运行的路由是 **`POST /api/v1/chat/cancel`**。它接收 JSON 中的 `session_id`。",
+          "score": 1,
+          "passed": true,
+          "duration": 6352238900,
+          "metrics": {
+            "model_calls": 4,
+            "prompt_tokens": 22417,
+            "cached_tokens": 0,
+            "completion_tokens": 99,
+            "reasoning_tokens": 0,
+            "tool_calls": 3
+          }
+        },
+        {
+          "case_id": "fact-cancel-route",
+          "run_id": 3,
+          "output": "取消一次聊天运行的路由是 **`POST /api/v1/chat/cancel`**。请求体需要包含 `session_id`。",
+          "score": 1,
+          "passed": true,
+          "duration": 8101654300,
+          "metrics": {
+            "model_calls": 3,
+            "prompt_tokens": 16760,
+            "cached_tokens": 0,
+            "completion_tokens": 86,
+            "reasoning_tokens": 0,
+            "tool_calls": 2
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "fact-error-exempt",
+      "average_score": 1,
+      "passed_runs": 3,
+      "total_runs": 3,
+      "passed": true,
+      "details": [
+        {
+          "case_id": "fact-error-exempt",
+          "run_id": 1,
+          "output": "`isLikelyToolErrorOutput` 根据以下字符串特征判断输出可能是报错：\n\n- **以 `[tool error]` 开头**：区分大小写。\n- **包含 `exit status `**：不区分大小写。\n- **包含 `panic:`**：不区分大小写。\n- **包含 `syntaxerror`**：不区分大小写。\n- **包含 `compilation failed`**：不区分大小写。",
+          "score": 1,
+          "passed": true,
+          "duration": 6632206100,
+          "metrics": {
+            "model_calls": 3,
+            "prompt_tokens": 14998,
+            "cached_tokens": 0,
+            "completion_tokens": 146,
+            "reasoning_tokens": 0,
+            "tool_calls": 2
+          }
+        },
+        {
+          "case_id": "fact-error-exempt",
+          "run_id": 2,
+          "output": "`isLikelyToolErrorOutput` 会匹配以下字符串特征：\n\n- 以 `[tool error]` 开头（区分大小写）\n- 包含 `exit status `（不区分大小写）\n- 包含 `panic:`（不区分大小写）\n- 包含 `syntaxerror`（不区分大小写）\n- 包含 `compilation failed`（不区分大小写）",
+          "score": 1,
+          "passed": true,
+          "duration": 5344181600,
+          "metrics": {
+            "model_calls": 3,
+            "prompt_tokens": 14998,
+            "cached_tokens": 0,
+            "completion_tokens": 137,
+            "reasoning_tokens": 0,
+            "tool_calls": 2
+          }
+        },
+        {
+          "case_id": "fact-error-exempt",
+          "run_id": 3,
+          "output": "`isLikelyToolErrorOutput` 会把工具输出判定为错误，只要满足以下任一字符串特征：\n\n- **以** `[tool error]` **开头**（区分大小写）\n- 包含 `exit status `（不区分大小写）\n- 包含 `panic:`（不区分大小写）\n- 包含 `syntaxerror`（不区分大小写）\n- 包含 `compilation failed`（不区分大小写）",
+          "score": 1,
+          "passed": true,
+          "duration": 5236540800,
+          "metrics": {
+            "model_calls": 3,
+            "prompt_tokens": 14998,
+            "cached_tokens": 0,
+            "completion_tokens": 150,
+            "reasoning_tokens": 0,
+            "tool_calls": 2
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "plain-arith",
+      "average_score": 1,
+      "passed_runs": 3,
+      "total_runs": 3,
+      "passed": true,
+      "details": [
+        {
+          "case_id": "plain-arith",
+          "run_id": 1,
+          "output": "17 × 23 = 391",
+          "score": 1,
+          "passed": true,
+          "duration": 1322424900,
+          "metrics": {
+            "model_calls": 1,
+            "prompt_tokens": 3904,
+            "cached_tokens": 0,
+            "completion_tokens": 10,
+            "reasoning_tokens": 0,
+            "tool_calls": 0
+          }
+        },
+        {
+          "case_id": "plain-arith",
+          "run_id": 2,
+          "output": "17 × 23 = 391。",
+          "score": 1,
+          "passed": true,
+          "duration": 1263822500,
+          "metrics": {
+            "model_calls": 1,
+            "prompt_tokens": 3904,
+            "cached_tokens": 0,
+            "completion_tokens": 11,
+            "reasoning_tokens": 0,
+            "tool_calls": 0
+          }
+        },
+        {
+          "case_id": "plain-arith",
+          "run_id": 3,
+          "output": "391",
+          "score": 1,
+          "passed": true,
+          "duration": 1397279100,
+          "metrics": {
+            "model_calls": 1,
+            "prompt_tokens": 3904,
+            "cached_tokens": 0,
+            "completion_tokens": 4,
+            "reasoning_tokens": 0,
+            "tool_calls": 0
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "plain-capital",
+      "average_score": 1,
+      "passed_runs": 3,
+      "total_runs": 3,
+      "passed": true,
+      "details": [
+        {
+          "case_id": "plain-capital",
+          "run_id": 1,
+          "output": "巴黎",
+          "score": 1,
+          "passed": true,
+          "duration": 1474039400,
+          "metrics": {
+            "model_calls": 1,
+            "prompt_tokens": 3900,
+            "cached_tokens": 0,
+            "completion_tokens": 4,
+            "reasoning_tokens": 0,
+            "tool_calls": 0
+          }
+        },
+        {
+          "case_id": "plain-capital",
+          "run_id": 2,
+          "output": "巴黎",
+          "score": 1,
+          "passed": true,
+          "duration": 1659001300,
+          "metrics": {
+            "model_calls": 1,
+            "prompt_tokens": 3900,
+            "cached_tokens": 0,
+            "completion_tokens": 4,
+            "reasoning_tokens": 0,
+            "tool_calls": 0
+          }
+        },
+        {
+          "case_id": "plain-capital",
+          "run_id": 3,
+          "output": "巴黎",
+          "score": 1,
+          "passed": true,
+          "duration": 1507676500,
+          "metrics": {
+            "model_calls": 1,
+            "prompt_tokens": 3900,
+            "cached_tokens": 0,
+            "completion_tokens": 4,
+            "reasoning_tokens": 0,
+            "tool_calls": 0
+          }
+        }
+      ]
+    }
+  ],
+  "totals": {
+    "model_calls": 66,
+    "prompt_tokens": 327093,
+    "cached_tokens": 4474,
+    "completion_tokens": 1582,
+    "reasoning_tokens": 0,
+    "tool_calls": 42
+  },
+  "total_runs": 24
+}

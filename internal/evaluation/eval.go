@@ -17,6 +17,7 @@ type EvalCase struct {
 	Input        string   `json:"input"`
 	ExpectedText string   `json:"expected_text,omitempty"` // Regex expression or substring
 	Keywords     []string `json:"keywords,omitempty"`      // Must-contain keyword tags
+	MaxToolCalls *int     `json:"max_tool_calls,omitempty"` // Fail when a measured run used more tools (0 = "no tools")
 }
 
 // EvalSet groups together a series of cases.
@@ -34,6 +35,7 @@ type CaseResult struct {
 	Passed   bool          `json:"passed"`
 	Duration time.Duration `json:"duration"`
 	ErrorMsg string        `json:"error_msg,omitempty"`
+	Metrics  Metrics       `json:"metrics"`
 }
 
 // CaseSummary aggregates multiple runs of one specific case.
@@ -54,6 +56,8 @@ type EvalResult struct {
 	AverageScore  float64       `json:"average_score"`
 	Duration      time.Duration `json:"duration"`
 	Cases         []CaseSummary `json:"cases"`
+	Totals        Metrics       `json:"totals"`
+	TotalRuns     int           `json:"total_runs"`
 }
 
 // AgentGenerator abstracts the LLM Agent generation response.
@@ -97,7 +101,17 @@ func ScoreCase(output string, kase EvalCase) (float64, bool) {
 
 // EvaluateSet runs inference and grading on all cases.
 func EvaluateSet(ctx context.Context, agent AgentGenerator, set EvalSet, numRuns int, parallel bool) (*EvalResult, error) {
+	return EvaluateSetTagged(ctx, agent, set, numRuns, parallel, "")
+}
+
+// EvaluateSetTagged is EvaluateSet with a session-id tag. A persistent backend
+// keeps session history, so repeated evaluations must not share session ids;
+// pass a unique tag (for example a timestamp) per evaluation.
+func EvaluateSetTagged(ctx context.Context, agent AgentGenerator, set EvalSet, numRuns int, parallel bool, tag string) (*EvalResult, error) {
 	start := time.Now()
+	if tag != "" {
+		tag += "-"
+	}
 	caseSummaries := make([]CaseSummary, len(set.Cases))
 
 	var eg errgroup.Group
@@ -119,10 +133,17 @@ func EvaluateSet(ctx context.Context, agent AgentGenerator, set EvalSet, numRuns
 			passedCount := 0
 
 			for runID := 1; runID <= numRuns; runID++ {
-				sessionID := fmt.Sprintf("eval-%s-run-%d", c.ID, runID)
+				sessionID := fmt.Sprintf("eval-%s%s-run-%d", tag, c.ID, runID)
 				runStart := time.Now()
 
-				output, err := agent.Generate(ctx, sessionID, c.Input)
+				var output string
+				var metrics Metrics
+				var err error
+				if ma, ok := agent.(MeasuredAgent); ok {
+					output, metrics, err = ma.GenerateMeasured(ctx, sessionID, c.Input)
+				} else {
+					output, err = agent.Generate(ctx, sessionID, c.Input)
+				}
 				duration := time.Since(runStart)
 
 				var score float64
@@ -135,6 +156,10 @@ func EvaluateSet(ctx context.Context, agent AgentGenerator, set EvalSet, numRuns
 					passed = false
 				} else {
 					score, passed = ScoreCase(output, c)
+					if passed && c.MaxToolCalls != nil && metrics.ToolCalls > *c.MaxToolCalls {
+						passed, score = false, 0
+						errMsg = fmt.Sprintf("used %d tool calls, limit %d", metrics.ToolCalls, *c.MaxToolCalls)
+					}
 				}
 
 				if passed {
@@ -150,6 +175,7 @@ func EvaluateSet(ctx context.Context, agent AgentGenerator, set EvalSet, numRuns
 					Passed:   passed,
 					Duration: duration,
 					ErrorMsg: errMsg,
+					Metrics:  metrics,
 				})
 			}
 
@@ -182,11 +208,17 @@ func EvaluateSet(ctx context.Context, agent AgentGenerator, set EvalSet, numRuns
 	passedCases := 0
 	var sumScore float64
 
+	var totals Metrics
+	totalRuns := 0
 	for _, s := range caseSummaries {
 		if s.Passed {
 			passedCases++
 		}
 		sumScore += s.AverageScore
+		totalRuns += s.TotalRuns
+		for _, d := range s.Details {
+			totals.Add(d.Metrics)
+		}
 	}
 
 	passingRate := 0.0
@@ -203,5 +235,7 @@ func EvaluateSet(ctx context.Context, agent AgentGenerator, set EvalSet, numRuns
 		AverageScore:  avgScore,
 		Duration:      time.Since(start),
 		Cases:         caseSummaries,
+		Totals:        totals,
+		TotalRuns:     totalRuns,
 	}, nil
 }
