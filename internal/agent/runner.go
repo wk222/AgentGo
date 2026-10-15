@@ -135,7 +135,6 @@ func NewRunner(mem memory.Engine, ws *workspace.ContextMiddleware, queue *govern
 		usageTracer:        tracer,
 		keyMgr:             DefaultKeyManager(),
 	}
-	r.loadPersistedSessionModes()
 
 	tools.SetJobWakeupHandler(func(job *tools.MonitoredJob) {
 		if capBus != nil {
@@ -256,6 +255,7 @@ func (r *Runner) SetEpisodicCompressor(c *memory.EpisodicCompressor) {
 func (r *Runner) SetSessionsStore(s *sessions.Store) {
 	if r != nil {
 		r.sessStore = s
+		r.loadPersistedSessionModes()
 	}
 }
 
@@ -304,10 +304,11 @@ func (r *Runner) SetDefaultSessionMode(m SessionMode) {
 	if r == nil {
 		return
 	}
+	m = m.Normalized()
 	r.modeMu.Lock()
-	r.defaultSessionMode = m.Normalized()
-	r.savePersistedSessionModesLocked()
+	r.defaultSessionMode = m
 	r.modeMu.Unlock()
+	r.persistMode("", m)
 }
 
 func (r *Runner) SetSessionModeForSession(sessionID string, m SessionMode) {
@@ -319,13 +320,14 @@ func (r *Runner) SetSessionModeForSession(sessionID string, m SessionMode) {
 		r.SetDefaultSessionMode(m)
 		return
 	}
+	m = m.Normalized()
 	r.modeMu.Lock()
 	if r.sessionModes == nil {
 		r.sessionModes = make(map[string]SessionMode)
 	}
-	r.sessionModes[sessionID] = m.Normalized()
-	r.savePersistedSessionModesLocked()
+	r.sessionModes[sessionID] = m
 	r.modeMu.Unlock()
+	r.persistMode(sessionID, m)
 }
 
 func (r *Runner) ClearSessionModeForSession(sessionID string) {
@@ -338,64 +340,69 @@ func (r *Runner) ClearSessionModeForSession(sessionID string) {
 	}
 	r.modeMu.Lock()
 	delete(r.sessionModes, sessionID)
-	r.savePersistedSessionModesLocked()
 	r.modeMu.Unlock()
-}
-
-type persistedSessionModesFile struct {
-	Default  SessionMode            `json:"default"`
-	Sessions map[string]SessionMode `json:"sessions"`
-}
-
-func (r *Runner) sessionModesFilePath() string {
-	if r == nil || strings.TrimSpace(r.dataDir) == "" {
-		return ""
+	if r.sessStore != nil {
+		_ = r.sessStore.DeleteMode(context.Background(), sessionID)
 	}
-	return filepath.Join(r.dataDir, "session_modes.json")
 }
 
+func (r *Runner) persistMode(sessionID string, m SessionMode) {
+	if r.sessStore == nil {
+		return
+	}
+	_ = r.sessStore.SaveMode(context.Background(), sessionID, sessions.ModeRecord{
+		Profile: string(m.Profile),
+		Canvas:  string(m.Canvas),
+	})
+}
+
+// loadPersistedSessionModes restores modes from the sessions DB. A session_modes.json
+// left by the short-lived file-based build is imported once and removed.
 func (r *Runner) loadPersistedSessionModes() {
-	path := r.sessionModesFilePath()
-	if path == "" {
+	if r.sessStore == nil {
 		return
 	}
-	raw, err := os.ReadFile(path)
-	if err != nil || len(raw) == 0 {
-		return
-	}
-	var data persistedSessionModesFile
-	if err := json.Unmarshal(raw, &data); err != nil {
+	r.importLegacySessionModesFile()
+	def, ok, perSession, err := r.sessStore.LoadModes(context.Background())
+	if err != nil {
 		return
 	}
 	r.modeMu.Lock()
 	defer r.modeMu.Unlock()
-	if data.Default.Profile != "" || data.Default.Canvas != "" {
-		r.defaultSessionMode = data.Default.Normalized()
+	if ok {
+		r.defaultSessionMode = ParseSessionMode(def.Profile, def.Canvas)
 	}
 	if r.sessionModes == nil {
 		r.sessionModes = make(map[string]SessionMode)
 	}
-	for k, v := range data.Sessions {
-		if strings.TrimSpace(k) != "" {
-			r.sessionModes[k] = v.Normalized()
-		}
+	for id, m := range perSession {
+		r.sessionModes[id] = ParseSessionMode(m.Profile, m.Canvas)
 	}
 }
 
-func (r *Runner) savePersistedSessionModesLocked() {
-	path := r.sessionModesFilePath()
-	if path == "" {
+func (r *Runner) importLegacySessionModesFile() {
+	if strings.TrimSpace(r.dataDir) == "" {
 		return
 	}
-	_ = os.MkdirAll(filepath.Dir(path), 0o755)
-	payload, err := json.MarshalIndent(persistedSessionModesFile{
-		Default:  r.defaultSessionMode.Normalized(),
-		Sessions: r.sessionModes,
-	}, "", "  ")
+	path := filepath.Join(r.dataDir, "session_modes.json")
+	raw, err := os.ReadFile(path)
 	if err != nil {
 		return
 	}
-	_ = os.WriteFile(path, payload, 0o644)
+	var legacy struct {
+		Default  SessionMode            `json:"default"`
+		Sessions map[string]SessionMode `json:"sessions"`
+	}
+	if json.Unmarshal(raw, &legacy) == nil {
+		ctx := context.Background()
+		if legacy.Default.Profile != "" || legacy.Default.Canvas != "" {
+			_ = r.sessStore.SaveMode(ctx, "", sessions.ModeRecord{Profile: string(legacy.Default.Profile), Canvas: string(legacy.Default.Canvas)})
+		}
+		for id, m := range legacy.Sessions {
+			_ = r.sessStore.SaveMode(ctx, id, sessions.ModeRecord{Profile: string(m.Profile), Canvas: string(m.Canvas)})
+		}
+	}
+	_ = os.Remove(path)
 }
 
 // SessionKernel returns the cached SessionKernel for the workspace root.

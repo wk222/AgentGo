@@ -4,6 +4,7 @@ import { sessionTitle, sessionIdOf } from './composables/useChat'
 import { wailsCall } from './wails'
 import PromptSuggestions from './components/chat/PromptSuggestions'
 import FlowChatTranscript from './components/chat/FlowChatTranscript'
+import { HARNESSES, getHarness, harnessOf, type HarnessId } from './harness'
 
 interface SlashCommandOption {
   cmd: string
@@ -110,12 +111,7 @@ export default defineComponent({
 
     watch(() => [props.messages.length, props.chatPaneKey], () => { void scrollToBottom() })
 
-    const activeHarness = computed(() => {
-      if (props.modeProfile === 'app_matrix' || props.modeProfile === 'matrix') return 'Creative'
-      if (props.modeCanvas === 'deep' || props.modeProfile === 'admin') return 'Ultimate'
-      if (props.modeCanvas === 'focused') return 'Minimal'
-      return 'Standard'
-    })
+    const activeHarness = computed(() => harnessOf(props.modeProfile, props.modeCanvas).id)
 
     const pendingInteractMsg = computed(() => {
       for (let i = props.messages.length - 1; i >= 0; i--) {
@@ -127,11 +123,9 @@ export default defineComponent({
       return null
     })
 
-    const selectHarnessMode = (id: 'Minimal' | 'Standard' | 'Ultimate' | 'Creative') => {
-      if (id === 'Minimal') props.onModeChange('assistant', 'focused')
-      else if (id === 'Standard') props.onModeChange('assistant', 'balanced')
-      else if (id === 'Ultimate') props.onModeChange('admin', 'deep')
-      else if (id === 'Creative') props.onModeChange('app_matrix', 'balanced')
+    const selectHarnessMode = (id: HarnessId) => {
+      const h = getHarness(id)
+      props.onModeChange(h.profile, h.canvas)
     }
 
     // Slash Command Menu State
@@ -161,7 +155,7 @@ export default defineComponent({
         return
       }
       if (opt.cmd === '/plan' || opt.cmd === '/goal') {
-        selectHarnessMode('Ultimate')
+        selectHarnessMode('ultimate')
       }
       inputText.value = opt.insertText || ''
       nextTick(() => {
@@ -532,7 +526,7 @@ export default defineComponent({
                       type="button"
                       class="chat-welcome-card"
                       onClick={() => {
-                        if (card.cmd === '/plan' || card.cmd === '/goal') selectHarnessMode('Ultimate')
+                        if (card.cmd === '/plan' || card.cmd === '/goal') selectHarnessMode('ultimate')
                         inputText.value = card.prompt
                         nextTick(() => textareaEl.value?.focus())
                       }}
@@ -753,21 +747,16 @@ export default defineComponent({
             <div class="chat-composer-toolbar">
               <div class="chat-composer-pills">
                 <div class="chat-pill-group" title="AgentGo 协作模式（极简 / 标准 / 极致 / 创造）">
-                  {([
-                    ['Minimal', '极简 Minimal', '即时协作：目标明确、快速直接执行'],
-                    ['Standard', '标准 Standard', '日常多步任务：有序规划、逐步执行并检查结果'],
-                    ['Ultimate', '极致 Ultimate', '复杂深度任务：深度拆解、全量工具编排与闭环验证'],
-                    ['Creative', '创造 Creative', '应用与工作台定制：构建与演进 Inner App / Mini App'],
-                  ] as const).map(([id, label, tip]) => (
+                  {HARNESSES.map(h => (
                     <button
-                      key={id}
+                      key={h.id}
                       type="button"
                       disabled={props.modeSaving}
-                      title={tip}
-                      class={['chat-pill-btn', activeHarness.value === id && 'active']}
-                      onClick={() => selectHarnessMode(id)}
+                      title={h.desc}
+                      class={['chat-pill-btn', activeHarness.value === h.id && 'active']}
+                      onClick={() => selectHarnessMode(h.id)}
                     >
-                      {label}
+                      {h.label}
                     </button>
                   ))}
                 </div>
