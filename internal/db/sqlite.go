@@ -7,7 +7,8 @@ import (
 )
 
 // Configure applies pragmas recommended for a single shared *sql.DB on agentgo.db.
-// One pool avoids "database is locked" when memory, sessions, and approvals share the file.
+// Keeping MaxOpenConns(1) guarantees that connection-scoped pragmas (foreign_keys, busy_timeout),
+// in-memory ":memory:" test stores, and read-then-write sequence allocation remain atomic.
 func Configure(conn *sql.DB) error {
 	if conn == nil {
 		return fmt.Errorf("db is nil")
@@ -17,8 +18,9 @@ func Configure(conn *sql.DB) error {
 	conn.SetConnMaxLifetime(0)
 	for _, pragma := range []string{
 		"PRAGMA journal_mode=WAL",
-		"PRAGMA busy_timeout=5000",
+		"PRAGMA busy_timeout=10000",
 		"PRAGMA synchronous=NORMAL",
+		"PRAGMA temp_store=MEMORY",
 		"PRAGMA foreign_keys=ON",
 	} {
 		if _, err := conn.Exec(pragma); err != nil {

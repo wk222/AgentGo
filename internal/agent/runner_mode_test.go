@@ -40,3 +40,26 @@ func TestRunnerWithSessionModeFallsBackToDefault(t *testing.T) {
 		t.Fatalf("mode=%+v, want assistant/focused", got)
 	}
 }
+
+func TestRunnerPersistsSessionModesAcrossRestart(t *testing.T) {
+	dir := t.TempDir()
+	r1 := &Runner{
+		dataDir:      dir,
+		sessionModes: make(map[string]SessionMode),
+	}
+	r1.SetSessionMode(SessionMode{Profile: ModeAssistant, Canvas: CanvasFocused})
+	r1.SetSessionModeForSession("sess-creative", SessionMode{Profile: ModeAppMatrix, Canvas: CanvasBalanced})
+
+	r2 := &Runner{
+		dataDir:      dir,
+		sessionModes: make(map[string]SessionMode),
+	}
+	r2.loadPersistedSessionModes()
+
+	if got := r2.SessionMode(); got.Profile != ModeAssistant || got.Canvas != CanvasFocused {
+		t.Fatalf("reloaded default mode=%+v, want assistant/focused", got)
+	}
+	if got := r2.SessionModeForSession("sess-creative"); got.Profile != ModeAppMatrix || got.Canvas != CanvasBalanced {
+		t.Fatalf("reloaded session mode=%+v, want app_matrix/balanced", got)
+	}
+}

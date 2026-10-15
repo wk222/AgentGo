@@ -79,6 +79,24 @@
 
 ---
 
+## 阶段 E — 后端中间件收敛与全栈“去缝合感”统一架构（2026-10）
+
+### 核心诊断：为什么借鉴多家项目后容易产生“缝合感”？
+1. **UI 术语与概念“多代同堂”**：界面文案中若直接暴露外部参考项目代号（如 `PyBot`、`Reasonix`、`OpenBitFun`、`Crush`），且对话栏用四档胶囊、设置页却用两套旧下拉框（`Profile × Canvas`），会让用户感到概念割裂。
+2. **后端同职能中间件“叠床架屋”**：每引入一套新机制就往 `BuildADKHandlers` / `BuildTypedMiddlewareStack` 追加一层中间件，导致 `patchtoolcalls` 重复注册、`ToolResultPruner`（仅留 2 轮首行 80 字）与 `SessionSpine`（6 轮窗口 + 头 `5/8` 尾 `3/8`）双重裁剪打架、每轮对话重复初始化 `SessionKernel`。
+
+### 收敛与修复清单
+
+| 任务 | 状态 | 说明 |
+|------|------|------|
+| E1 **统一上下文裁剪契约（Cache-First 单一真源）** | ✅ | `SessionSpine` 默认负责 6 轮窗口 + 头 `5/8` 尾 `3/8` 确定性裁剪；`ToolResultPrunerMiddleware` 升级为头尾保留 + 报错豁免，默认关闭避免双重裁剪 |
+| E2 **ADK 中间件去重与 `SessionKernel` 缓存复用** | ✅ | 移除 `handlers.go` 中重复的 `patchtoolcalls` 注册；在 `Runner` 上缓存复用 `SessionKernel` 实例，消除每轮对话重复扫描磁盘开销 |
+| E3 **会话模式 (`SessionMode`) 跨重启持久化与心跳打通** | ✅ | `SetDefaultSessionMode` / `SetSessionModeForSession` 自动持久化至 `dataDir/session_modes.json`；打通 `HeartbeatManager` 至 `capability.Bus` |
+| E4 **SQLite WAL 参数与内存临时表加速** | ✅ | `internal/db/sqlite.go` 保持单池原子性（保护 `:memory:` 测试与 `seq` 分配），升级 `busy_timeout=10000` 与 `temp_store=MEMORY` |
+| E5 **全栈“去缝合感”：统一 AgentGo 原生术语与四档模式** | ✅ | 清理 UI 中所有第三方项目署名，将 `ChatPanel`、`AppStatusBar`、`SettingsPanel` 统一收敛为 **AgentGo 四档协作模式（极简 Minimal / 标准 Standard / 极致 Ultimate / 创造 Creative）** |
+
+---
+
 ## 明确后置
 
 - IM 渠道、Browser 工具、33 PyFlow 节点、2071 式测试规模  

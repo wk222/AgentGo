@@ -38,10 +38,13 @@ func EinoSpillEnabled() bool {
 	return v != "0" && strings.ToLower(v) != "false" && strings.ToLower(v) != "off"
 }
 
-// EinoToolResultPrunerEnabled checks if tool result pruner is enabled (default true).
+// EinoToolResultPrunerEnabled checks if standalone tool result pruner MW is enabled.
+// Default is false because SessionSpineMiddleware already performs deterministic
+// Cache-First head+tail tool snipping in CompileActiveWindow; enable via AGENTGO_EINO_PRUNER=1
+// only for standalone non-Spine pipelines.
 func EinoToolResultPrunerEnabled() bool {
-	v := strings.TrimSpace(os.Getenv("AGENTGO_EINO_PRUNER"))
-	return v != "0" && strings.ToLower(v) != "false" && strings.ToLower(v) != "off"
+	v := strings.TrimSpace(strings.ToLower(os.Getenv("AGENTGO_EINO_PRUNER")))
+	return v == "1" || v == "true" || v == "on"
 }
 
 // BuildTypedMiddlewareStack builds a generic Eino middleware stack for either *schema.Message or *schema.AgenticMessage.
@@ -123,10 +126,10 @@ func BuildTypedMiddlewareStack[M adk.MessageType](ctx context.Context, baseModel
 		}
 	}
 
-	// 7. Tool Result Pruner (static rule-based historical tool compaction)
+	// 7. Tool Result Pruner (opt-in standalone rule-based historical tool compaction)
 	if EinoToolResultPrunerEnabled() {
 		if _, ok := any(new(M)).(**schema.Message); ok {
-			prunerMW := NewToolResultPrunerMiddleware(2)
+			prunerMW := NewToolResultPrunerMiddleware(defaultKeepRecentToolTurns)
 			if typedPruner, ok := any(prunerMW).(adk.TypedChatModelAgentMiddleware[M]); ok {
 				stack = append(stack, typedPruner)
 			}

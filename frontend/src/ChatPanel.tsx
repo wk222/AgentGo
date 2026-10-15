@@ -14,8 +14,8 @@ interface SlashCommandOption {
 }
 
 const SLASH_COMMANDS: SlashCommandOption[] = [
-  { cmd: '/plan', label: '深度规划模式', desc: '切换至 Deep Canvas 并要求先输出架构/修改计划再执行', action: 'insert', insertText: '[Plan Mode] 请先梳理架构边界、影响面与分步实施计划，确认后再修改代码：\n' },
-  { cmd: '/goal', label: '目标闭环驱动', desc: '按 Reasonix Goal Contract 模式拆解目标并逐步验证闭环', action: 'insert', insertText: '[Goal Contract] 目标与验收标准如下，请自主推进工具调用并验证结果：\n' },
+  { cmd: '/plan', label: '深度规划模式', desc: '切换至极致模式并要求先输出架构/修改计划再执行', action: 'insert', insertText: '[Plan Mode] 请先梳理架构边界、影响面与分步实施计划，确认后再修改代码：\n' },
+  { cmd: '/goal', label: '目标契约驱动', desc: '按目标契约（Goal Contract）拆解任务并自主验证闭环', action: 'insert', insertText: '[Goal Contract] 目标与验收标准如下，请自主推进工具调用并验证结果：\n' },
   { cmd: '/review', label: '审查工作区改动', desc: '结合 @Git 检查当前未提交 Diff 的潜在缺陷与回归风险', action: 'insert', insertText: '@Git 请审查当前工作区的代码改动，指出潜在 Bug、边界遗漏与优化建议。' },
   { cmd: '/compact', label: '整理会话上下文', desc: '提炼当前会话关键决策与状态，释放冗余上下文', action: 'insert', insertText: '请总结当前会话的核心进展、已确认结论与下一步待办事项。' },
   { cmd: '/new', label: '新建对话 (Ctrl+L)', desc: '立即开启一个干净的新会话', action: 'exec' },
@@ -446,7 +446,7 @@ export default defineComponent({
           <div class="chat-topbar">
             <span class="chat-topbar-title">{title}</span>
             <div class="chat-topbar-badges">
-              <span class="chat-harness-badge active" title="已启用 Reasonix 风格前缀缓存工具裁剪">
+              <span class="chat-harness-badge active" title="已启用 AgentGo 前缀缓存与上下文分层保护">
                 Cache-First
               </span>
             </div>
@@ -521,7 +521,7 @@ export default defineComponent({
             {!props.sessionLoading && isWelcome && (
               <div class="chat-empty chat-welcome">
                 <div class="chat-welcome-header">
-                  <span class="chat-welcome-badge">Eino Runtime · Reasonix Context Harness</span>
+                  <span class="chat-welcome-badge">AgentGo Native Runtime · Eino ADK</span>
                   <h3>AgentGo 工程控制台</h3>
                   <p>支持 @ 上下文注入、/ 斜杠模式切换、运行中实时纠偏 (Steer) 与前缀缓存优化</p>
                 </div>
@@ -749,10 +749,10 @@ export default defineComponent({
               </div>
             </div>
 
-            {/* OpenBitFun-style Four Agent Harness Modes + Slash Trigger */}
+            {/* AgentGo Four Collaboration Modes + Slash Trigger */}
             <div class="chat-composer-toolbar">
               <div class="chat-composer-pills">
-                <div class="chat-pill-group" title="OpenBitFun 四种 Agent Harness 协作模式">
+                <div class="chat-pill-group" title="AgentGo 协作模式（极简 / 标准 / 极致 / 创造）">
                   {([
                     ['Minimal', '极简 Minimal', '即时协作：目标明确、快速直接执行'],
                     ['Standard', '标准 Standard', '日常多步任务：有序规划、逐步执行并检查结果'],
