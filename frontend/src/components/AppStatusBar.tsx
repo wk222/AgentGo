@@ -1,12 +1,8 @@
 import { defineComponent } from 'vue'
 import { Activity, Cpu, HardDrive, Terminal } from 'lucide-vue-next'
+import { harnessOf } from '../harness'
 
-function formatHarnessLabel(profile: string, canvas: string): string {
-  if (profile === 'app_matrix' || profile === 'matrix') return 'Creative · 创造'
-  if (canvas === 'deep' || profile === 'admin') return 'Ultimate · 极致'
-  if (canvas === 'focused') return 'Minimal · 极简'
-  return 'Standard · 标准'
-}
+const formatHarnessLabel = (profile: string, canvas: string) => harnessOf(profile, canvas).label
 
 export default defineComponent({
   name: 'AppStatusBar',

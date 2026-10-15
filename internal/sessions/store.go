@@ -86,6 +86,9 @@ func NewStore(db *sql.DB) error {
 	if _, err = db.Exec(runEventsSchema); err != nil {
 		return err
 	}
+	if _, err = db.Exec(sessionModesSchema); err != nil {
+		return err
+	}
 	_, err = db.Exec(pendingRunsSchema)
 	return err
 }
@@ -193,6 +196,9 @@ func (s *Store) Delete(ctx context.Context, sessionID string) error {
 		return err
 	}
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM pending_runs WHERE session_id = ?`, sessionID); err != nil {
+		return err
+	}
+	if err := s.DeleteMode(ctx, sessionID); err != nil {
 		return err
 	}
 	_, err := s.db.ExecContext(ctx, `DELETE FROM chat_sessions WHERE id = ?`, sessionID)

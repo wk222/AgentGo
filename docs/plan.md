@@ -97,6 +97,56 @@
 
 ---
 
+## 阶段 F — 收敛为「一个内核 + 多个薄壳」（2026-10 诊断后制定）
+
+### 诊断数据（2026-10-15 实测）
+
+| 指标 | 数值 | 说明 |
+|------|------|------|
+| `internal/*` 目录 | 46 个 | acp / crushproto / tui / cli / gateway / hostlink / kanban / officedoc / audio… |
+| Go 生产代码 | 5.6 万行（测试 1.8 万行） | 测试占比约 32%，但没有 Agent 任务级评测 |
+| `internal/bridge` | 1.2 万行 / 81 文件 / 194 个导出方法 | 前端字符串调用只用到约 85 个 |
+| `AGENTGO_*` 环境开关 | 约 77 个 | 行为由隐藏开关组合决定，无法穷举测试 |
+| `frontend/src/wails.ts` | 1309 行 | 超 900 行红线；字符串 `wailsCall` + `any`，无类型 |
+| 入库构建产物 | `frontend/dist` 96 个文件、`eino-ext` 1031 个文件 | 每次构建 hash 改名，提交噪声极大 |
+
+### 七个核心问题
+
+1. **入口过多、北极星漂移**：桌面 Wails、`--serve` 网关、Zed ACP、VSCode 插件、`agentgo-cli`、Crush 协议、TUI 七个入口并行；北极星是「Inner App 闭环」，但 10 月提交主要投在 ACP / serve / trigger / vscode / cli。
+2. **`bridge` 是上帝层**：业务逻辑（如 `matrix_compose`、workspace review）沉在 IPC 层，网关 / ACP / CLI 各自再包一遍，同一能力多份实现。
+3. **配置靠环境变量堆**：77 个开关没有统一类型、默认值文档和设置页入口。
+4. **中间件栈无顺序契约**：summarization / reduction / spill / pruner / spine 五种上下文处理并存，governance 与 tool heal 各挂两处，没有测试锁定顺序与职责。
+5. **模式模型前后端不一致**：后端是 Profile × Canvas 9 种组合，前端四档模式的映射在 `ChatPanel`、`AppStatusBar`、`SettingsPanel` 各写一份；会话模式又单独存成 `session_modes.json`，没进 SQLite。
+6. **前端无类型、样式按「来源项目」命名**：`wails.ts` 字符串调用；`reasonix-polish.css` 这种按出处命名的文件本身就是缝合痕迹；面板大量内联样式。
+7. **仓库卫生**：构建产物与第三方源码入库；`**/*.md` 默认忽略，设计文档不进版本库，知识容易丢。
+
+### 设计原则
+
+- **一个内核**：定义 `internal/core`（暂名）服务接口——Sessions、Runs（以 `chat_run_events` 为唯一事件流）、Approvals、Harness、Apps、Workflows。Wails / HTTP 网关 / ACP / CLI 全部是只做协议转换的薄适配器，不含业务逻辑。
+- **一个模式模型**：后端新增一等类型 `Harness`（minimal / standard / ultimate / creative），由它推导 Profile、Canvas、迭代上限、工具集；前端从后端拉取定义，不再自己维护映射。
+- **一个配置对象**：`config.Runtime` 结构体统一加载（配置文件 → 环境变量覆盖），设置页提供「高级」只读视图；开关要么转正、要么删除。
+- **一条上下文流水线**：上下文组装 → 预算与压缩 → 工具治理 → 遥测，四段固定顺序，在一个函数里声明，由测试锁定。
+
+### 分期计划（每期都有可验收的结果）
+
+| 期 | 内容 | 验收 |
+|----|------|------|
+| F1 收口（1 周）✅ | 冻结 TUI / VSCode 插件 / CLI；`session mode` 迁入 SQLite `session_modes` 表（旧 `session_modes.json` 启动时一次性导入后删除）；前端四档映射收为 `frontend/src/harness.ts` | 重启后模式保留（`TestRunnerPersistsSessionModesAcrossRestart`）；`ChatPanel` / `AppStatusBar` / `SettingsPanel` 均引用同一模块 |
+| F2 Harness 一等化（1 周） | 后端 `Harness` 类型 + `ListHarnesses` 接口；`ModeHints` 按 Harness 生成 | 前端不再出现 profile/canvas 拼装逻辑 |
+| F3 中间件流水线（1 周） | 合并 `ToolResultPruner` 进 spine compile 后删除；governance / tool heal 各保留一处；新增顺序与去重测试 | 测试断言中间件列表与顺序 |
+| F4 评测基线（1–2 周） | 10–20 个固定任务的小型评测集，经 `--serve` 无头运行，记录成功率、token、缓存命中率 | 之后改上下文策略必须附评测前后对比 |
+| F5 内核抽取（2–3 周） | 建 `internal/core`，把 bridge 中的业务逻辑下沉；gateway / ACP 改调 core | `bridge` 降到 5000 行以内且无业务分支 |
+| F6 前端类型化（1–2 周） | 改用 Wails v3 生成的类型绑定或按领域拆分 `api/*.ts`；样式按领域重命名并收敛 tokens；清内联样式 | `wails.ts` 拆完，无 `any` 返回 |
+| F7 配置与仓库卫生（1 周） | `config.Runtime`；`frontend/dist` 改由构建脚本生成（保留占位以满足 `go:embed`）；`eino-ext` 改为 `replace` 指向 fork；`docs/` 设计文档放开入库 | 普通提交不再带构建产物 diff |
+
+### 已定决策
+
+- **冻结入口（只修 bug，不加功能）**：`internal/tui`、VSCode 插件、`agentgo-cli`。
+- **保留并继续投入**：桌面端（主线）、`--serve` 网关、Zed ACP、Crush 协议兼容层。
+- 新能力一律先落在内核服务上，再由桌面端暴露；不再为冻结入口单独开发。
+
+---
+
 ## 明确后置
 
 - IM 渠道、Browser 工具、33 PyFlow 节点、2071 式测试规模  

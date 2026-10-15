@@ -1,5 +1,6 @@
 import { defineComponent, ref, onMounted, computed, type PropType } from 'vue'
 import { wailsCall, wailsCallWithTimeout } from '../wails'
+import { HARNESSES, getHarness, harnessOf, type HarnessId } from '../harness'
 
 type Theme = 'light' | 'dark'
 
@@ -209,27 +210,12 @@ export const SettingsPanel = defineComponent({
       }
     }
 
-    const activeHarnessId = computed(() => {
-      if (profile.value === 'app_matrix' || profile.value === 'matrix') return 'Creative'
-      if (canvas.value === 'deep' || profile.value === 'admin') return 'Ultimate'
-      if (canvas.value === 'focused') return 'Minimal'
-      return 'Standard'
-    })
+    const activeHarnessId = computed(() => harnessOf(profile.value, canvas.value).id)
 
-    const selectHarnessPreset = async (id: 'Minimal' | 'Standard' | 'Ultimate' | 'Creative') => {
-      if (id === 'Minimal') {
-        profile.value = 'assistant'
-        canvas.value = 'focused'
-      } else if (id === 'Standard') {
-        profile.value = 'assistant'
-        canvas.value = 'balanced'
-      } else if (id === 'Ultimate') {
-        profile.value = 'admin'
-        canvas.value = 'deep'
-      } else if (id === 'Creative') {
-        profile.value = 'app_matrix'
-        canvas.value = 'balanced'
-      }
+    const selectHarnessPreset = async (id: HarnessId) => {
+      const h = getHarness(id)
+      profile.value = h.profile
+      canvas.value = h.canvas
       await saveMode()
     }
 
@@ -355,12 +341,7 @@ export const SettingsPanel = defineComponent({
                 与对话栏底部胶囊完全同步。底层自动启用 Cache-First 上下文卫生策略：保留最近 6 轮完整工具输出，对更早轮次超长输出按头尾比例确定性裁剪（100% 保留编译与测试报错尾部）。
               </div>
               <div class="provider-presets-grid" style={{ marginBottom: '12px' }}>
-                {([
-                  { id: 'Minimal', name: '极简 Minimal', tag: 'assistant · focused', desc: '目标明确、即时问答与快速直接执行' },
-                  { id: 'Standard', name: '标准 Standard', tag: 'assistant · balanced', desc: '日常多步工程任务：规划 → 执行 → 验证' },
-                  { id: 'Ultimate', name: '极致 Ultimate', tag: 'admin · deep', desc: '复杂架构拆解、全量工具协同与闭环自检' },
-                  { id: 'Creative', name: '创造 Creative', tag: 'app_matrix · balanced', desc: '构建、预览与热演进 Inner App 及工作流' },
-                ] as const).map(m => (
+                {HARNESSES.map(m => (
                   <button
                     key={m.id}
                     type="button"
@@ -369,8 +350,8 @@ export const SettingsPanel = defineComponent({
                     onClick={() => selectHarnessPreset(m.id)}
                   >
                     <div class="provider-preset-head">
-                      <span class="provider-preset-name">{m.name}</span>
-                      <span class="provider-preset-tag">{m.tag}</span>
+                      <span class="provider-preset-name">{m.label}</span>
+                      <span class="provider-preset-tag">{m.profile} · {m.canvas}</span>
                     </div>
                     <div class="provider-preset-desc">{m.desc}</div>
                   </button>
