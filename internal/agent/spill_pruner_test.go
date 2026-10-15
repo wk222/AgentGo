@@ -55,8 +55,8 @@ func TestToolResultPrunerMiddleware_BeforeModelRewriteState(t *testing.T) {
 	pruner := NewToolResultPrunerMiddleware(1)
 
 	var sb strings.Builder
-	for i := 1; i <= 30; i++ {
-		sb.WriteString(fmt.Sprintf("initial exploratory scan result item %d\n", i))
+	for i := 1; i <= 50; i++ {
+		sb.WriteString(fmt.Sprintf("initial exploratory scan result item %02d with detailed path metadata\n", i))
 	}
 	exploratoryOutput := sb.String()
 
@@ -85,9 +85,11 @@ func TestToolResultPrunerMiddleware_BeforeModelRewriteState(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, out)
 
-	// Old tool message pruned
+	// Old tool message pruned in middle while preserving head & tail
 	assert.Contains(t, out.Messages[1].Content, "[Pruned previous output:")
-	assert.NotContains(t, out.Messages[1].Content, "exploratory scan result item 20")
+	assert.Contains(t, out.Messages[1].Content, "item 01")
+	assert.Contains(t, out.Messages[1].Content, "item 50")
+	assert.NotContains(t, out.Messages[1].Content, "item 25")
 
 	// Recent tool message kept intact
 	assert.Equal(t, "Build succeeded in 1.2s", out.Messages[4].Content)

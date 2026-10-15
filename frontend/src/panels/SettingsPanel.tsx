@@ -209,11 +209,35 @@ export const SettingsPanel = defineComponent({
       }
     }
 
+    const activeHarnessId = computed(() => {
+      if (profile.value === 'app_matrix' || profile.value === 'matrix') return 'Creative'
+      if (canvas.value === 'deep' || profile.value === 'admin') return 'Ultimate'
+      if (canvas.value === 'focused') return 'Minimal'
+      return 'Standard'
+    })
+
+    const selectHarnessPreset = async (id: 'Minimal' | 'Standard' | 'Ultimate' | 'Creative') => {
+      if (id === 'Minimal') {
+        profile.value = 'assistant'
+        canvas.value = 'focused'
+      } else if (id === 'Standard') {
+        profile.value = 'assistant'
+        canvas.value = 'balanced'
+      } else if (id === 'Ultimate') {
+        profile.value = 'admin'
+        canvas.value = 'deep'
+      } else if (id === 'Creative') {
+        profile.value = 'app_matrix'
+        canvas.value = 'balanced'
+      }
+      await saveMode()
+    }
+
     const saveMode = async () => {
       modeSaving.value = true
       try {
         await props.onModeChange(profile.value, canvas.value)
-        status.value = { ok: true, msg: `默认协作模式已更新为 ${profile.value} · ${canvas.value}` }
+        status.value = { ok: true, msg: `默认协作模式已更新并持久化 (${activeHarnessId.value})` }
       } catch (e: any) {
         status.value = { ok: false, msg: e?.message || '模式更新失败' }
       } finally {
@@ -228,7 +252,7 @@ export const SettingsPanel = defineComponent({
         <div class="panel-header">
           <div class="panel-title">
             <span>系统与模型配置</span>
-            <span class="panel-count">Runtime & Reasonix Harness</span>
+            <span class="panel-count">AgentGo Runtime</span>
           </div>
           <div class="panel-actions">
             <button class="btn-secondary" onClick={load}>刷新状态</button>
@@ -247,10 +271,10 @@ export const SettingsPanel = defineComponent({
             )}
 
             <div class="settings-card">
-              <div class="settings-card-title">模型提供商快速预设 (Provider Presets)</div>
+              <div class="settings-card-title">模型提供商快速预设</div>
               <div class="settings-card-sub">
-                借鉴 DeepSeek-Reasonix 的多端点预设体系，支持一键切换推理模型与本地/云端网关。
-                {hasDeepSeek.value && '（已检测到 DEEPSEEK_API_KEY）'}
+                支持一键切换深度推理模型、云端网关与本地推理端点。
+                {hasDeepSeek.value && '（已自动检测到本地 DEEPSEEK_API_KEY）'}
               </div>
               <div class="provider-presets-grid">
                 {PROVIDER_PRESETS.map(p => (
@@ -326,34 +350,35 @@ export const SettingsPanel = defineComponent({
             </div>
 
             <div class="settings-card">
-              <div class="settings-card-title">Cache-First 上下文卫生与默认协作模式</div>
+              <div class="settings-card-title">AgentGo 协作模式与前缀缓存策略</div>
               <div class="settings-card-sub">
-                已启用 Reasonix 风格前缀缓存保护：最近 6 轮保持原始工具输出，历史超长工具输出自动按头尾比例确定性裁剪（保留全部 Error 诊断），最大化 DeepSeek / OpenAI 缓存命中率。
+                与对话栏底部胶囊完全同步。底层自动启用 Cache-First 上下文卫生策略：保留最近 6 轮完整工具输出，对更早轮次超长输出按头尾比例确定性裁剪（100% 保留编译与测试报错尾部）。
               </div>
-              <div class="settings-grid">
-                <label class="form-field">
-                  <span class="form-label">默认角色边界 (Profile)</span>
-                  <select class="form-input" value={profile.value} onChange={(e: any) => { profile.value = e.target.value }}>
-                    <option value="assistant">Assistant（通用工程助手）</option>
-                    <option value="matrix">App Matrix（偏重 InnerApp 与工具编排）</option>
-                    <option value="admin">Admin（开放高权限运维工具）</option>
-                  </select>
-                </label>
-                <label class="form-field">
-                  <span class="form-label">默认执行深度 (Execution Canvas)</span>
-                  <select class="form-input" value={canvas.value} onChange={(e: any) => { canvas.value = e.target.value }}>
-                    <option value="focused">Focused（紧凑快速响应）</option>
-                    <option value="balanced">Balanced（平衡规划与执行）</option>
-                    <option value="deep">Deep（深度规划、验证与自检）</option>
-                  </select>
-                </label>
+              <div class="provider-presets-grid" style={{ marginBottom: '12px' }}>
+                {([
+                  { id: 'Minimal', name: '极简 Minimal', tag: 'assistant · focused', desc: '目标明确、即时问答与快速直接执行' },
+                  { id: 'Standard', name: '标准 Standard', tag: 'assistant · balanced', desc: '日常多步工程任务：规划 → 执行 → 验证' },
+                  { id: 'Ultimate', name: '极致 Ultimate', tag: 'admin · deep', desc: '复杂架构拆解、全量工具协同与闭环自检' },
+                  { id: 'Creative', name: '创造 Creative', tag: 'app_matrix · balanced', desc: '构建、预览与热演进 Inner App 及工作流' },
+                ] as const).map(m => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    class={['provider-preset-card', activeHarnessId.value === m.id ? 'active' : '']}
+                    disabled={modeSaving.value}
+                    onClick={() => selectHarnessPreset(m.id)}
+                  >
+                    <div class="provider-preset-head">
+                      <span class="provider-preset-name">{m.name}</span>
+                      <span class="provider-preset-tag">{m.tag}</span>
+                    </div>
+                    <div class="provider-preset-desc">{m.desc}</div>
+                  </button>
+                ))}
               </div>
               <div class="settings-actions">
-                <button class="btn-primary" disabled={modeSaving.value} onClick={saveMode}>
-                  {modeSaving.value ? '应用中…' : '应用默认模式'}
-                </button>
                 <button class="btn-secondary" onClick={props.onToggleTheme}>
-                  切换外观（当前：{props.theme === 'dark' ? '深色碳黑' : '浅色暖白'}）
+                  切换界面主题（当前：{props.theme === 'dark' ? '深色碳黑' : '浅色暖白'}）
                 </button>
               </div>
             </div>

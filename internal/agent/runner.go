@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -70,6 +71,7 @@ type Runner struct {
 	episodicCompressor *memory.EpisodicCompressor
 	subagentReg        *SubagentRegistry
 	sessStore          *sessions.Store
+	sessionKernel      *sessions.SessionKernel
 	bgCoord            *BackgroundTaskCoordinator
 	paradigm           *ParadigmEngine
 	heartbeat          *HeartbeatManager
@@ -97,8 +99,21 @@ func NewRunner(mem memory.Engine, ws *workspace.ContextMiddleware, queue *govern
 	tracer := ledger.NewModelUsageTracer(usageDir, 60*time.Second)
 
 	hb := NewHeartbeatManager(dataDir, func(goalText string) {
-		// Proactive idle heartbeat callback
+		if capBus != nil && strings.TrimSpace(goalText) != "" {
+			capBus.Publish(capability.Event{
+				Type:   "heartbeat.goal_check",
+				Source: "heartbeat_manager",
+				Payload: map[string]string{
+					"goal": goalText,
+				},
+			})
+		}
 	})
+
+	var kernel *sessions.SessionKernel
+	if strings.TrimSpace(workspaceRoot) != "" {
+		kernel = sessions.NewSessionKernel(workspaceRoot, 8, 45)
+	}
 
 	r := &Runner{
 		memMW:              NewMemoryMiddleware(mem),
@@ -111,6 +126,7 @@ func NewRunner(mem memory.Engine, ws *workspace.ContextMiddleware, queue *govern
 		cpStore:            cpStore,
 		dataDir:            dataDir,
 		workspaceRoot:      workspaceRoot,
+		sessionKernel:      kernel,
 		runControl:         NewRunControl(),
 		capBus:             capBus,
 		bgCoord:            bgCoord,
@@ -119,6 +135,7 @@ func NewRunner(mem memory.Engine, ws *workspace.ContextMiddleware, queue *govern
 		usageTracer:        tracer,
 		keyMgr:             DefaultKeyManager(),
 	}
+	r.loadPersistedSessionModes()
 
 	tools.SetJobWakeupHandler(func(job *tools.MonitoredJob) {
 		if capBus != nil {
@@ -289,6 +306,7 @@ func (r *Runner) SetDefaultSessionMode(m SessionMode) {
 	}
 	r.modeMu.Lock()
 	r.defaultSessionMode = m.Normalized()
+	r.savePersistedSessionModesLocked()
 	r.modeMu.Unlock()
 }
 
@@ -306,6 +324,7 @@ func (r *Runner) SetSessionModeForSession(sessionID string, m SessionMode) {
 		r.sessionModes = make(map[string]SessionMode)
 	}
 	r.sessionModes[sessionID] = m.Normalized()
+	r.savePersistedSessionModesLocked()
 	r.modeMu.Unlock()
 }
 
@@ -319,7 +338,78 @@ func (r *Runner) ClearSessionModeForSession(sessionID string) {
 	}
 	r.modeMu.Lock()
 	delete(r.sessionModes, sessionID)
+	r.savePersistedSessionModesLocked()
 	r.modeMu.Unlock()
+}
+
+type persistedSessionModesFile struct {
+	Default  SessionMode            `json:"default"`
+	Sessions map[string]SessionMode `json:"sessions"`
+}
+
+func (r *Runner) sessionModesFilePath() string {
+	if r == nil || strings.TrimSpace(r.dataDir) == "" {
+		return ""
+	}
+	return filepath.Join(r.dataDir, "session_modes.json")
+}
+
+func (r *Runner) loadPersistedSessionModes() {
+	path := r.sessionModesFilePath()
+	if path == "" {
+		return
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil || len(raw) == 0 {
+		return
+	}
+	var data persistedSessionModesFile
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return
+	}
+	r.modeMu.Lock()
+	defer r.modeMu.Unlock()
+	if data.Default.Profile != "" || data.Default.Canvas != "" {
+		r.defaultSessionMode = data.Default.Normalized()
+	}
+	if r.sessionModes == nil {
+		r.sessionModes = make(map[string]SessionMode)
+	}
+	for k, v := range data.Sessions {
+		if strings.TrimSpace(k) != "" {
+			r.sessionModes[k] = v.Normalized()
+		}
+	}
+}
+
+func (r *Runner) savePersistedSessionModesLocked() {
+	path := r.sessionModesFilePath()
+	if path == "" {
+		return
+	}
+	_ = os.MkdirAll(filepath.Dir(path), 0o755)
+	payload, err := json.MarshalIndent(persistedSessionModesFile{
+		Default:  r.defaultSessionMode.Normalized(),
+		Sessions: r.sessionModes,
+	}, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(path, payload, 0o644)
+}
+
+// SessionKernel returns the cached SessionKernel for the workspace root.
+func (r *Runner) SessionKernel() *sessions.SessionKernel {
+	if r == nil {
+		return nil
+	}
+	if r.sessionKernel != nil {
+		return r.sessionKernel
+	}
+	if strings.TrimSpace(r.workspaceRoot) != "" {
+		r.sessionKernel = sessions.NewSessionKernel(r.workspaceRoot, 8, 45)
+	}
+	return r.sessionKernel
 }
 
 // SetJournalCaller wires LLM for AGENTGO_AUTO_JOURNAL post-turn diary (MemoryDistill JOURNAL).

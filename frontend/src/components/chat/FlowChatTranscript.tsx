@@ -208,7 +208,7 @@ export default defineComponent({
                         type="button"
                         class="flowchat-explore-header"
                         onClick={() => toggleExploreGroup(seg.key)}
-                        title="点击展开或折叠连续只读探索步骤 (OpenBitFun ExploreRegion)"
+                        title="点击展开或折叠连续只读探索步骤"
                       >
                         <div class="flowchat-explore-left">
                           <span class={['flowchat-explore-dot', summary.runningCount > 0 && 'pulsing']}></span>

@@ -322,7 +322,7 @@ export default defineComponent({
                   handshakeState.value === 'ready' && 'ok',
                   handshakeState.value === 'runtime_error' && 'err',
                 ]}
-                title="OpenBitFun 风格宿主握手与运行时状态监控"
+                title="Inner App 宿主握手与运行时状态监控"
               >
                 {handshakeState.value === 'ready'
                   ? `● Ready${currentSnap ? ` · v${currentSnap.version}` : ''}`
@@ -363,7 +363,7 @@ export default defineComponent({
                 type="button"
                 class={['inner-app-bar-btn', 'accent', companionOpen.value && 'active']}
                 onClick={() => { companionOpen.value = !companionOpen.value }}
-                title="打开 OpenBitFun 风格创造模式伴随悬浮窗，边用边改"
+                title="打开创造模式伴随悬浮窗，边用边改"
               >
                 ✨ 伴随演进
               </button>

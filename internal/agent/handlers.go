@@ -2,16 +2,13 @@ package agent
 
 import (
 	"context"
-	"strings"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/adk/middlewares/dynamictool/toolsearch"
-	"github.com/cloudwego/eino/adk/middlewares/patchtoolcalls"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 
 	"agentgo/internal/governance"
-	"agentgo/internal/sessions"
 )
 
 // BuildADKHandlers wires workspace/memory, official Eino middlewares, and optional toolsearch.
@@ -51,12 +48,7 @@ func (r *Runner) BuildADKHandlers(ctx context.Context, chatModel model.ToolCalli
 	}
 	handlers = append(handlers, governance.NewSubagentMonotoneMiddleware())
 
-	// P1: patchtoolcalls repairs dangling tool calls in message history (missing tool responses).
-	// This complements tool_heal (which repairs malformed JSON args) — they fix different problems.
-	if ptc, ptcErr := patchtoolcalls.New(ctx, nil); ptcErr == nil {
-		handlers = append(handlers, ptc)
-	}
-
+	// Note: patchtoolcalls is already registered at step 1 of BuildTypedMiddlewareStack.
 	if hm := NewADKToolHealMiddleware(); hm != nil {
 		handlers = append(handlers, hm)
 	}
@@ -69,13 +61,9 @@ func (r *Runner) BuildADKHandlers(ctx context.Context, chatModel model.ToolCalli
 	if r.adminRunner != nil {
 		taskProvider = r.adminRunner.GetActiveTaskGoals
 	}
-	var kernel *sessions.SessionKernel
-	if strings.TrimSpace(r.workspaceRoot) != "" {
-		kernel = sessions.NewSessionKernel(r.workspaceRoot, 8, 45)
-	}
 	handlers = append(handlers, NewSessionSpineMiddleware(SessionSpineConfig{
 		WorkspaceRoot:      r.workspaceRoot,
-		Kernel:             kernel,
+		Kernel:             r.SessionKernel(),
 		EpisodicCompressor: r.episodicCompressor,
 		GetDurableTasks:    taskProvider,
 		MaxActiveTurns:     maxActiveTurnsFor(ctx),
