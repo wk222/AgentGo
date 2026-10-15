@@ -43,6 +43,7 @@ func (m *ToolCallEventMiddleware) WrapInvokableToolCall(
 		if callID == "" {
 			callID = "call_" + strconv.FormatUint(toolCallSeq.Add(1), 10)
 		}
+		runMeterFrom(innerCtx).addToolCall()
 		EmitTrace(innerCtx, "start", "Tool", toolName, toolName)
 		obs := toolObserverFrom(innerCtx)
 		if obs != nil {

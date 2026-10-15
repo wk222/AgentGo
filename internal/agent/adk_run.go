@@ -22,6 +22,7 @@ func (r *Runner) queryOptions(ctx context.Context, sessionID string) []adk.Agent
 	if _, ok := ctx.Value(traceEmitKey{}).(func(TraceRecord)); ok {
 		opts = append(opts, adk.WithCallbacks(NewTraceCallbackHandler(r.capBus)))
 	}
+	opts = append(opts, adk.WithCallbacks(r.runUsageHandler(runMeterFrom(ctx))))
 	if obs := usageObserverFrom(ctx); obs != nil {
 		opts = append(opts, adk.WithCallbacks(newUsageCallbackHandler(obs)))
 	}

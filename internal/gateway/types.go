@@ -10,8 +10,20 @@ type ChatRequest struct {
 
 // ChatResult is the final assistant payload after SSE stream ends.
 type ChatResult struct {
-	Content string `json:"content"`
-	Error   string `json:"error,omitempty"`
+	Content string      `json:"content"`
+	Error   string      `json:"error,omitempty"`
+	Usage   *UsageStats `json:"usage,omitempty"`
+}
+
+// UsageStats is what one chat run consumed. It rides on the final "done" event so
+// clients (the evaluation harness, scripts) get exact per-run numbers.
+type UsageStats struct {
+	ModelCalls       int `json:"model_calls"`
+	PromptTokens     int `json:"prompt_tokens"`
+	CachedTokens     int `json:"cached_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	ReasoningTokens  int `json:"reasoning_tokens"`
+	ToolCalls        int `json:"tool_calls"`
 }
 
 // Backend is implemented by bridge.Runtime (no import cycle).

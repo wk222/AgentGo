@@ -1,0 +1,47 @@
+{
+  "id": "agentgo-default-v1",
+  "cases": [
+    {
+      "id": "fact-busy-timeout",
+      "input": "在当前工作区的 internal/db/sqlite.go 里，SQLite 的 busy_timeout 被设置成多少毫秒？只回答数字。",
+      "expected_text": "10000"
+    },
+    {
+      "id": "fact-default-mode-key",
+      "input": "internal/sessions/modes.go 里常量 DefaultModeKey 的字面值是什么？只回答该字符串。",
+      "expected_text": "__default__"
+    },
+    {
+      "id": "fact-keep-recent-turns",
+      "input": "internal/agent/tool_result_pruner.go 里常量 defaultKeepRecentToolTurns 的值是多少？只回答数字。",
+      "expected_text": "\\b6\\b"
+    },
+    {
+      "id": "fact-harness-ids",
+      "input": "frontend/src/harness.ts 定义了哪四个 harness 的 id？请逐个列出。",
+      "keywords": ["minimal", "standard", "ultimate", "creative"]
+    },
+    {
+      "id": "fact-cancel-route",
+      "input": "网关 internal/gateway/server.go 里，取消一次聊天运行的 HTTP 路由路径是什么？",
+      "expected_text": "/api/v1/chat/cancel"
+    },
+    {
+      "id": "fact-error-exempt",
+      "input": "internal/agent/tool_result_pruner.go 的 isLikelyToolErrorOutput 靠哪些字符串特征判断工具输出是报错？请全部列出。",
+      "keywords": ["exit status", "panic", "syntaxerror", "compilation failed"]
+    },
+    {
+      "id": "plain-arith",
+      "input": "17 乘以 23 等于多少？直接心算回答，不要使用任何工具。",
+      "expected_text": "391",
+      "max_tool_calls": 0
+    },
+    {
+      "id": "plain-capital",
+      "input": "法国的首都是哪里？只回答城市名，不要使用任何工具。",
+      "expected_text": "(?i)巴黎|paris",
+      "max_tool_calls": 0
+    }
+  ]
+}
