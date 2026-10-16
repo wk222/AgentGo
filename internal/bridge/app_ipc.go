@@ -18,6 +18,7 @@ import (
 	"agentgo/internal/channels"
 	"agentgo/internal/memory"
 	"agentgo/internal/tools"
+	"agentgo/internal/workspace"
 )
 
 // --- Sessions ---
@@ -149,7 +150,7 @@ type WorkspaceEntry struct {
 	GitStatus string `json:"git_status,omitempty"`
 }
 
-const maxWorkspacePreviewBytes int64 = 512 * 1024
+const maxWorkspacePreviewBytes = workspace.MaxPreviewBytes
 
 func (s *AppService) ListWorkspace(relPath string) []WorkspaceEntry {
 	root := s.rt.WorkspaceRoot()
@@ -359,64 +360,6 @@ func (s *AppService) ExecuteTerminalCommand(command string) map[string]any {
 		"stderr":    errb.String(),
 		"exit_code": exitCode,
 	}
-}
-
-// runGit executes a git subcommand inside dir with an 8s timeout, returning
-// stdout. On failure it returns stderr (or the exec error) wrapped.
-func runGit(dir string, args ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
-	hideExecWindow(cmd)
-	var out, errb bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &errb
-	if err := cmd.Run(); err != nil {
-		msg := strings.TrimSpace(errb.String())
-		if msg == "" {
-			msg = err.Error()
-		}
-		return out.String(), fmt.Errorf("git %s: %s", strings.Join(args, " "), msg)
-	}
-	return out.String(), nil
-}
-
-func cleanWorkspaceRel(relPath string, allowRoot bool) (string, error) {
-	clean := filepath.ToSlash(filepath.Clean("/" + strings.ReplaceAll(relPath, "\\", "/")))
-	clean = strings.TrimPrefix(clean, "/")
-	if clean == "" || clean == "." {
-		if allowRoot {
-			return "", nil
-		}
-		return "", fmt.Errorf("invalid path: %q", relPath)
-	}
-	if strings.HasPrefix(clean, "../") || clean == ".." {
-		return "", fmt.Errorf("invalid path: %q", relPath)
-	}
-	return clean, nil
-}
-
-func workspaceFullPath(root, relPath string, allowRoot bool) (string, string, error) {
-	clean, err := cleanWorkspaceRel(relPath, allowRoot)
-	if err != nil {
-		return "", "", err
-	}
-	rootAbs, err := filepath.Abs(root)
-	if err != nil {
-		return "", "", err
-	}
-	fullAbs, err := filepath.Abs(filepath.Join(rootAbs, filepath.FromSlash(clean)))
-	if err != nil {
-		return "", "", err
-	}
-	rel, err := filepath.Rel(rootAbs, fullAbs)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
-		if err == nil {
-			err = fmt.Errorf("invalid path: %q", relPath)
-		}
-		return "", "", err
-	}
-	return clean, fullAbs, nil
 }
 
 // sanitizeWorkspaceRel cleans a UI-supplied relative path and rejects escapes.

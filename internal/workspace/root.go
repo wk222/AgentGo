@@ -1,4 +1,4 @@
-package bridge
+package workspace
 
 import (
 	"fmt"
@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-type WorkspaceInfo struct {
+type Info struct {
 	Root              string `json:"root"`
 	Name              string `json:"name"`
 	GitRoot           string `json:"git_root,omitempty"`
@@ -21,7 +21,7 @@ type WorkspaceInfo struct {
 	WatchMode         string `json:"watch_mode"`
 }
 
-func normalizeWorkspaceRoot(path string) (string, error) {
+func NormalizeRoot(path string) (string, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return "", fmt.Errorf("workspace root is empty")
@@ -58,7 +58,7 @@ func isFilesystemRoot(abs string) bool {
 
 func workspaceRootWarning(abs string) string {
 	home, _ := os.UserHomeDir()
-	if home != "" && samePath(abs, home) {
+	if home != "" && SamePath(abs, home) {
 		return "工作区指向用户 Home，建议选择更小的项目目录。"
 	}
 	base := strings.ToLower(filepath.Base(abs))
@@ -71,7 +71,7 @@ func workspaceRootWarning(abs string) string {
 	return ""
 }
 
-func samePath(a, b string) bool {
+func SamePath(a, b string) bool {
 	aa, errA := filepath.Abs(a)
 	bb, errB := filepath.Abs(b)
 	if errA != nil || errB != nil {
@@ -86,12 +86,12 @@ func samePath(a, b string) bool {
 	return strings.EqualFold(filepath.Clean(aa), filepath.Clean(bb))
 }
 
-func buildWorkspaceInfo(root string) WorkspaceInfo {
+func BuildInfo(root string) Info {
 	root = filepath.Clean(root)
-	info := WorkspaceInfo{
+	info := Info{
 		Root:              root,
 		Name:              filepath.Base(root),
-		PreviewLimitBytes: maxWorkspacePreviewBytes,
+		PreviewLimitBytes: MaxPreviewBytes,
 		WatchMode:         "poll",
 		Warning:           workspaceRootWarning(root),
 	}
@@ -100,14 +100,14 @@ func buildWorkspaceInfo(root string) WorkspaceInfo {
 	}
 	info.Writable = workspaceWritable(root)
 
-	if gitRoot, err := runGit(root, "rev-parse", "--show-toplevel"); err == nil {
+	if gitRoot, err := RunGit(root, "rev-parse", "--show-toplevel"); err == nil {
 		info.GitRoot = strings.TrimSpace(gitRoot)
 		info.IsGit = info.GitRoot != ""
 	}
-	if branch, err := runGit(root, "branch", "--show-current"); err == nil {
+	if branch, err := RunGit(root, "branch", "--show-current"); err == nil {
 		info.Branch = strings.TrimSpace(branch)
 	}
-	if status, err := runGit(root, "status", "--porcelain"); err == nil {
+	if status, err := RunGit(root, "status", "--porcelain"); err == nil {
 		for _, line := range strings.Split(status, "\n") {
 			if strings.TrimSpace(line) != "" {
 				info.DirtyCount++
