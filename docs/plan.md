@@ -133,11 +133,11 @@
 |----|------|------|
 | F1 收口（1 周）✅ | 冻结 TUI / VSCode 插件 / CLI；`session mode` 迁入 SQLite `session_modes` 表（旧 `session_modes.json` 启动时一次性导入后删除）；前端四档映射收为 `frontend/src/harness.ts` | 重启后模式保留（`TestRunnerPersistsSessionModesAcrossRestart`）；`ChatPanel` / `AppStatusBar` / `SettingsPanel` 均引用同一模块 |
 | F2 Harness 一等化（1 周）✅ | 后端 `Harness` 类型 + `ListHarnesses`（IPC / 网关 / ACP 同源）；前端启动时拉取；`ModeHints` 暂缓（要用评测验证后再改）。详见 `docs/plan-f4-eval-f2-harness.md` §3 | 前端不再出现 profile/canvas 推断逻辑 |
-| F3 中间件流水线（1 周） | 合并 `ToolResultPruner` 进 spine compile 后删除；governance / tool heal 各保留一处；新增顺序与去重测试 | 测试断言中间件列表与顺序 |
-| F4 评测基线（1–2 周）✅ 首版 | `agentgo-eval` + 8 个任务 + 每次运行的 `RunMeter`（token/缓存/工具数）+ 基线对比；详见 `docs/eval-baseline.md`、`docs/plan-f4-eval-f2-harness.md`。**发现缓存命中仅 1% → F4.1 已修（根因：脊柱/模式中间件非幂等 + 工具列表 map 乱序），缓存 1%→89%，prompt -19%**；用例待扩到 20 个 | 之后改上下文策略必须附评测前后对比 |
-| F5 内核抽取（2–3 周） | 建 `internal/core`，把 bridge 中的业务逻辑下沉；gateway / ACP 改调 core | `bridge` 降到 5000 行以内且无业务分支 |
-| F6 前端类型化（1–2 周） | 改用 Wails v3 生成的类型绑定或按领域拆分 `api/*.ts`；样式按领域重命名并收敛 tokens；清内联样式 | `wails.ts` 拆完，无 `any` 返回 |
-| F7 配置与仓库卫生（1 周） | `config.Runtime`；`frontend/dist` 改由构建脚本生成（保留占位以满足 `go:embed`）；`eino-ext` 改为 `replace` 指向 fork；`docs/` 设计文档放开入库 | 普通提交不再带构建产物 diff |
+| F3 中间件流水线（1 周）✅ | `ToolResultPruner` 已删（spine compile 负责裁剪）；governance / tool heal 各只挂一处（`composeToolMiddlewares` + `toolMounts`）；顺序与去重由 `middleware_pipeline_test.go` 锁定；顺手修了 canvas-aware 策略在 compose 层从未生效的问题 | `TestBuildADKHandlers_OrderAndDedup`、`TestComposeToolMiddlewares_SingleMount` |
+| F4 评测基线（1–2 周）✅ 首版 | `agentgo-eval` + 8 个任务 + 每次运行的 `RunMeter`（token/缓存/工具数）+ 基线对比；详见 `docs/eval-baseline.md`、`docs/plan-f4-eval-f2-harness.md`。**发现缓存命中仅 1% → F4.1 已修（根因：脊柱/模式中间件非幂等 + 工具列表 map 乱序），缓存 1%→89%，prompt -19%**；用例已扩到 20 个（套件 v2，含多轮与审批），四档位各有基线（`docs/eval/baseline*.json`）；评测抓到并修复了「工作流中文名 → 全局 400」与「网关多轮无历史」两个真 bug | 之后改上下文策略必须附评测前后对比 |
+| F5 内核抽取（2–3 周）🟡 进行中 | 已建 `internal/core`（`BuildHistory` / `Transcript`，网关与桌面共用）；工作区的搜索/Git/媒体/评审/列目录/文件操作/命令执行下沉到 `internal/workspace`（新增单测）。**`bridge` 非测试代码 12,043 → 10,777 行，离 5000 行的目标还差一半以上**，剩余多为与 `Runtime`/`AppService` 强耦合的编排（approval_resume / coding_agent / matrix_compose / ideruntime_bridge / context_expander / recovery / run_tracker），不能靠机械搬家完成，需要先定义内核服务接口。 | 5000 行目标**未达成**；按领域继续迁，每次迁移都带单测与 `go test ./internal/bridge/` |
+| F6 前端类型化（1–2 周）✅ 主体 | `wails.ts`（1312 行）拆为门面 + `ipc/{runtime,call,contract,types}` + `ipc/mock/*`（浏览器预览假后端，最大文件 652 行）；`wailsCall` 按 `IpcContract` 检查方法名/参数/返回类型，未登记方法编译不过（动态方法名用显式的 `wailsCallRaw`）；`reasonix-polish.css` → `polish.css`，UI 与注释中的第三方项目名全部清除；`App.tsx` 869 行（<900）。**未做**：清内联样式、收敛 tokens | `tsc --noEmit` 0 错误；`vite build` 通过 |
+| F7 配置与仓库卫生（1 周）✅ | `internal/config` 声明式开关注册表（71 项，类型化句柄，**唯一**读取 `AGENTGO_*` 的地方，`arch` 测试锁定）；设置页新增只读「高级配置」（`GetConfigSnapshot`）；`frontend/dist` 取消跟踪（`scripts/build-frontend.ps1` 生成，`.gitkeep` 满足 `go:embed`）；`eino-ext` 取消跟踪（`go.mod` 本来就不 `replace` 它，构建用模块缓存；本地联调用 `go.work`）；`docs/` 设计文档入库。**未做**：agent 与 IDE 终端共用 PTY | 普通提交不再带构建产物 diff；`TestAgentgoEnvIsOnlyNamedInConfig` |
 
 ### 已定决策
 
@@ -146,6 +146,13 @@
 - 新能力一律先落在内核服务上，再由桌面端暴露；不再为冻结入口单独开发。
 
 ---
+
+## 阶段 F 收尾记录（2026-10-17）
+
+- 评测基线：四档位 100% 通过（见 `docs/eval-baseline.md`）。
+- 发现并修复的真 bug：①工作流中文名导致所有请求 400；②网关多轮无历史；③governance/heal 双重挂载与 canvas 策略失效；④脊柱/模式中间件非幂等（F4.1）。
+- **未完成（如实记录）**：F5 的 5000 行目标；`ModeHints`（档位名写进提示词）——评测套件只能证明"不退化"，衡量不了"模型能不能说出自己所在档位"，
+  而它会固定多花几十个 prompt token，所以没有为它做对照实验，暂不加；PTY 共享；内联样式清理。
 
 ## 明确后置
 

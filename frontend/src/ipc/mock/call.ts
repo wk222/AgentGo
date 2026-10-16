@@ -639,6 +639,11 @@ export async function mockCall(method: string, ...params: any[]): Promise<any> {
         { id: 'preview', channel: 'Vite Preview', kind: 'browser', state: 'active' },
       ]
 
+    case 'GetConfigSnapshot':
+      return [
+        { name: 'AGENTGO_DEBUG_LLM', kind: 'bool', default: 'false', group: 'debug', doc: '预览数据：打印 LLM 请求', value: 'false', set: false },
+      ]
+
     case 'ListWorkflows':
       return [{ id: 'wf_preview_happy_path', name: '预览 Happy Path', description: 'Start → Tool → End' }]
     case 'GetWorkflowFlowgram':

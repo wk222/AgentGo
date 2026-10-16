@@ -1,6 +1,7 @@
 import { defineComponent, ref, onMounted, computed, type PropType } from 'vue'
 import { wailsCall, wailsCallWithTimeout } from '../wails'
 import { harnessList, getHarness, harnessOf, type HarnessId } from '../harness'
+import AdvancedConfigCard from './AdvancedConfigCard'
 
 type Theme = 'light' | 'dark'
 
@@ -363,6 +364,8 @@ export const SettingsPanel = defineComponent({
                 </button>
               </div>
             </div>
+
+            <AdvancedConfigCard />
           </div>
         </div>
       </div>
