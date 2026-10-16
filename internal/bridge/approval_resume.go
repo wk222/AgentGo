@@ -12,7 +12,6 @@ import (
 	"agentgo/internal/capability"
 	"agentgo/internal/engine"
 	"agentgo/internal/governance"
-	"agentgo/internal/sessions"
 	"agentgo/internal/workflow"
 )
 
@@ -29,11 +28,6 @@ import (
 //     "approved" never silently means "nothing ran".
 //   - A run that the run log shows as awaiting approval is closed with a new
 //     commit point when it is resumed or rejected.
-
-// errNoPendingRun is reported when an approval was granted but nothing is
-// waiting to be resumed — typically because the process restarted (pending runs
-// live in memory) or the decision was already handled.
-var errNoPendingRun = errors.New("没有可恢复的运行（进程已重启，或该审批已被处理）；工具没有被执行")
 
 // registerPending records a run that stopped for approval (or a question) and
 // returns the chat message that represents it. Used for the first pause of a
@@ -103,18 +97,13 @@ func (rt *Runtime) resumeAgent(ctx context.Context, pr core.PendingRun, resume *
 // could not be resumed or failed), messages (what the resumed run produced,
 // including a further pending approval) and workflow_output.
 func (s *AppService) resolveApproval(ctx context.Context, approvalID string, approved bool, note, resolvedBy, finalArgs string) map[string]any {
-	if err := ctx.Err(); err != nil {
-		return map[string]any{"success": false, "error": err.Error()}
+	flow := core.ApprovalFlow{Approvals: s.rt.Approvals(), Pending: s.rt.pending, Relay: &s.rt.relay}
+	dec, out, complete, ok := flow.Decide(ctx, approvalID, approved, note, resolvedBy, finalArgs)
+	if !ok {
+		return out
 	}
-	resume := &governance.ResumePayload{Approved: approved, Arguments: finalArgs}
-	if err := s.rt.Approvals().Resolve(ctx, approvalID, approved, note, resolvedBy, resume); err != nil {
-		return map[string]any{"success": false, "error": err.Error()}
-	}
-	// The decision is on record: let any surface waiting on it close its dialog,
-	// and give it the outcome once the resume below is over.
-	s.rt.relay.MarkDecided(approvalID, approved, resolvedBy)
-	out := map[string]any{"success": true}
-	defer func() { s.rt.relay.MarkCompleted(approvalID, out) }()
+	defer complete()
+	resume, pr := dec.Resume, dec.Run
 	if s.app != nil {
 		s.app.Event.Emit("approval:resolved", map[string]any{
 			"approval_id": approvalID,
@@ -123,16 +112,8 @@ func (s *AppService) resolveApproval(ctx context.Context, approvalID string, app
 		})
 	}
 
-	// Claim the right to resume. Only one caller can ever get the pending run.
-	pr, found := s.rt.pending.Take(approvalID)
-	if !found {
-		if approved {
-			out["resume_error"] = errNoPendingRun.Error()
-		}
+	if !dec.Found {
 		return out
-	}
-	if finalArgs != "" {
-		pr.Arguments = finalArgs
 	}
 
 	if pr.ResumeKind == "workflow" {
@@ -175,7 +156,7 @@ func (s *AppService) resolveApproval(ctx context.Context, approvalID string, app
 		return out
 	}
 
-	runID := s.awaitingRunID(ctx, pr)
+	runID := core.AwaitingRunID(ctx, s.rt.Sessions(), pr)
 	var finish func(engine.RunResult)
 	var live engine.Emitter
 	var pausedEvents []engine.Event
@@ -202,7 +183,7 @@ func (s *AppService) resolveApproval(ctx context.Context, approvalID string, app
 	}
 
 	if live == nil {
-		s.appendRunStatus(pr.SessionID, runID, "resumed")
+		core.AppendRunStatus(s.rt.Sessions(), pr.SessionID, runID, "resumed")
 	}
 	rctx, cancel := context.WithTimeout(ctx, engineRunTimeout)
 	defer cancel()
@@ -305,31 +286,4 @@ func toEngineMessages(msgs []ChatMessageDTO) []engine.Message {
 		})
 	}
 	return out
-}
-
-// awaitingRunID returns the run the log shows as paused for this session, or ""
-// when there is none (matrix/workflow runs, sessions without a log, or paths
-// that never wrote one). Only a run that is awaiting approval can be closed.
-func (s *AppService) awaitingRunID(ctx context.Context, pr core.PendingRun) string {
-	if pr.ResumeKind != "" || pr.SessionID == "" || s.rt.Sessions() == nil {
-		return ""
-	}
-	st, err := s.rt.Sessions().LastRunState(ctx, pr.SessionID)
-	if err != nil || st.Status != sessions.RunAwaitingApproval {
-		return ""
-	}
-	return st.RunID
-}
-
-// appendRunStatus adds a status fact to an existing run.
-func (s *AppService) appendRunStatus(sessionID, runID, state string) {
-	if runID == "" {
-		return
-	}
-	if _, err := s.rt.Sessions().AppendRunEvent(context.Background(), sessions.RunEvent{
-		SessionID: sessionID, RunID: runID, Kind: sessions.KindStatus,
-		PayloadJSON: `{"state":"` + state + `"}`,
-	}); err != nil {
-		log.Printf("[runlog] session=%s run=%s status: %v", sessionID, runID, err)
-	}
 }
