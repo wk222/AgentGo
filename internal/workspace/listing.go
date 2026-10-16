@@ -1,4 +1,4 @@
-package bridge
+package workspace
 
 import (
 	"os"
@@ -37,7 +37,7 @@ var defaultWorkspaceIgnores = map[string]bool{
 	"temp":          true,
 }
 
-func shouldSkipWorkspaceEntry(root, dirRel, name string, isDir bool) bool {
+func ShouldSkipEntry(root, dirRel, name string, isDir bool) bool {
 	if strings.HasPrefix(name, ".") && name != ".cursor" && name != ".agentgoignore" {
 		return true
 	}
@@ -45,15 +45,15 @@ func shouldSkipWorkspaceEntry(root, dirRel, name string, isDir bool) bool {
 		return true
 	}
 	rel := filepath.ToSlash(filepath.Join(dirRel, name))
-	for _, pattern := range loadAgentGoIgnore(root) {
-		if ignorePatternMatches(pattern, rel, name, isDir) {
+	for _, pattern := range LoadIgnore(root) {
+		if IgnorePatternMatches(pattern, rel, name, isDir) {
 			return true
 		}
 	}
 	return false
 }
 
-func loadAgentGoIgnore(root string) []string {
+func LoadIgnore(root string) []string {
 	b, err := os.ReadFile(filepath.Join(root, ".agentgoignore"))
 	if err != nil {
 		return nil
@@ -70,7 +70,7 @@ func loadAgentGoIgnore(root string) []string {
 	return patterns
 }
 
-func ignorePatternMatches(pattern, rel, name string, isDir bool) bool {
+func IgnorePatternMatches(pattern, rel, name string, isDir bool) bool {
 	if pattern == "" {
 		return false
 	}
@@ -87,8 +87,8 @@ func ignorePatternMatches(pattern, rel, name string, isDir bool) bool {
 	return rel == pattern || strings.HasPrefix(rel, pattern+"/")
 }
 
-func workspaceGitStatuses(root string) map[string]string {
-	out, err := runGit(root, "status", "--porcelain")
+func GitStatuses(root string) map[string]string {
+	out, err := RunGit(root, "status", "--porcelain")
 	if err != nil || strings.TrimSpace(out) == "" {
 		return nil
 	}
@@ -110,7 +110,7 @@ func workspaceGitStatuses(root string) map[string]string {
 	return statuses
 }
 
-func gitStatusForEntry(statuses map[string]string, rel string, isDir bool) string {
+func GitStatusForEntry(statuses map[string]string, rel string, isDir bool) string {
 	if len(statuses) == 0 {
 		return ""
 	}

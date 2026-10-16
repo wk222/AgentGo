@@ -153,7 +153,7 @@ func (r *Runtime) applyWorkspaceRoot(abs string) error {
 		return err
 	}
 	if r.workspaceReviews != nil {
-		r.workspaceReviews.clear()
+		r.workspaceReviews.Clear()
 	}
 	return nil
 }

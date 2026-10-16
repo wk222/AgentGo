@@ -1,4 +1,4 @@
-package bridge
+package workspace
 
 import (
 	"os"
@@ -11,8 +11,8 @@ func TestWorkspaceReviewRejectRestoresPreRunState(t *testing.T) {
 	mustWriteReviewTestFile(t, root, "dirty.txt", "user change before AI")
 	mustWriteReviewTestFile(t, root, "deleted.txt", "keep me")
 
-	store := newWorkspaceReviewStore()
-	if resumed, pending, _, err := store.begin("session", root); err != nil || resumed || pending != 0 {
+	store := NewReviewStore()
+	if resumed, pending, _, err := store.Begin("session", root); err != nil || resumed || pending != 0 {
 		t.Fatalf("begin = resumed %v pending %d err %v", resumed, pending, err)
 	}
 	mustWriteReviewTestFile(t, root, "dirty.txt", "AI rewrite")
@@ -21,17 +21,17 @@ func TestWorkspaceReviewRejectRestoresPreRunState(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, changes, err := store.list("session", root)
+	_, changes, err := store.List("session", root)
 	if err != nil || len(changes) != 3 {
 		t.Fatalf("changes = %v err %v", changes, err)
 	}
-	if _, err := store.reject("session", root, "dirty.txt"); err != nil {
+	if _, err := store.Reject("session", root, "dirty.txt"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.reject("session", root, "added.txt"); err != nil {
+	if _, err := store.Reject("session", root, "added.txt"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.reject("session", root, "deleted.txt"); err != nil {
+	if _, err := store.Reject("session", root, "deleted.txt"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -51,12 +51,12 @@ func TestWorkspaceReviewRejectRestoresPreRunState(t *testing.T) {
 func TestWorkspaceReviewAcceptKeepsCurrentFile(t *testing.T) {
 	root := t.TempDir()
 	mustWriteReviewTestFile(t, root, "main.go", "before")
-	store := newWorkspaceReviewStore()
-	if _, _, _, err := store.begin("session", root); err != nil {
+	store := NewReviewStore()
+	if _, _, _, err := store.Begin("session", root); err != nil {
 		t.Fatal(err)
 	}
 	mustWriteReviewTestFile(t, root, "main.go", "after")
-	remaining, err := store.accept("session", root, "main.go")
+	remaining, err := store.Accept("session", root, "main.go")
 	if err != nil || remaining != 0 {
 		t.Fatalf("accept remaining %d err %v", remaining, err)
 	}
@@ -64,7 +64,7 @@ func TestWorkspaceReviewAcceptKeepsCurrentFile(t *testing.T) {
 	if err != nil || string(got) != "after" {
 		t.Fatalf("main.go = %q err %v", got, err)
 	}
-	review, changes, err := store.list("session", root)
+	review, changes, err := store.List("session", root)
 	if err != nil || review != nil || len(changes) != 0 {
 		t.Fatalf("review = %#v changes %v err %v", review, changes, err)
 	}
@@ -73,16 +73,16 @@ func TestWorkspaceReviewAcceptKeepsCurrentFile(t *testing.T) {
 func TestWorkspaceReviewBeginDoesNotOverwritePendingBaseline(t *testing.T) {
 	root := t.TempDir()
 	mustWriteReviewTestFile(t, root, "main.go", "before")
-	store := newWorkspaceReviewStore()
-	if _, _, _, err := store.begin("session", root); err != nil {
+	store := NewReviewStore()
+	if _, _, _, err := store.Begin("session", root); err != nil {
 		t.Fatal(err)
 	}
 	mustWriteReviewTestFile(t, root, "main.go", "first AI change")
-	resumed, pending, _, err := store.begin("session", root)
+	resumed, pending, _, err := store.Begin("session", root)
 	if err != nil || !resumed || pending != 1 {
 		t.Fatalf("second begin = resumed %v pending %d err %v", resumed, pending, err)
 	}
-	if _, err := store.reject("session", root, "main.go"); err != nil {
+	if _, err := store.Reject("session", root, "main.go"); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := os.ReadFile(filepath.Join(root, "main.go"))
