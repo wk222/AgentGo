@@ -82,6 +82,17 @@ export interface TruthResolution {
   applied_record_id?: string
 }
 
+export interface ConfigEntry {
+  name: string
+  kind: string
+  default: string
+  group: string
+  doc: string
+  secret?: boolean
+  value: string
+  set: boolean
+}
+
 export interface APITestResult {
   ok: boolean
   message: string

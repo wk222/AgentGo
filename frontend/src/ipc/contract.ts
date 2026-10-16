@@ -2,7 +2,7 @@
 // 参数与 Go 方法签名一一对应（internal/bridge）；新增后端方法时先在这里登记，
 // wailsCall 才会给出参数/返回类型检查。未登记的方法仍可用旧签名调用（返回 unknown）。
 import type {
-  APITestResult, BackgroundTask, CapabilityGrant, ChannelStatus, MemoryContradiction, MemoryRecord,
+  APITestResult, BackgroundTask, CapabilityGrant, ChannelStatus, ConfigEntry, MemoryContradiction, MemoryRecord,
   ApplyTruthReply, FeatureFlagsReply, FlowgramReply, LLMConfigReply, Reply, ResolveApplyTruthReply, SessionSummary, TerminalInfo,
   TruthResolution, WorkflowDefinition, WorkspaceEntry, WorkspaceInfoReply,
 } from './types'
@@ -37,6 +37,7 @@ export interface IpcContract {
   LoadAzureLunaConfig: M<[], Reply>
   LoadDeepSeekConfig: M<[model: string], Reply>
   GetFeatureFlags: M<[], FeatureFlagsReply>
+  GetConfigSnapshot: M<[], ConfigEntry[]>
   ListRegisteredTools: M<[], string[]>
   ListSkills: M<[], Reply[]>
   GetSkillContext: M<[skillIDs: string[]], string>
