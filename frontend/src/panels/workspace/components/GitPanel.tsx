@@ -24,14 +24,7 @@ export const GitPanel = defineComponent({
       loading.value = true
       errorMsg.value = ''
       try {
-        const res = await wailsCall<{
-          success?: boolean
-          branch?: string
-          staged?: GitStatusItem[]
-          unstaged?: GitStatusItem[]
-          untracked?: GitStatusItem[]
-          error?: string
-        }>('WorkspaceGitStatus')
+        const res = await wailsCall('WorkspaceGitStatus')
 
         if (res?.error) {
           errorMsg.value = res.error
@@ -51,11 +44,7 @@ export const GitPanel = defineComponent({
 
     const loadBranches = async () => {
       try {
-        const res = await wailsCall<{
-          success?: boolean
-          branches?: string[]
-          current?: string
-        }>('WorkspaceGitBranches')
+        const res = await wailsCall('WorkspaceGitBranches')
         if (res?.branches) {
           branches.value = res.branches
         }
@@ -108,7 +97,7 @@ export const GitPanel = defineComponent({
 
       committing.value = true
       try {
-        const res = await wailsCall<{ success?: boolean; error?: string; output?: string }>(
+        const res = await wailsCall(
           'WorkspaceGitCommit',
           commitMessage.value.trim()
         )

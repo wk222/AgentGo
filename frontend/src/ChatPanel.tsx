@@ -180,7 +180,7 @@ export default defineComponent({
       if (props.sending) {
         inputText.value = ''
         try {
-          const res = await wailsCall<{ success?: boolean; steered?: boolean }>('SteerSession', props.sessionId, text)
+          const res = await wailsCall('SteerSession', props.sessionId, text)
           if (res?.steered) {
             console.info('[ChatPanel] Mid-turn steer queued:', text)
           }
@@ -250,11 +250,11 @@ export default defineComponent({
     const fetchWorkspaceFiles = async () => {
       if (workspaceFiles.value.length > 0) return
       try {
-        const res = await wailsCall<any>('SearchFiles', '', 50)
+        const res = await wailsCall('SearchFiles', '', 50)
         if (Array.isArray(res) && res.length > 0) {
           workspaceFiles.value = res
         } else {
-          const list = await wailsCall<any[]>('ListWorkspace', '')
+          const list = await wailsCall('ListWorkspace', '')
           if (Array.isArray(list)) {
             workspaceFiles.value = list.map(item => item.path || item.name).filter(Boolean)
           }
@@ -569,7 +569,7 @@ export default defineComponent({
 
           {/* Composer */}
           <div class="composer" style={{ position: 'relative' }}>
-            {/* Slash Command Popover (Reasonix style) */}
+            {/* Slash 命令弹层 */}
             {showSlashMenu.value && filteredSlashCommands.value.length > 0 && (
               <div class="chat-composer-popover">
                 <div class="chat-composer-popover-head">
@@ -624,7 +624,7 @@ export default defineComponent({
               }}
             />
 
-            {/* OpenBitFun-style ChatInputApprovalBand: sticky pending confirmation bar above Composer */}
+            {/* 审批吸顶条：待确认项固定在输入框上方 */}
             {pendingInteractMsg.value && (
               <div class="chat-approval-band">
                 <div class="chat-approval-band-info">

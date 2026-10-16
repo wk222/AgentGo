@@ -20,7 +20,7 @@ export function useTabs() {
     }
 
     try {
-      const res = await wailsCall<{ content?: string; error?: string }>('ReadWorkspaceFile', item.path)
+      const res = await wailsCall('ReadWorkspaceFile', item.path)
       if (res?.error) {
         alert(res.error)
         return null
@@ -112,7 +112,7 @@ export function useTabs() {
     if (!tab) return false
     const currentContent = tab.model ? tab.model.getValue() : tab.content
     try {
-      const res = await wailsCall<{ error?: string }>('WriteWorkspaceFile', tab.path, currentContent)
+      const res = await wailsCall('WriteWorkspaceFile', tab.path, currentContent)
       if (res?.error) {
         alert(res.error)
         return false
@@ -146,7 +146,7 @@ export function useTabs() {
     const tab = openTabs.value.find((item) => item.path === path)
     if (!tab) return
     try {
-      const res = await wailsCall<{ success?: boolean; content?: string; error?: string }>('ReadWorkspaceFile', path)
+      const res = await wailsCall('ReadWorkspaceFile', path)
       if (res?.success === false || res?.error) {
         if (tab.model) tab.model.dispose()
         openTabs.value = openTabs.value.filter((item) => item.path !== path)

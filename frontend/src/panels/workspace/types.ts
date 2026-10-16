@@ -6,7 +6,7 @@ export interface WorkspaceFileItem {
   path: string
   size: number
   mod_time: string
-  git_status: string
+  git_status?: string
   children?: WorkspaceFileItem[]
   loaded?: boolean
 }

@@ -334,12 +334,7 @@ export const EditorView = defineComponent({
       state.error = ''
       state.replacement = null
       try {
-        const res = await wailsCall<{
-          success?: boolean
-          error?: string
-          replacement?: string
-          summary?: string
-        }>(
+        const res = await wailsCall(
           'GenerateInlineEdit',
           props.tab.path,
           props.tab.language,

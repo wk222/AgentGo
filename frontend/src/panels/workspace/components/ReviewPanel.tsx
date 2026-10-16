@@ -21,13 +21,7 @@ export const ReviewPanel = defineComponent({
     const load = async () => {
       loading.value = true
       try {
-        const res = await wailsCall<{
-          success?: boolean
-          active?: boolean
-          changes?: WorkspaceReviewChange[]
-          skipped_count?: number
-          error?: string
-        }>('ListWorkspaceReview', props.sessionId)
+        const res = await wailsCall('ListWorkspaceReview', props.sessionId)
         if (res?.success === false || res?.error) {
           errorMsg.value = res?.error || '读取 AI 变更失败'
           return
@@ -49,12 +43,7 @@ export const ReviewPanel = defineComponent({
         return
       }
       try {
-        const res = await wailsCall<{
-          success?: boolean
-          error?: string
-          original_content?: string
-          modified_content?: string
-        }>('WorkspaceReviewFile', props.sessionId, change.path)
+        const res = await wailsCall('WorkspaceReviewFile', props.sessionId, change.path)
         if (res?.success === false || res?.error) {
           alert(res?.error || '读取差异失败')
           return
@@ -72,7 +61,7 @@ export const ReviewPanel = defineComponent({
     const accept = async (change: WorkspaceReviewChange) => {
       busyPath.value = change.path
       try {
-        const res = await wailsCall<{ success?: boolean; error?: string }>(
+        const res = await wailsCall(
           'AcceptWorkspaceReviewFile', props.sessionId, change.path
         )
         if (res?.success === false || res?.error) alert(res?.error || '接受失败')
@@ -91,7 +80,7 @@ export const ReviewPanel = defineComponent({
       if (!confirm(`恢复 ${change.path} 到本次 AI 修改前的状态？`)) return
       busyPath.value = change.path
       try {
-        const res = await wailsCall<{ success?: boolean; error?: string }>(
+        const res = await wailsCall(
           'RejectWorkspaceReviewFile', props.sessionId, change.path
         )
         if (res?.success === false || res?.error) {
@@ -114,7 +103,7 @@ export const ReviewPanel = defineComponent({
     const rejectAll = async () => {
       if (!changes.value.length) return
       if (!confirm(`恢复全部 ${changes.value.length} 个文件到本次 AI 修改前？`)) return
-      const res = await wailsCall<{ success?: boolean; error?: string }>('RejectAllWorkspaceReview', props.sessionId)
+      const res = await wailsCall('RejectAllWorkspaceReview', props.sessionId)
       if (res?.success === false || res?.error) {
         alert(res?.error || '全部恢复失败')
       } else {

@@ -24,7 +24,7 @@ export function extractThinking(content: string): { thinking: string; main: stri
 }
 
 /**
- * Borrowed from OpenBitFun activityClassification.ts:
+ * 活动分类：
  * Classify low-risk observation / exploration tool calls so consecutive read-only
  * probes can be folded into a single Explore Capsule, while edits/commands/errors stay prominent.
  */
@@ -401,7 +401,7 @@ export default defineComponent({
             })}
           </div>
 
-          {/* OpenBitFun-inspired Turn Rail: right-hand quick navigation rail for multi-turn sessions */}
+          {/* 轮次导轨：多轮会话的右侧快速导航 */}
           {turns.length >= 2 && (
             <aside class="flowchat-turn-rail" aria-label="会话回合快速导航">
               <button

@@ -115,7 +115,7 @@ export const TerminalPanel = defineComponent({
 
     const createTab = async (shell?: string) => {
       const termId = `term-${Date.now()}-${Math.floor(Math.random() * 1000)}`
-      const info = await wailsCall<{ id: string; shell: string; title: string }>(
+      const info = await wailsCall(
         'TerminalCreate',
         termId,
         shell || '',
@@ -249,7 +249,7 @@ export const TerminalPanel = defineComponent({
       }
 
       try {
-        const list = await wailsCall<any[]>('TerminalList')
+        const list = await wailsCall('TerminalList')
         if (Array.isArray(list) && list.length > 0) {
           for (const item of list) {
             const title = item.title

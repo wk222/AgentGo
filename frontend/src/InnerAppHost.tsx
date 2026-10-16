@@ -99,13 +99,13 @@ export default defineComponent({
     const session = ref<any | null>(null)
     const manifest = ref<any | null>(null)
 
-    // OpenBitFun creationRuntime-style handshake & snapshot rollback state
+    // 握手与快照回滚状态
     const handshakeState = ref<'pending' | 'ready' | 'runtime_error'>('pending')
     const runtimeErrors = ref<string[]>([])
     const snapshots = ref<AppHtmlSnapshot[]>([])
     const activeSnapshotIdx = ref(-1)
 
-    // OpenBitFun FloatingMiniChat-style companion state
+    // 伴随小窗状态
     const companionOpen = ref(false)
     const companionPrompt = ref('')
     const evolving = ref(false)
@@ -376,7 +376,7 @@ export default defineComponent({
               ? <iframe ref={frameRef} class="inner-app-frame" sandbox="allow-scripts allow-forms allow-popups" srcdoc={html.value}></iframe>
               : <div class="inner-app-host-empty">{loading.value ? '加载中...' : '暂无 UI'}</div>}
 
-          {/* OpenBitFun FloatingMiniChat-inspired Creative Companion Overlay */}
+          {/* 创作伴随浮层 */}
           {companionOpen.value && (
             <div class="inner-app-companion-card">
               <div class="inner-app-companion-head">

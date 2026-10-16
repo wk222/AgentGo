@@ -103,7 +103,7 @@ func TestCompileProjectedView_AtomicToolPairNormalization(t *testing.T) {
 	}
 }
 
-func TestCompileProjectedView_ReasonixStyleToolResultSnip(t *testing.T) {
+func TestCompileProjectedView_TieredToolResultSnip(t *testing.T) {
 	longNormalOutput := "HEAD_MARKER_" + strings.Repeat("x", 2400) + "_TAIL_MARKER"
 	longErrorOutput := "Error: compilation failed\n" + strings.Repeat("e", 2400)
 	longRecentOutput := "RECENT_FULL_" + strings.Repeat("r", 2400)

@@ -4,6 +4,7 @@ import DOMPurify from 'dompurify'
 import { RuntimeClient, type RuntimeEvent } from '../../../frontend-shared/runtime-client'
 import {
   wailsCall,
+  wailsCallRaw,
   wailsCallUrgent,
   wailsCallWithTimeout,
   wailsEvents,
@@ -120,7 +121,7 @@ export function useChat() {
   let cleanupFn: (() => void) | null = null
 
   const runtime = new RuntimeClient({
-    call: (method, ...args) => wailsCall(method, ...args),
+    call: (method, ...args) => wailsCallRaw(method, ...args),
     on: (name, listener) => wailsEvents()!.On(name, listener),
   })
   let runtimeRunID = ''
