@@ -288,7 +288,7 @@ func TestResolveApprovalWithoutPendingRunFailsLoudly(t *testing.T) {
 	if out["success"] != true {
 		t.Fatalf("the decision itself is recorded: %+v", out)
 	}
-	if e, _ := out["resume_error"].(string); e != errNoPendingRun.Error() {
+	if e, _ := out["resume_error"].(string); e != core.ErrNoPendingRun.Error() {
 		t.Fatalf("approved-but-nothing-ran must be an error, got %+v", out)
 	}
 	if g.calls.Load() != 0 {

@@ -135,7 +135,7 @@
 | F2 Harness 一等化（1 周）✅ | 后端 `Harness` 类型 + `ListHarnesses`（IPC / 网关 / ACP 同源）；前端启动时拉取；`ModeHints` 暂缓（要用评测验证后再改）。详见 `docs/plan-f4-eval-f2-harness.md` §3 | 前端不再出现 profile/canvas 推断逻辑 |
 | F3 中间件流水线（1 周）✅ | `ToolResultPruner` 已删（spine compile 负责裁剪）；governance / tool heal 各只挂一处（`composeToolMiddlewares` + `toolMounts`）；顺序与去重由 `middleware_pipeline_test.go` 锁定；顺手修了 canvas-aware 策略在 compose 层从未生效的问题 | `TestBuildADKHandlers_OrderAndDedup`、`TestComposeToolMiddlewares_SingleMount` |
 | F4 评测基线（1–2 周）✅ 首版 | `agentgo-eval` + 8 个任务 + 每次运行的 `RunMeter`（token/缓存/工具数）+ 基线对比；详见 `docs/eval-baseline.md`、`docs/plan-f4-eval-f2-harness.md`。**发现缓存命中仅 1% → F4.1 已修（根因：脊柱/模式中间件非幂等 + 工具列表 map 乱序），缓存 1%→89%，prompt -19%**；用例已扩到 20 个（套件 v2，含多轮与审批），四档位各有基线（`docs/eval/baseline*.json`）；评测抓到并修复了「工作流中文名 → 全局 400」与「网关多轮无历史」两个真 bug | 之后改上下文策略必须附评测前后对比 |
-| F5 内核抽取（2–3 周）🟡 进行中 | 已建 `internal/core`（`BuildHistory` / `Transcript`，网关与桌面共用）；工作区的搜索/Git/媒体/评审/列目录/文件操作/命令执行下沉到 `internal/workspace`（新增单测）。**`bridge` 非测试代码 12,043 → 10,294 行（含 2026-10-17 把 `RunTracker` / 待审批存储 / 审批中继下沉到 `internal/core`），离 5000 行的目标还差一半以上**，剩余多为与 `Runtime`/`AppService` 强耦合的编排（approval_resume / coding_agent / matrix_compose / ideruntime_bridge / context_expander / recovery / run_tracker），不能靠机械搬家完成，需要先定义内核服务接口。 | 5000 行目标**未达成**；按领域继续迁，每次迁移都带单测与 `go test ./internal/bridge/` |
+| F5 内核抽取（2–3 周）🟡 进行中 | 已建 `internal/core`（`BuildHistory` / `Transcript`，网关与桌面共用）；工作区的搜索/Git/媒体/评审/列目录/文件操作/命令执行下沉到 `internal/workspace`（新增单测）。**`bridge` 非测试代码 12,043 → 10,154 行（含 2026-10-17 把 `RunTracker` / 待审批存储 / 审批中继下沉到 `internal/core`），离 5000 行的目标还差一半以上**，剩余多为与 `Runtime`/`AppService` 强耦合的编排（approval_resume / coding_agent / matrix_compose / ideruntime_bridge / context_expander / recovery / run_tracker），不能靠机械搬家完成，需要先定义内核服务接口。 | 5000 行目标**未达成**；按领域继续迁，每次迁移都带单测与 `go test ./internal/bridge/` |
 | F6 前端类型化（1–2 周）✅ 主体 | `wails.ts`（1312 行）拆为门面 + `ipc/{runtime,call,contract,types}` + `ipc/mock/*`（浏览器预览假后端，最大文件 652 行）；`wailsCall` 按 `IpcContract` 检查方法名/参数/返回类型，未登记方法编译不过（动态方法名用显式的 `wailsCallRaw`）；`reasonix-polish.css` → `polish.css`，UI 与注释中的第三方项目名全部清除；`App.tsx` 869 行（<900）。**未做**：清内联样式、收敛 tokens | `tsc --noEmit` 0 错误；`vite build` 通过 |
 | F7 配置与仓库卫生（1 周）✅ | `internal/config` 声明式开关注册表（71 项，类型化句柄，**唯一**读取 `AGENTGO_*` 的地方，`arch` 测试锁定）；设置页新增只读「高级配置」（`GetConfigSnapshot`）；`frontend/dist` 取消跟踪（`scripts/build-frontend.ps1` 生成，`.gitkeep` 满足 `go:embed`）；`eino-ext` 取消跟踪（`go.mod` 本来就不 `replace` 它，构建用模块缓存；本地联调用 `go.work`）；`docs/` 设计文档入库。**未做**：agent 与 IDE 终端共用 PTY | 普通提交不再带构建产物 diff；`TestAgentgoEnvIsOnlyNamedInConfig` |
 
@@ -174,13 +174,17 @@ go build -o bin\agentgo.exe .\cmd\agentgo
 
 ### F5 下一步设计草案：审批恢复下沉（2026-10-17）
 
-读完 ridge/approval_resume.go（334 行）后的结论：esolveApproval 同时做了四类事，下沉前必须拆开，否则只是把耦合搬家。
+读完 ridge/approval_resume.go（334 行）后的结论：
+esolveApproval 同时做了四类事，下沉前必须拆开，否则只是把耦合搬家。
 
 | 职责 | 现在耦合在 | 目标 |
 |---|---|---|
-| 记录决定、抢占恢复权（Resolve / pending.Take / elay） | Runtime 字段 | 进 core.ApprovalFlow，只依赖 governance、PendingStore、ApprovalRelay |
+| 记录决定、抢占恢复权（Resolve / pending.Take / 
+elay） | Runtime 字段 | 进 core.ApprovalFlow，只依赖 governance、PendingStore、ApprovalRelay |
 | 按 ResumeKind 恢复（agent / matrix / workflow） | Runtime.resumeAgent 等方法 | core 定义 Resumer 接口，ridge 注入三种实现 |
 | 运行日志收尾（waitingRunID / commitRun） | AppService + sessions | 进 core，仅依赖 sessions |
 | 桌面事件与消息 DTO（pproval:resolved、chat:done、ChatMessageDTO） | s.app.Event、桌面 DTO | 留在 ridge，通过 core 返回的结果结构体翻译 |
 
 先做第 1、3 行（无 UI 依赖），再做第 2 行；第 4 行永远留在 bridge。每步带单测并跑 go test ./internal/bridge/。
+
+**进展（同日）：** 上表第 1、3 行已完成——`core.ApprovalFlow`（`Decide`：记录决定、通知中继、抢占恢复权）与 `core/runlog.go`（run log 事件映射、commit、`AwaitingRunID`）已下沉，带 6 个单测；`bridge/approval_resume.go` 只剩按 `ResumeKind` 恢复与桌面事件翻译。第 2 行（`Resumer` 接口）**未做**：agent / matrix / workflow 三条分支的恢复后处理差异很大（workflow 链式审批、matrix 发布编排事件、agent 走引擎 emitter），现在抽接口只会得到一个只有单一调用点的空壳；等 matrix / workflow 的 HITL 也走 `core` 时再做。

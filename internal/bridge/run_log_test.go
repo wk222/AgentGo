@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"agentgo/internal/core"
 	"context"
 	"database/sql"
 	"strings"
@@ -138,7 +139,7 @@ func TestRunLogCutsHugeOutputButKeepsTheEvent(t *testing.T) {
 			result = e
 		}
 	}
-	if len(result.PayloadJSON) > runLogPayloadMax+256 || !strings.Contains(result.PayloadJSON, runLogCutMark) {
+	if len(result.PayloadJSON) > core.RunLogPayloadMax+256 || !strings.Contains(result.PayloadJSON, core.RunLogCutMark) {
 		t.Fatalf("payload not bounded: %d bytes", len(result.PayloadJSON))
 	}
 }
@@ -154,7 +155,7 @@ func TestRunLogWithoutASessionIsANoOp(t *testing.T) {
 func TestCutStringNeverSplitsARune(t *testing.T) {
 	s := strings.Repeat("中", 10) // 3 bytes each
 	for max := 1; max < 30; max++ {
-		got := strings.TrimSuffix(cutString(s, max), runLogCutMark)
+		got := strings.TrimSuffix(core.CutString(s, max), core.RunLogCutMark)
 		if got != "" && strings.ToValidUTF8(got, "\uFFFD") != got {
 			t.Fatalf("max=%d produced invalid UTF-8: %q", max, got)
 		}
