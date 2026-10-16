@@ -1,9 +1,0 @@
-[default.extend-words]
-ot = "ot"
-OT = "OT"
-typ = "typ"
-Typ = "Typ"
-Rabit = "Rabit"
-
-[files]
-extend-exclude = ["**/*.test.txt"]
