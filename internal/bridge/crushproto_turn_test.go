@@ -234,19 +234,6 @@ func TestEngineFileChangeEventPopulatesHistory(t *testing.T) {
 	}
 }
 
-func TestSnapshotBeforeIgnoresOtherTools(t *testing.T) {
-	if _, ok := snapshotBefore(t.TempDir(), "code_view", `{"file_path":"a.go"}`); ok {
-		t.Fatal("read-only tool snapshotted")
-	}
-	if _, ok := snapshotBefore(t.TempDir(), "code_edit", `not json`); ok {
-		t.Fatal("bad args snapshotted")
-	}
-	s, ok := snapshotBefore(t.TempDir(), "code_write", `{"file_path":"new.txt"}`)
-	if !ok || !s.ok || s.before != "" {
-		t.Fatalf("creation snapshot = %+v ok=%v", s, ok)
-	}
-}
-
 func TestCrushTurnReasoningEvent(t *testing.T) {
 	msgs := runTurn(t, func(c *crushTurn, _ string) {
 		c.onEvent(engine.Event{Type: engine.EventReasoning, Payload: map[string]any{"delta": "Let me think."}})

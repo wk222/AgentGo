@@ -2,13 +2,10 @@ package bridge
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"agentgo/internal/capability"
-	"agentgo/internal/codetools"
 	"agentgo/internal/engine"
 	"agentgo/internal/workflow"
 )
@@ -81,49 +78,6 @@ func TestCodingAgentRefusesAForeignWorkDir(t *testing.T) {
 	}
 	if _, err := rt.codingAgentRun(context.Background(), workflow.CodingRequest{Prompt: "x", WorkDir: active}); err != nil {
 		t.Fatalf("active workspace must be accepted: %v", err)
-	}
-}
-
-// Eino reports tool calls, not file changes, so the sink derives them: it
-// snapshots an edit tool's target at call time and diffs it at result time.
-func TestCodingChangeSinkDerivesFileChangesFromToolCalls(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "a.txt")
-	if err := os.WriteFile(path, []byte("v0"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	sink := &codingChangeSink{workDir: dir}
-	call := func(typ engine.EventType, p map[string]any) { sink.Emit(engine.Event{Type: typ, Payload: p}) }
-	edit := codetools.ToolName("edit")
-
-	call(engine.EventToolCall, map[string]any{"id": "1", "name": edit, "arguments": `{"file_path":"a.txt"}`})
-	if err := os.WriteFile(path, []byte("v1"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	call(engine.EventToolResult, map[string]any{"id": "1", "name": edit, "output": "ok"})
-
-	// A failed edit and a read-only call change nothing.
-	call(engine.EventToolCall, map[string]any{"id": "2", "name": edit, "arguments": `{"file_path":"a.txt"}`})
-	call(engine.EventToolResult, map[string]any{"id": "2", "name": edit, "output": "boom", "is_error": true})
-	call(engine.EventToolCall, map[string]any{"id": "3", "name": codetools.ToolName("view"), "arguments": `{"file_path":"a.txt"}`})
-	call(engine.EventToolResult, map[string]any{"id": "3", "name": codetools.ToolName("view"), "output": "v1"})
-
-	// Creating a file: before is empty.
-	newPath := filepath.Join(dir, "n.txt")
-	call(engine.EventToolCall, map[string]any{"id": "4", "name": codetools.ToolName("write"), "arguments": `{"file_path":"n.txt"}`})
-	if err := os.WriteFile(newPath, []byte("hi"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	call(engine.EventToolResult, map[string]any{"id": "4", "name": codetools.ToolName("write"), "output": "ok"})
-
-	if sink.calls != 4 || len(sink.order) != 2 {
-		t.Fatalf("calls=%d order=%v", sink.calls, sink.order)
-	}
-	if c := sink.changes[path]; c == nil || c.Before != "v0" || c.After != "v1" {
-		t.Fatalf("a.txt = %+v", c)
-	}
-	if c := sink.changes[newPath]; c == nil || c.Before != "" || c.After != "hi" {
-		t.Fatalf("n.txt = %+v", c)
 	}
 }
 

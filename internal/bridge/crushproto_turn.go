@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"agentgo/internal/core"
 	"strconv"
 	"strings"
 	"sync"
@@ -40,8 +41,7 @@ type crushTurn struct {
 	inThinking    bool
 	inThinkTag    bool
 
-	pre   map[string]fileSnap // call id -> file content before an edit tool ran
-	trees map[string]treeSnap // call id -> workspace scan before a shell command
+	watch core.ChangeWatcher // snapshots around edit and shell tool calls
 
 	promptTok, complTok int
 
@@ -262,18 +262,8 @@ func (t *crushTurn) toolCall(id, name, args string) string {
 	t.stopThinkingLocked()
 	t.flushLocked()
 	id = t.callID(id)
-	if snap, ok := snapshotBefore(t.em.WorkDir(), name, args); ok && snap.ok {
-		if t.pre == nil {
-			t.pre = map[string]fileSnap{}
-		}
-		t.pre[id] = snap
-	}
-	if name == shellTool {
-		if t.trees == nil {
-			t.trees = map[string]treeSnap{}
-		}
-		t.trees[id] = scanTree(t.em.WorkDir())
-	}
+	t.watch.WorkDir, t.watch.EditTools = t.em.WorkDir(), editToolNames
+	t.watch.Start(id, name, args)
 	a := t.assistantLocked()
 	a.ToolCallStart(id, name)
 	a.ToolCallInput(id, args)
@@ -290,19 +280,8 @@ func (t *crushTurn) toolResult(id, name, output string, isErr bool) {
 	if r := []rune(output); len(r) > maxToolOutput {
 		output = string(r[:maxToolOutput]) + "\n… (truncated)"
 	}
-	if snap, ok := t.pre[id]; ok {
-		delete(t.pre, id)
-		if !isErr {
-			if after, ok := readSnapshot(snap.path); ok {
-				t.em.FileChanged(snap.path, snap.before, after)
-			}
-		}
-	}
-	if before, ok := t.trees[id]; ok {
-		delete(t.trees, id)
-		for _, d := range diffTrees(before, scanTree(t.em.WorkDir())) {
-			t.em.FileChanged(d.path, d.before, d.after)
-		}
+	for _, d := range t.watch.Finish(id, isErr) {
+		t.em.FileChanged(d.Path, d.Before, d.After)
 	}
 	t.em.ToolResult(id, name, output, "", isErr)
 	if t.open--; t.open <= 0 {

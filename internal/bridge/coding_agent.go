@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"strings"
-	"sync"
 
 	"agentgo/internal/engine"
 	"agentgo/internal/governance"
@@ -67,129 +66,6 @@ func (s *AppService) Close() {
 	}
 }
 
-// codingChangeSink folds the event stream into the workflow node result.
-//
-// The Eino engine reports tool calls, not file changes, so the sink snapshots a
-// file-changing tool's target when the call starts and diffs it when the call
-// finishes (the same capture the Crush TUI adapter uses). Engines that do emit
-// file_change events are folded in as well.
-type codingChangeSink struct {
-	workDir string
-
-	mu       sync.Mutex
-	order    []string
-	changes  map[string]*workflow.CodingChange
-	calls    int
-	pre      map[string]fileSnap // call id -> target before the call
-	trees    map[string]treeSnap // call id -> workspace before a shell call
-	approval struct{ id, tool, args string }
-}
-
-// seed starts the sink from the work done before an approval pause.
-func (c *codingChangeSink) seed(calls int, changes []workflow.CodingChange) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.calls = calls
-	for _, ch := range changes {
-		c.record(ch.Path, ch.Before, ch.After)
-	}
-}
-
-func (c *codingChangeSink) changeList() []workflow.CodingChange {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	out := make([]workflow.CodingChange, 0, len(c.order))
-	for _, p := range c.order {
-		out = append(out, *c.changes[p])
-	}
-	return out
-}
-
-// record must be called with c.mu held.
-func (c *codingChangeSink) record(path, before, after string) {
-	if path == "" {
-		return
-	}
-	if ch, ok := c.changes[path]; ok {
-		ch.After = after // keep the first "before", track the latest "after"
-		return
-	}
-	if c.changes == nil {
-		c.changes = map[string]*workflow.CodingChange{}
-	}
-	c.changes[path] = &workflow.CodingChange{Path: path, Before: before, After: after}
-	c.order = append(c.order, path)
-}
-
-// watchLocked snapshots what a starting tool call may change.
-func (c *codingChangeSink) watchLocked(id, name, args string) {
-	if id == "" || c.workDir == "" {
-		return
-	}
-	if snap, ok := snapshotBefore(c.workDir, name, args); ok && snap.ok {
-		if c.pre == nil {
-			c.pre = map[string]fileSnap{}
-		}
-		c.pre[id] = snap
-	}
-	if name == shellTool {
-		if c.trees == nil {
-			c.trees = map[string]treeSnap{}
-		}
-		c.trees[id] = scanTree(c.workDir)
-	}
-}
-
-// settleLocked turns the snapshots of a finished call into recorded changes.
-func (c *codingChangeSink) settleLocked(id string, isErr bool) {
-	if snap, ok := c.pre[id]; ok {
-		delete(c.pre, id)
-		if !isErr {
-			if after, ok := readSnapshot(snap.path); ok && after != snap.before {
-				c.record(snap.path, snap.before, after)
-			}
-		}
-	}
-	if before, ok := c.trees[id]; ok {
-		delete(c.trees, id)
-		for _, d := range diffTrees(before, scanTree(c.workDir)) {
-			c.record(d.path, d.before, d.after)
-		}
-	}
-}
-
-// watch/settle bracket a call the engine will not report itself (the tool that
-// an approval is about to release).
-func (c *codingChangeSink) watch(id, name, args string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.watchLocked(id, name, args)
-}
-
-func (c *codingChangeSink) settle(id string, isErr bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.settleLocked(id, isErr)
-}
-
-func (c *codingChangeSink) Emit(e engine.Event) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	str := func(k string) string { s, _ := e.Payload[k].(string); return s }
-	switch e.Type {
-	case engine.EventToolCall:
-		c.calls++
-		c.watchLocked(str("id"), str("name"), str("arguments"))
-	case engine.EventToolResult:
-		isErr, _ := e.Payload["is_error"].(bool)
-		c.settleLocked(str("id"), isErr)
-	case engine.EventFileChange:
-		c.record(str("path"), str("before"), str("after"))
-	case engine.EventApprovalRequest:
-		c.approval.id, c.approval.tool, c.approval.args = str("approval_id"), str("tool_name"), str("arguments")
-	}
-}
-
 // codingAgentRun backs the CodingAgent workflow node.
 func (r *Runtime) codingAgentRun(ctx context.Context, req workflow.CodingRequest) (workflow.CodingResult, error) {
 	router := r.engineRouter
@@ -212,16 +88,16 @@ func (r *Runtime) codingAgentRun(ctx context.Context, req workflow.CodingRequest
 				"coding agent runs in the active workspace %s, but the node asks for %s: switch the workspace first", active, dir)
 		}
 	}
-	sink := &codingChangeSink{workDir: dir}
+	sink := &core.ChangeSink{WorkDir: dir, EditTools: editToolNames}
 	out := workflow.CodingResult{Engine: id}
 	finish := func() {
-		out.ToolCalls = sink.calls
-		out.ChangedFiles = sink.changeList()
+		out.ToolCalls = sink.Calls()
+		out.ChangedFiles = sink.Changes()
 	}
 
 	var pending *codingPending
 	if req.Resume != nil {
-		sink.seed(req.Resume.Calls, req.Resume.Changes)
+		sink.Seed(req.Resume.Calls, req.Resume.Changes)
 		summary, p, err := r.continueCodingRun(ctx, sink, id, req.Resume)
 		out.Summary, pending = summary, p
 		if err != nil {
@@ -240,7 +116,8 @@ func (r *Runtime) codingAgentRun(ctx context.Context, req workflow.CodingRequest
 			return out, fmt.Errorf("coding agent (%s): %s", id, res.Error)
 		}
 		if res.Pending {
-			pending = &codingPending{id: sink.approval.id, tool: sink.approval.tool, args: sink.approval.args}
+			apID, apTool, apArgs := sink.Approval()
+			pending = &codingPending{id: apID, tool: apTool, args: apArgs}
 			if ipr, ok := r.pendingRunFor(pending.id); ok {
 				pending.host = hostOf(ipr)
 			}
@@ -285,7 +162,7 @@ func hostOf(pr core.PendingRun) map[string]string {
 
 // continueCodingRun resumes the agent run that was stopped for approval and
 // reports what it produced, or the next approval it stopped on.
-func (r *Runtime) continueCodingRun(ctx context.Context, sink *codingChangeSink, engineID string, rs *workflow.CodingResume) (string, *codingPending, error) {
+func (r *Runtime) continueCodingRun(ctx context.Context, sink *core.ChangeSink, engineID string, rs *workflow.CodingResume) (string, *codingPending, error) {
 	pr := core.PendingRun{
 		SessionID: rs.Host["session_id"], UserText: rs.Host["user_text"], InterruptID: rs.Host["interrupt_id"],
 		ToolName: rs.ToolName, Arguments: rs.Arguments, ApprovalID: rs.ApprovalID,
@@ -297,18 +174,18 @@ func (r *Runtime) continueCodingRun(ctx context.Context, sink *codingChangeSink,
 	// The released tool runs inside the resume without a fresh tool-call event,
 	// so snapshot its target here.
 	synth := "resume:" + rs.ApprovalID
-	sink.watch(synth, rs.ToolName, rs.Arguments)
+	sink.Watch(synth, rs.ToolName, rs.Arguments)
 	res, err := r.resumeAgent(rctx, pr, &governance.ResumePayload{Approved: true, Arguments: rs.Arguments})
 	if err == nil && res == nil {
 		err = fmt.Errorf("resume returned no result")
 	}
 	if err != nil {
-		sink.settle(synth, true)
+		sink.Settle(synth, true)
 		return "", nil, err
 	}
 	// The released tool has run by now, even if the agent then stopped on the
 	// next tool that needs approval.
-	sink.settle(synth, false)
+	sink.Settle(synth, false)
 	p := res.PendingApproval
 	if p == nil {
 		return res.Content, nil, nil
