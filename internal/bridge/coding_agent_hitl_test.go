@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"agentgo/internal/core"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -56,7 +57,7 @@ func (e pausingEngine) Run(_ context.Context, req engine.RunRequest, em engine.E
 	e.h.request(hitlFirstApproval)
 	em.ApprovalRequest(hitlFirstApproval, "code_edit", args, "approve?")
 	// What AppService.registerPending records for a paused chat run.
-	e.h.rt.pending.Set(pendingRun{
+	e.h.rt.pending.Set(core.PendingRun{
 		SessionID: req.SessionID, UserText: req.Input, ToolName: "code_edit", Arguments: args,
 		ApprovalID: hitlFirstApproval, InterruptID: "int_first",
 	})
@@ -91,7 +92,7 @@ func newCodingHITL(t *testing.T) *codingHITL {
 	}
 	h.rt = &Runtime{
 		wfStore: wfStore, cpStore: cpStore, approvals: queue,
-		toolReg: tools.NewRegistry(), pending: newPendingStore(), workspace: h.ws,
+		toolReg: tools.NewRegistry(), pending: core.NewPendingStore(), workspace: h.ws,
 	}
 	h.rt.wfExec = h.rt.executeWorkflow
 	h.rt.wfResume = h.rt.resumeWorkflow
@@ -143,7 +144,7 @@ func TestCodingAgentNodePausesForApprovalAndChainsApprovals(t *testing.T) {
 	h.start()
 
 	// First approval releases the edit; the agent then stops on a second tool.
-	h.rt.resumeFn = func(_ context.Context, pr pendingRun, rp *governance.ResumePayload) (*agent.RunResult, error) {
+	h.rt.resumeFn = func(_ context.Context, pr core.PendingRun, rp *governance.ResumePayload) (*agent.RunResult, error) {
 		switch pr.ApprovalID {
 		case hitlFirstApproval:
 			if pr.SessionID == "" || pr.InterruptID != "int_first" || pr.ToolName != "code_edit" || !rp.Approved {
@@ -216,7 +217,7 @@ func TestCodingAgentNodePausesForApprovalAndChainsApprovals(t *testing.T) {
 func TestCodingAgentNodeFailsWhenApprovalIsRefused(t *testing.T) {
 	h := newCodingHITL(t)
 	h.start()
-	h.rt.resumeFn = func(context.Context, pendingRun, *governance.ResumePayload) (*agent.RunResult, error) {
+	h.rt.resumeFn = func(context.Context, core.PendingRun, *governance.ResumePayload) (*agent.RunResult, error) {
 		t.Error("a refused tool must not be released")
 		return nil, nil
 	}

@@ -1,4 +1,4 @@
-package bridge
+package core
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// approvalRelay tells a surface that is waiting on an approval that another
+// ApprovalRelay tells a surface that is waiting on an approval that another
 // surface took the decision.
 //
 // A run started in the Crush TUI blocks inside the TUI's permission dialog. If
@@ -24,7 +24,7 @@ import (
 // why the TUI attaches to the host instead of running its own.
 //
 // The zero value is ready to use.
-type approvalRelay struct {
+type ApprovalRelay struct {
 	mu      sync.Mutex
 	entries map[string]*relayEntry
 }
@@ -45,7 +45,7 @@ const (
 )
 
 // entry returns the record for an approval, creating it. Callers hold no lock.
-func (r *approvalRelay) entry(id string) *relayEntry {
+func (r *ApprovalRelay) entry(id string) *relayEntry {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.entries == nil {
@@ -61,7 +61,7 @@ func (r *approvalRelay) entry(id string) *relayEntry {
 }
 
 // pruneLocked forgets decisions nobody can still be waiting for.
-func (r *approvalRelay) pruneLocked() {
+func (r *ApprovalRelay) pruneLocked() {
 	if len(r.entries) < relayMaxSize {
 		return
 	}
@@ -72,9 +72,9 @@ func (r *approvalRelay) pruneLocked() {
 	}
 }
 
-// markDecided records that approvalID was decided by `by`. The first call
+// MarkDecided records that approvalID was decided by `by`. The first call
 // wins; the queue guarantees there is only one.
-func (r *approvalRelay) markDecided(id string, approved bool, by string) {
+func (r *ApprovalRelay) MarkDecided(id string, approved bool, by string) {
 	e := r.entry(id)
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -87,9 +87,9 @@ func (r *approvalRelay) markDecided(id string, approved bool, by string) {
 	close(e.decided)
 }
 
-// markCompleted publishes what the decision led to. It is also safe to call
-// without markDecided (the decision then counts as taken).
-func (r *approvalRelay) markCompleted(id string, out map[string]any) {
+// MarkCompleted publishes what the decision led to. It is also safe to call
+// without MarkDecided (the decision then counts as taken).
+func (r *ApprovalRelay) MarkCompleted(id string, out map[string]any) {
 	e := r.entry(id)
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -108,20 +108,20 @@ func (r *approvalRelay) markCompleted(id string, out map[string]any) {
 	}
 }
 
-// relayWatch is one waiter's view of an approval.
-type relayWatch struct {
+// RelayWatch is one waiter's view of an approval.
+type RelayWatch struct {
 	e *relayEntry
 }
 
-// watch starts following an approval. A decision made before the call is seen
+// Watch starts following an approval. A decision made before the call is seen
 // immediately, so there is no window between "approval created" and "waiter
 // attached" in which a decision can be missed.
-func (r *approvalRelay) watch(id string) relayWatch { return relayWatch{e: r.entry(id)} }
+func (r *ApprovalRelay) Watch(id string) RelayWatch { return RelayWatch{e: r.entry(id)} }
 
 // Decision delivers the approved/rejected value once someone else decides, for
 // use as Emitter.AwaitPermission's `other`. The goroutine ends with ctx or when
 // stop is called.
-func (w relayWatch) Decision(ctx context.Context) (ch <-chan bool, stop func()) {
+func (w RelayWatch) Decision(ctx context.Context) (ch <-chan bool, stop func()) {
 	out := make(chan bool, 1)
 	quit := make(chan struct{})
 	var once sync.Once
@@ -137,7 +137,7 @@ func (w relayWatch) Decision(ctx context.Context) (ch <-chan bool, stop func()) 
 }
 
 // DecidedBy names the surface that decided ("" while undecided).
-func (w relayWatch) DecidedBy() string {
+func (w RelayWatch) DecidedBy() string {
 	select {
 	case <-w.e.decided:
 		return w.e.by
@@ -148,7 +148,7 @@ func (w relayWatch) DecidedBy() string {
 
 // Decided reports whether a decision is on record, waiting up to grace for one
 // that is being recorded at this very moment.
-func (w relayWatch) Decided(grace time.Duration) bool {
+func (w RelayWatch) Decided(grace time.Duration) bool {
 	select {
 	case <-w.e.decided:
 		return true
@@ -169,7 +169,7 @@ func (w relayWatch) Decided(grace time.Duration) bool {
 
 // Outcome waits for the resumed run to finish and returns the result of
 // resolveApproval. ok is false if ctx ended first.
-func (w relayWatch) Outcome(ctx context.Context) (approved bool, out map[string]any, ok bool) {
+func (w RelayWatch) Outcome(ctx context.Context) (approved bool, out map[string]any, ok bool) {
 	select {
 	case <-w.e.done:
 		return w.e.approved, w.e.out, true

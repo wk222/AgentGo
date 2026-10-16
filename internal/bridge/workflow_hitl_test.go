@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"agentgo/internal/core"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -79,7 +80,7 @@ func TestWorkflowToolApprovalResolveResumesRun(t *testing.T) {
 		cpStore:   cpStore,
 		approvals: queue,
 		toolReg:   reg,
-		pending:   newPendingStore(),
+		pending:   core.NewPendingStore(),
 	}
 	rt.wfExec = rt.executeWorkflow
 	rt.wfResume = rt.resumeWorkflow

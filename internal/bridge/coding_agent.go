@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"agentgo/internal/core"
 	"context"
 	"fmt"
 	"log"
@@ -268,15 +269,15 @@ type codingPending struct {
 
 // pendingRunFor reads the agent run that stopped on approvalID. The run stays in
 // the store until the workflow interrupt takes the approval over.
-func (r *Runtime) pendingRunFor(approvalID string) (pendingRun, bool) {
+func (r *Runtime) pendingRunFor(approvalID string) (core.PendingRun, bool) {
 	if r == nil || r.pending == nil || approvalID == "" {
-		return pendingRun{}, false
+		return core.PendingRun{}, false
 	}
 	return r.pending.Get(approvalID)
 }
 
 // hostOf is what the node keeps across the pause to continue the agent run.
-func hostOf(pr pendingRun) map[string]string {
+func hostOf(pr core.PendingRun) map[string]string {
 	return map[string]string{
 		"session_id": pr.SessionID, "user_text": pr.UserText, "interrupt_id": pr.InterruptID,
 	}
@@ -285,7 +286,7 @@ func hostOf(pr pendingRun) map[string]string {
 // continueCodingRun resumes the agent run that was stopped for approval and
 // reports what it produced, or the next approval it stopped on.
 func (r *Runtime) continueCodingRun(ctx context.Context, sink *codingChangeSink, engineID string, rs *workflow.CodingResume) (string, *codingPending, error) {
-	pr := pendingRun{
+	pr := core.PendingRun{
 		SessionID: rs.Host["session_id"], UserText: rs.Host["user_text"], InterruptID: rs.Host["interrupt_id"],
 		ToolName: rs.ToolName, Arguments: rs.Arguments, ApprovalID: rs.ApprovalID,
 	}
@@ -319,6 +320,6 @@ func (r *Runtime) continueCodingRun(ctx context.Context, sink *codingChangeSink,
 	if next.id == "" {
 		next.id = p.InterruptID
 	}
-	next.host = hostOf(pendingRun{SessionID: pr.SessionID, UserText: pr.UserText, InterruptID: p.InterruptID})
+	next.host = hostOf(core.PendingRun{SessionID: pr.SessionID, UserText: pr.UserText, InterruptID: p.InterruptID})
 	return res.Content, next, nil
 }

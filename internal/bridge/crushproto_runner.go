@@ -124,7 +124,7 @@ func (r *crushRunner) approve(ctx context.Context, em *crushproto.Emitter, t *cr
 	}
 	// The desktop UI (or any other surface of this host) may decide first: then
 	// the dialog closes and the outcome comes from the relay instead of from here.
-	watch := r.svc.rt.relay.watch(m.ApprovalID)
+	watch := r.svc.rt.relay.Watch(m.ApprovalID)
 	other, stopWatch := watch.Decision(ctx)
 	defer stopWatch()
 	granted, byOther := em.AwaitPermission(crushproto.PermissionRequest{

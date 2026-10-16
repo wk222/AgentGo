@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"agentgo/internal/core"
 	"context"
 	"encoding/json"
 
@@ -28,7 +29,7 @@ func (r *Runtime) workflowInterruptResponse(workflowID string, ie *workflow.Inte
 			if approvalID == "" {
 				approvalID = meta.InterruptID
 			}
-			r.pending.Set(pendingRun{
+			r.pending.Set(core.PendingRun{
 				ResumeKind:   "workflow",
 				WorkflowID:   workflowID,
 				CheckPointID: ie.CheckPointID,
@@ -42,7 +43,7 @@ func (r *Runtime) workflowInterruptResponse(workflowID string, ie *workflow.Inte
 	return out
 }
 
-func (r *Runtime) resumeWorkflowAfterApproval(ctx context.Context, pr pendingRun, resume *governance.ResumePayload) (string, error) {
+func (r *Runtime) resumeWorkflowAfterApproval(ctx context.Context, pr core.PendingRun, resume *governance.ResumePayload) (string, error) {
 	if r == nil || r.wfResume == nil {
 		return "", errWorkflowResumeUnavailable
 	}

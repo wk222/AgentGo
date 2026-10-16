@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"agentgo/internal/core"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -112,7 +113,7 @@ func newRuntimeWith(dataDir string, adjust func([]plugin.Plugin) []plugin.Plugin
 	rt := &Runtime{
 		dataDir: dataDir, llm: cfg, governanceCfg: govCfg, workspaceHint: wsCfg.Root,
 		interactStore:    tools.NewInteractionStore(),
-		runTrack:         NewRunTracker(),
+		runTrack:         core.NewRunTracker(),
 		workspaceReviews: newWorkspaceReviewStore(),
 	}
 	rt.host = plugin.NewHost(governanceHooksFor(func() *capability.Bus { return rt.capBus }))

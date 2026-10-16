@@ -1,4 +1,4 @@
-package bridge
+package core
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	"agentgo/internal/sessions"
 )
 
-type pendingRun struct {
+type PendingRun struct {
 	SessionID    string
 	UserText     string
 	ToolName     string
@@ -23,35 +23,35 @@ type pendingRun struct {
 	CheckPointID string
 }
 
-// pendingBacking makes pending runs survive a restart. *sessions.Store
+// PendingBacking makes pending runs survive a restart. *sessions.Store
 // implements it.
-type pendingBacking interface {
+type PendingBacking interface {
 	SavePendingRun(ctx context.Context, p sessions.PendingRun) error
 	DeletePendingRun(ctx context.Context, approvalID string) error
 }
 
-// pendingStore holds the runs that are waiting for a decision. With a backing
+// PendingStore holds the runs that are waiting for a decision. With a backing
 // store every change is also written there, tagged with this process's id, so a
 // restarted process can find and resume them.
-type pendingStore struct {
+type PendingStore struct {
 	mu      sync.Mutex
-	byID    map[string]pendingRun
-	backing pendingBacking
+	byID    map[string]PendingRun
+	backing PendingBacking
 	pid     int
 }
 
-func newPendingStore() *pendingStore {
-	return &pendingStore{byID: make(map[string]pendingRun), pid: os.Getpid()}
+func NewPendingStore() *PendingStore {
+	return &PendingStore{byID: make(map[string]PendingRun), pid: os.Getpid()}
 }
 
-// newDurablePendingStore is a pendingStore that persists to b.
-func newDurablePendingStore(b pendingBacking) *pendingStore {
-	s := newPendingStore()
+// NewDurablePendingStore is a PendingStore that persists to b.
+func NewDurablePendingStore(b PendingBacking) *PendingStore {
+	s := NewPendingStore()
 	s.backing = b
 	return s
 }
 
-func (s *pendingStore) persist(p pendingRun) {
+func (s *PendingStore) persist(p PendingRun) {
 	if s.backing == nil {
 		return
 	}
@@ -68,7 +68,7 @@ func (s *pendingStore) persist(p pendingRun) {
 	}
 }
 
-func (s *pendingStore) unpersist(approvalID string) {
+func (s *PendingStore) unpersist(approvalID string) {
 	if s.backing == nil {
 		return
 	}
@@ -77,14 +77,14 @@ func (s *pendingStore) unpersist(approvalID string) {
 	}
 }
 
-func (s *pendingStore) Set(p pendingRun) {
+func (s *PendingStore) Set(p PendingRun) {
 	s.mu.Lock()
 	s.byID[p.ApprovalID] = p
 	s.mu.Unlock()
 	s.persist(p)
 }
 
-func (s *pendingStore) Get(approvalID string) (pendingRun, bool) {
+func (s *PendingStore) Get(approvalID string) (PendingRun, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	p, ok := s.byID[approvalID]
@@ -94,9 +94,9 @@ func (s *pendingStore) Get(approvalID string) (pendingRun, bool) {
 // Take removes and returns a pending run in one step, so of any number of
 // concurrent callers exactly one gets it. Resuming a run executes a tool, so the
 // right to resume must be claimed atomically, not read and deleted later.
-func (s *pendingStore) Take(approvalID string) (pendingRun, bool) {
+func (s *PendingStore) Take(approvalID string) (PendingRun, bool) {
 	if s == nil {
-		return pendingRun{}, false
+		return PendingRun{}, false
 	}
 	s.mu.Lock()
 	p, ok := s.byID[approvalID]
@@ -111,13 +111,13 @@ func (s *pendingStore) Take(approvalID string) (pendingRun, bool) {
 }
 
 // Snapshot returns the pending runs held by this process.
-func (s *pendingStore) Snapshot() []pendingRun {
+func (s *PendingStore) Snapshot() []PendingRun {
 	if s == nil {
 		return nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := make([]pendingRun, 0, len(s.byID))
+	out := make([]PendingRun, 0, len(s.byID))
 	for _, p := range s.byID {
 		out = append(out, p)
 	}
@@ -126,7 +126,7 @@ func (s *pendingStore) Snapshot() []pendingRun {
 
 // Len is the number of runs waiting for a decision. Nil-safe: minimal test
 // runtimes have no store.
-func (s *pendingStore) Len() int {
+func (s *PendingStore) Len() int {
 	if s == nil {
 		return 0
 	}
@@ -135,7 +135,7 @@ func (s *pendingStore) Len() int {
 	return len(s.byID)
 }
 
-func (s *pendingStore) Delete(approvalID string) {
+func (s *PendingStore) Delete(approvalID string) {
 	s.mu.Lock()
 	delete(s.byID, approvalID)
 	s.mu.Unlock()

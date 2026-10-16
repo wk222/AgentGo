@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"agentgo/internal/core"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -66,7 +67,7 @@ func (g *resumeRig) crash(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	g.s.rt.pending = newDurablePendingStore(g.s.rt.Sessions()) // fresh memory
+	g.s.rt.pending = core.NewDurablePendingStore(g.s.rt.Sessions()) // fresh memory
 }
 
 func (g *resumeRig) rows(t *testing.T) []sessions.PendingRun {
@@ -85,7 +86,7 @@ func TestPendingRunsArePersistedAndReleasedWithTheStore(t *testing.T) {
 	if len(rows) != 1 || rows[0].ApprovalID != id || rows[0].OwnerPID != os.Getpid() || rows[0].SessionID != g.sid {
 		t.Fatalf("rows = %+v", rows)
 	}
-	var pr pendingRun
+	var pr core.PendingRun
 	if err := json.Unmarshal([]byte(rows[0].PayloadJSON), &pr); err != nil || pr.InterruptID != "ic-"+id || pr.ToolName != "code_edit" {
 		t.Fatalf("payload = %s (%v)", rows[0].PayloadJSON, err)
 	}
@@ -95,7 +96,7 @@ func TestPendingRunsArePersistedAndReleasedWithTheStore(t *testing.T) {
 	if len(g.rows(t)) != 0 {
 		t.Fatal("a taken run must leave the database too")
 	}
-	g.s.rt.pending.Set(pendingRun{ApprovalID: "x", SessionID: g.sid})
+	g.s.rt.pending.Set(core.PendingRun{ApprovalID: "x", SessionID: g.sid})
 	g.s.rt.pending.Delete("x")
 	if len(g.rows(t)) != 0 {
 		t.Fatal("delete must leave the database too")
@@ -148,7 +149,7 @@ func TestRecoveryLeavesRunsOfLiveProcessesAlone(t *testing.T) {
 	if err := g.s.rt.Sessions().SavePendingRun(ctx, rows[0]); err != nil {
 		t.Fatal(err)
 	}
-	g.s.rt.pending = newDurablePendingStore(g.s.rt.Sessions())
+	g.s.rt.pending = core.NewDurablePendingStore(g.s.rt.Sessions())
 
 	adopted, closed := g.s.rt.RecoverPending(ctx)
 	if adopted != 0 || closed != 0 {
@@ -260,7 +261,7 @@ func TestRecoveryAdoptsAnAskUserQuestionWithoutAQueueRow(t *testing.T) {
 	g := newResumeRig(t)
 	g.withCheckpoint(t)
 	// ask_user questions are answered through AnswerQuestion and never enter the approval queue.
-	g.s.rt.pending.Set(pendingRun{
+	g.s.rt.pending.Set(core.PendingRun{
 		SessionID: g.sid, ToolName: "ask_user", ApprovalID: "q1", InterruptID: "q1",
 	})
 	g.startRun(t, "run_a")
