@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -27,11 +26,7 @@ func (r *Runner) newOpenAIModel(ctx context.Context, cfg LLMSettings, modelName 
 		timeout = 120 * time.Second
 	}
 	if responsesEnabled() {
-		var hc *http.Client
-		if debugLLMEnabled() {
-			hc = newLLMShapeClient()
-		}
-		return newResponsesModel(cfg, name, timeout, hc), nil
+		return newResponsesModel(cfg, name, timeout, llmHTTPClient(timeout)), nil
 	}
 	mc := &openai.ChatModelConfig{
 		APIKey: cfg.APIKey, BaseURL: cfg.APIBase, Model: name,
@@ -44,8 +39,8 @@ func (r *Runner) newOpenAIModel(ctx context.Context, cfg LLMSettings, modelName 
 	} else if strings.Contains(strings.ToLower(name), "luna") || strings.Contains(strings.ToLower(name), "gpt-5") {
 		mc.ReasoningEffort = openai.ReasoningEffortLevel("none")
 	}
-	if debugLLMEnabled() {
-		mc.HTTPClient = newLLMShapeClient()
+	if hc := llmHTTPClient(timeout); hc != nil {
+		mc.HTTPClient = hc
 	}
 	return openai.NewChatModel(ctx, mc)
 }

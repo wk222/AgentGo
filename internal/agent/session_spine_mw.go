@@ -185,7 +185,8 @@ func (m *SessionSpineMiddleware) BeforeModelRewriteState(ctx context.Context, st
 		wsRules = workspace.NewWorkspaceManager(m.workspaceRoot).BuildContext()
 	}
 
-	view := sessions.CompileProjectedView(state.Messages, sessions.CompileOptions{
+	compileInput, reminders := splitSystemReminders(state.Messages)
+	view := sessions.CompileProjectedView(compileInput, sessions.CompileOptions{
 		MaxActiveTurns: m.maxActiveTurns,
 		DurableTasks:   durable,
 		WorkspaceRules: wsRules,
@@ -204,7 +205,7 @@ func (m *SessionSpineMiddleware) BeforeModelRewriteState(ctx context.Context, st
 	if err != nil {
 		return ctx, state, err
 	}
-	state.Messages = newMsgs
+	state.Messages = restoreSystemReminders(newMsgs, reminders)
 	return ctx, state, nil
 }
 

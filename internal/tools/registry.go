@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 
@@ -133,9 +134,22 @@ func (r *Registry) GetAllTools() []einotool.BaseTool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	var list []einotool.BaseTool
-	for _, t := range r.tools {
-		list = append(list, t)
+	return r.sortedToolsLocked()
+}
+
+// sortedToolsLocked returns the tools ordered by registration name. The caller holds r.mu.
+// The tool list is part of the request prefix sent to the model, and Go map iteration
+// order is random: iterating r.tools directly changes the prefix on every call and
+// defeats the provider's prefix cache.
+func (r *Registry) sortedToolsLocked() []einotool.BaseTool {
+	names := make([]string, 0, len(r.tools))
+	for name := range r.tools {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	list := make([]einotool.BaseTool, 0, len(names))
+	for _, name := range names {
+		list = append(list, r.tools[name])
 	}
 	return list
 }
