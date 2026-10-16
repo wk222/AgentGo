@@ -21,12 +21,37 @@ type EvalCase struct {
 	MinToolCalls   *int       `json:"min_tool_calls,omitempty"`  // Fail when the run used fewer tools (answer must be grounded in tools)
 	FollowUps      []EvalTurn `json:"follow_ups,omitempty"`      // Extra turns sent in the same session (multi-turn / prefix-stability cases)
 	ExpectApproval bool       `json:"expect_approval,omitempty"` // Passing outcome is pausing for human approval
+	// SkipHarnesses lists harness presets for which the case is not meaningful
+	// (for example write/approval cases under the read-only "minimal" preset).
+	SkipHarnesses []string `json:"skip_harnesses,omitempty"`
 }
 
 // EvalSet groups together a series of cases.
 type EvalSet struct {
 	ID    string     `json:"id"`
 	Cases []EvalCase `json:"cases"`
+}
+
+// ForHarness returns the set without the cases that skip the given harness preset.
+// An empty harness (server default) keeps every case.
+func (s EvalSet) ForHarness(harness string) EvalSet {
+	if harness == "" {
+		return s
+	}
+	out := EvalSet{ID: s.ID}
+	for _, c := range s.Cases {
+		skip := false
+		for _, h := range c.SkipHarnesses {
+			if h == harness {
+				skip = true
+				break
+			}
+		}
+		if !skip {
+			out.Cases = append(out.Cases, c)
+		}
+	}
+	return out
 }
 
 // CaseResult holds metrics of a single execution of a case.

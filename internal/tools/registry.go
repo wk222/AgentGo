@@ -3,6 +3,8 @@ package tools
 import (
 	"context"
 	"fmt"
+	"log"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -41,15 +43,29 @@ func NewRegistry() *Registry {
 	}
 }
 
-// AddTool registers a single Eino BaseTool.
+// validToolNameRe is the function-name grammar of OpenAI-compatible APIs. One tool that
+// violates it makes the provider reject the *whole* request (HTTP 400), so such tools must
+// never reach the model.
+var validToolNameRe = regexp.MustCompile(`^[a-zA-Z0-9_.-]{1,64}$`)
+
+// ValidToolName reports whether name can be sent to the model as a function name.
+func ValidToolName(name string) bool { return validToolNameRe.MatchString(name) }
+
+// AddTool registers a single Eino BaseTool. Tools whose name is not a valid function
+// name are skipped with a log line instead of poisoning every model request.
 func (r *Registry) AddTool(t einotool.BaseTool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	info, err := t.Info(context.Background())
-	if err == nil && info != nil {
-		r.tools[info.Name] = t
+	if err != nil || info == nil {
+		return
 	}
+	if !ValidToolName(info.Name) {
+		log.Printf("tools: skip tool %q: name must match %s", info.Name, validToolNameRe)
+		return
+	}
+	r.tools[info.Name] = t
 }
 
 // LoadMCPServer connects to an MCP server (e.g. over stdio) and registers all its tools.

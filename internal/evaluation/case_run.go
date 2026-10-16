@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
+	"time"
 )
 
 // ErrApprovalPaused is returned by agents when a run stops to wait for a human
@@ -43,6 +45,40 @@ func generateOnce(ctx context.Context, agent AgentGenerator, sessionID, input st
 	return out, Metrics{}, err
 }
 
+// transientErrRe matches upstream-provider hiccups (5xx / 429) that say nothing about
+// the agent under test. They are retried instead of being scored as failures.
+var transientErrRe = regexp.MustCompile(`status code: (5\d\d|429)`)
+
+const maxTransientRetries = 2
+
+// retryBackoff is a variable so tests can run without sleeping.
+var retryBackoff = func(attempt int) time.Duration { return time.Duration(attempt) * 3 * time.Second }
+
+func isTransient(err error) bool {
+	return err != nil && !errors.Is(err, ErrApprovalPaused) && transientErrRe.MatchString(err.Error())
+}
+
+// generateFirstTurn runs the first turn of a run. On a transient upstream error it
+// retries in a *fresh* session (the failed attempt may already have persisted the
+// user message) and returns the session id that the follow-up turns must reuse.
+func generateFirstTurn(ctx context.Context, agent AgentGenerator, sessionID, input string) (string, string, Metrics, error) {
+	sid := sessionID
+	var total Metrics
+	for attempt := 0; ; attempt++ {
+		out, m, err := generateOnce(ctx, agent, sid, input)
+		total.Add(m)
+		if !isTransient(err) || attempt >= maxTransientRetries {
+			return sid, out, total, err
+		}
+		select {
+		case <-ctx.Done():
+			return sid, out, total, err
+		case <-time.After(retryBackoff(attempt + 1)):
+		}
+		sid = fmt.Sprintf("%s-retry%d", sessionID, attempt+1)
+	}
+}
+
 // runCase executes one run of a case: every turn goes to the same session, a
 // turn is scored on its own expectations, and the run passes only if all turns
 // pass. Metrics are summed across turns, so a multi-turn case measures how
@@ -53,7 +89,14 @@ func runCase(ctx context.Context, agent AgentGenerator, sessionID string, c Eval
 	var scoreSum float64
 	turns := c.turns()
 	for i, t := range turns {
-		out, m, err := generateOnce(ctx, agent, sessionID, t.Input)
+		var out string
+		var m Metrics
+		var err error
+		if i == 0 {
+			sessionID, out, m, err = generateFirstTurn(ctx, agent, sessionID, t.Input)
+		} else {
+			out, m, err = generateOnce(ctx, agent, sessionID, t.Input)
+		}
 		res.Metrics.Add(m)
 		res.Output = out
 		if err != nil {

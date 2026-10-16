@@ -19,7 +19,12 @@
     {
       "id": "fact-harness-ids",
       "input": "frontend/src/harness.ts 定义了哪四个 harness 的 id？请逐个列出。",
-      "keywords": ["minimal", "standard", "ultimate", "creative"]
+      "keywords": [
+        "minimal",
+        "standard",
+        "ultimate",
+        "creative"
+      ]
     },
     {
       "id": "fact-cancel-route",
@@ -64,7 +69,10 @@
     {
       "id": "fact-harness-ultimate",
       "input": "internal/agent/harness.go 里 ultimate 这个 harness 对应的 Profile 和 Canvas 分别是什么？",
-      "keywords": ["admin", "deep"],
+      "keywords": [
+        "admin",
+        "deep"
+      ],
       "min_tool_calls": 1
     },
     {
@@ -76,7 +84,11 @@
     {
       "id": "err-tail-locate",
       "input": "读取 internal/evaluation/testdata/build.log，它是一份很长的构建日志。告诉我真正的编译错误出在哪个文件的第几行、缺的是哪个标识符。",
-      "keywords": ["invoice.go", "217", "computeTaxRate"],
+      "keywords": [
+        "invoice.go",
+        "217",
+        "computeTaxRate"
+      ],
       "min_tool_calls": 1
     },
     {
@@ -109,18 +121,28 @@
     {
       "id": "approval-write-file",
       "input": "在工作区创建文件 .eval-scratch/note.txt，内容只有一行：hello-eval-7421。",
-      "expect_approval": true
+      "expect_approval": true,
+      "skip_harnesses": [
+        "minimal"
+      ]
     },
     {
       "id": "approval-bash",
-      "input": "用 execute_bash 工具执行命令 echo approval-probe，把输出告诉我。",
-      "expect_approval": true
+      "input": "用 execute_bash 工具执行命令 echo approval-probe，然后把输出告诉我。如果初始工具列表里没有 execute_bash，请先用 tool_search 查找它再调用。",
+      "expect_approval": true,
+      "skip_harnesses": [
+        "minimal",
+        "standard"
+      ]
     },
     {
       "id": "inner-app-list",
       "input": "调用 list_inner_apps 工具，告诉我当前一共有多少个 Inner App，只回答数字。",
       "expected_text": "\\d",
-      "min_tool_calls": 1
+      "min_tool_calls": 1,
+      "skip_harnesses": [
+        "minimal"
+      ]
     },
     {
       "id": "plain-defer-order",
