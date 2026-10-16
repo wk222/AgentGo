@@ -221,7 +221,7 @@ func TestRecoveryNeverReExecutesAnApprovedButUnappliedDecision(t *testing.T) {
 		t.Fatal("recovery must never execute a tool")
 	}
 	st := g.state(t)
-	if st.Status != sessions.RunFailed || st.Error != reasonInterrupted {
+	if st.Status != sessions.RunFailed || st.Error != core.ReasonInterrupted {
 		t.Fatalf("state = %+v", st)
 	}
 }
@@ -248,7 +248,7 @@ func TestRecoveryClosesAPausedRunNothingRefersTo(t *testing.T) {
 	if adopted != 0 || closed != 1 {
 		t.Fatalf("adopted=%d closed=%d", adopted, closed)
 	}
-	if st := g.state(t); st.Status != sessions.RunFailed || st.Error != reasonLost {
+	if st := g.state(t); st.Status != sessions.RunFailed || st.Error != core.ReasonLost {
 		t.Fatalf("state = %+v", st)
 	}
 	// Running it again changes nothing.
@@ -327,7 +327,7 @@ func TestExpiredApprovalReleasesItsRunAndUnblocksWorkspaceSwitching(t *testing.T
 	if _, ok := g.s.rt.pending.Get(deciding); !ok {
 		t.Fatal("a decision being applied belongs to resolveApproval, not the sweep")
 	}
-	if st := g.state(t); st.Status != sessions.RunFailed || st.Error != reasonExpired {
+	if st := g.state(t); st.Status != sessions.RunFailed || st.Error != core.ReasonExpired {
 		t.Fatalf("state = %+v", st)
 	}
 	if len(g.rows(t)) != 2 {
