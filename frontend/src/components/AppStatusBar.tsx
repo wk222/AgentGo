@@ -1,8 +1,8 @@
 import { defineComponent } from 'vue'
 import { Activity, Cpu, HardDrive, Terminal } from 'lucide-vue-next'
-import { harnessOf } from '../harness'
+import { harnessLabel } from '../harness'
 
-const formatHarnessLabel = (profile: string, canvas: string) => harnessOf(profile, canvas).label
+const formatHarnessLabel = harnessLabel
 
 export default defineComponent({
   name: 'AppStatusBar',

@@ -35,6 +35,15 @@ func (g *RuntimeGateway) StreamChat(ctx context.Context, req gateway.ChatRequest
 	if runner == nil {
 		return nil, fmt.Errorf("agent runner unavailable")
 	}
+	if req.Harness != "" {
+		h, ok := agent.ResolveHarness(req.Harness)
+		if !ok {
+			return nil, fmt.Errorf("unknown harness %q", req.Harness)
+		}
+		if req.SessionID != "" {
+			runner.SetSessionModeForSession(req.SessionID, h.Mode())
+		}
+	}
 	cfg := g.rt.LLMConfig()
 	if cfg.APIKey == "" {
 		answer, err := ChatOnce(ctx, cfg, "", req.Message)

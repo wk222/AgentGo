@@ -4,7 +4,7 @@ import { sessionTitle, sessionIdOf } from './composables/useChat'
 import { wailsCall } from './wails'
 import PromptSuggestions from './components/chat/PromptSuggestions'
 import FlowChatTranscript from './components/chat/FlowChatTranscript'
-import { HARNESSES, getHarness, harnessOf, type HarnessId } from './harness'
+import { harnessList, getHarness, harnessOf, type HarnessId } from './harness'
 
 interface SlashCommandOption {
   cmd: string
@@ -111,7 +111,8 @@ export default defineComponent({
 
     watch(() => [props.messages.length, props.chatPaneKey], () => { void scrollToBottom() })
 
-    const activeHarness = computed(() => harnessOf(props.modeProfile, props.modeCanvas).id)
+    // '' when the current profile x canvas is not a preset: then no card is highlighted.
+    const activeHarness = computed(() => harnessOf(props.modeProfile, props.modeCanvas)?.id ?? '')
 
     const pendingInteractMsg = computed(() => {
       for (let i = props.messages.length - 1; i >= 0; i--) {
@@ -747,7 +748,7 @@ export default defineComponent({
             <div class="chat-composer-toolbar">
               <div class="chat-composer-pills">
                 <div class="chat-pill-group" title="AgentGo 协作模式（极简 / 标准 / 极致 / 创造）">
-                  {HARNESSES.map(h => (
+                  {harnessList().map(h => (
                     <button
                       key={h.id}
                       type="button"

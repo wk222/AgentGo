@@ -6,6 +6,15 @@ import "context"
 type ChatRequest struct {
 	SessionID string `json:"session_id"`
 	Message   string `json:"message"`
+	// Harness optionally selects a working-mode preset (see GET /api/v1/harnesses)
+	// for this session before the run starts. Empty keeps the session's current mode.
+	Harness string `json:"harness,omitempty"`
+}
+
+// HarnessLister is an optional Backend capability: the working-mode presets as JSON
+// {"harnesses":[...],"default":"..."}.
+type HarnessLister interface {
+	ListHarnesses(ctx context.Context) ([]byte, error)
 }
 
 // ChatResult is the final assistant payload after SSE stream ends.

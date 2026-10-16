@@ -40,6 +40,7 @@ func run() int {
 		addr       = flag.String("addr", "", "gateway address host:port (default: from agentgo-serve.json)")
 		token      = flag.String("token", "", "gateway token (default: from agentgo-serve.json)")
 		infoPath   = flag.String("serve-info", "", "path of agentgo-serve.json (default: <data dir>/agentgo-serve.json)")
+		harness    = flag.String("harness", "", "run every session as this harness preset (minimal|standard|ultimate|creative); default: server default")
 		timeout    = flag.Duration("case-timeout", 5*time.Minute, "timeout of one run")
 		maxPass    = flag.Float64("max-pass-drop", evaluation.DefaultThresholds().MaxPassDrop, "allowed pass-rate drop vs baseline (0.10 = 10 points)")
 		maxTokens  = flag.Float64("max-token-growth", evaluation.DefaultThresholds().MaxTokenGrowth, "allowed growth of prompt tokens per run vs baseline")
@@ -59,13 +60,14 @@ func run() int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	agent := &timeoutAgent{inner: &evaluation.HTTPAgent{BaseURL: base, Token: tok}, d: *timeout}
-	fmt.Printf("suite %s: %d cases x %d runs against %s\n", set.ID, len(set.Cases), *runs, base)
+	agent := &timeoutAgent{inner: &evaluation.HTTPAgent{BaseURL: base, Token: tok, Harness: *harness}, d: *timeout}
+	fmt.Printf("suite %s: %d cases x %d runs against %s (harness: %s)\n", set.ID, len(set.Cases), *runs, base, orDefault(*harness))
 	// Serial on purpose: stable timings and one backend session at a time.
 	res, err := evaluation.EvaluateSetTagged(ctx, agent, set, *runs, false, evaluation.DefaultRunTag())
 	if err != nil {
 		return fail("evaluate: %v", err)
 	}
+	res.Harness = *harness
 	printReport(res)
 
 	if *out != "" {
@@ -103,6 +105,13 @@ func run() int {
 		return 1
 	}
 	return 0
+}
+
+func orDefault(s string) string {
+	if s == "" {
+		return "server default"
+	}
+	return s
 }
 
 func fail(format string, a ...any) int {

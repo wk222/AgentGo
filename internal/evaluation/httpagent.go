@@ -18,6 +18,7 @@ type HTTPAgent struct {
 	BaseURL string       // e.g. http://127.0.0.1:8787
 	Token   string       // bearer token from agentgo-serve.json
 	Client  *http.Client // optional; defaults to a client without overall timeout
+	Harness string       // optional preset id (minimal/standard/ultimate/creative) applied to every session
 }
 
 type doneEvent struct {
@@ -41,7 +42,11 @@ func (a *HTTPAgent) Generate(ctx context.Context, sessionID, input string) (stri
 
 // GenerateMeasured implements MeasuredAgent.
 func (a *HTTPAgent) GenerateMeasured(ctx context.Context, sessionID, input string) (string, Metrics, error) {
-	body, _ := json.Marshal(map[string]string{"session_id": sessionID, "message": input})
+	payload := map[string]string{"session_id": sessionID, "message": input}
+	if a.Harness != "" {
+		payload["harness"] = a.Harness
+	}
+	body, _ := json.Marshal(payload)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(a.BaseURL, "/")+"/api/v1/chat/stream", bytes.NewReader(body))
 	if err != nil {
 		return "", Metrics{}, err

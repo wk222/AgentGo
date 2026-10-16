@@ -1,6 +1,8 @@
 // Wails v3 serves the native bridge as an ES module at /wails/runtime.js.
 // Plain Vite localhost does not serve it, so this file also provides a small
 // preview runtime for UI development.
+import { DEFAULT_HARNESSES } from './harness'
+
 const SVC = 'agentgo/internal/bridge.AppService'
 const WAILS_RUNTIME_PATH = '/wails/runtime.js'
 const importRuntime = new Function('path', 'return import(path)') as (path: string) => Promise<any>
@@ -663,6 +665,8 @@ async function mockCall(method: string, ...params: any[]): Promise<any> {
 
     case 'GetFeatureFlags':
       return { success: true, mode_profile: defaultMode().profile, execution_canvas: defaultMode().canvas, a2ui: true, preview: true }
+    case 'ListHarnesses':
+      return { success: true, harnesses: DEFAULT_HARNESSES, default: 'standard', preview: true }
     case 'GetSessionModeForSession':
       return { success: true, ...getSessionMode(String(params[0] || '')) }
     case 'SetSessionModeForSession': {

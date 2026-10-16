@@ -39,6 +39,7 @@ func NewServer(cfg Config, backend Backend) *Server {
 	mux.HandleFunc("/api/v1/tasks/", s.handleTaskRoutes)
 	mux.HandleFunc("/api/v1/workflows", s.handleWorkflowList)
 	mux.HandleFunc("/api/v1/workflows/", s.handleWorkflowItem)
+	mux.HandleFunc("/api/v1/harnesses", s.handleHarnesses)
 	mux.HandleFunc("/api/v1/inner-apps", s.handleInnerApps)
 	mux.HandleFunc("/api/v1/inner-apps/", s.handleInnerApps)
 	s.registerTriggerRoutes(mux)
@@ -98,6 +99,25 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = swr.WriteEvent("done", res)
+}
+
+func (s *Server) handleHarnesses(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	hl, ok := s.backend.(HarnessLister)
+	if !ok {
+		http.Error(w, "harnesses not supported by this backend", http.StatusNotImplemented)
+		return
+	}
+	raw, err := hl.ListHarnesses(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(raw)
 }
 
 func (s *Server) handleChatCancel(w http.ResponseWriter, r *http.Request) {

@@ -3,6 +3,7 @@ import { defineComponent, ref, computed, onMounted, onUnmounted, watch } from 'v
 import logoSingle from './logo_single.png'
 import { useChat, sessionIdOf, sessionTitle, type Session } from './composables/useChat'
 import { wailsCall } from './wails'
+import { loadHarnesses } from './harness'
 import ChatPanel from './ChatPanel'
 import RightPanel from './RightPanel'
 import InnerAppHost from './InnerAppHost'
@@ -375,6 +376,7 @@ export default defineComponent({
       } else {
         await chat.newSession()
       }
+      void loadHarnesses(wailsCall)
       await loadSessionMode()
     })
 
