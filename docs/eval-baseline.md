@@ -17,6 +17,7 @@ agentgo-eval --runs 3 --out docs/eval/current.json --baseline docs/eval/baseline
 - 地址与令牌默认读 `agentgo-serve.json`（数据目录下），也可用 `--addr` / `--token` 指定。
 - 用例**串行**执行，每次运行使用带时间戳的会话 id，不会复用上一次评测的对话历史。
 - `--suite my.json` 可换任务集；格式见 `internal/evaluation/suite_default.json`。
+- `--harness minimal|standard|ultimate|creative` 让所有会话按指定档位运行（档位列表见 `GET /api/v1/harnesses`）。不同档位的工具集和提示不同（实测 `minimal` 约 3450 prompt token，`standard` 约 3900），**基线只对同一档位有意义**，换档位请另存基线。
 
 > 第一次踩的坑：没设 `AGENTGO_WORKSPACE_ROOT` 时，工作区不是仓库（与启动目录无关），6 个事实题全部答"找不到文件"。
 > 这是环境前置条件，不是 Agent 退化。

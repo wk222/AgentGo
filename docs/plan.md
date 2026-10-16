@@ -132,7 +132,7 @@
 | 期 | 内容 | 验收 |
 |----|------|------|
 | F1 收口（1 周）✅ | 冻结 TUI / VSCode 插件 / CLI；`session mode` 迁入 SQLite `session_modes` 表（旧 `session_modes.json` 启动时一次性导入后删除）；前端四档映射收为 `frontend/src/harness.ts` | 重启后模式保留（`TestRunnerPersistsSessionModesAcrossRestart`）；`ChatPanel` / `AppStatusBar` / `SettingsPanel` 均引用同一模块 |
-| F2 Harness 一等化（1 周） | 后端 `Harness` 类型 + `ListHarnesses` 接口；`ModeHints` 按 Harness 生成 | 前端不再出现 profile/canvas 拼装逻辑 |
+| F2 Harness 一等化（1 周）✅ | 后端 `Harness` 类型 + `ListHarnesses`（IPC / 网关 / ACP 同源）；前端启动时拉取；`ModeHints` 暂缓（要用评测验证后再改）。详见 `docs/plan-f4-eval-f2-harness.md` §3 | 前端不再出现 profile/canvas 推断逻辑 |
 | F3 中间件流水线（1 周） | 合并 `ToolResultPruner` 进 spine compile 后删除；governance / tool heal 各保留一处；新增顺序与去重测试 | 测试断言中间件列表与顺序 |
 | F4 评测基线（1–2 周）✅ 首版 | `agentgo-eval` + 8 个任务 + 每次运行的 `RunMeter`（token/缓存/工具数）+ 基线对比；详见 `docs/eval-baseline.md`、`docs/plan-f4-eval-f2-harness.md`。**发现缓存命中仅 1% → F4.1 已修（根因：脊柱/模式中间件非幂等 + 工具列表 map 乱序），缓存 1%→89%，prompt -19%**；用例待扩到 20 个 | 之后改上下文策略必须附评测前后对比 |
 | F5 内核抽取（2–3 周） | 建 `internal/core`，把 bridge 中的业务逻辑下沉；gateway / ACP 改调 core | `bridge` 降到 5000 行以内且无业务分支 |

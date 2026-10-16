@@ -58,6 +58,7 @@ type EvalResult struct {
 	Cases         []CaseSummary `json:"cases"`
 	Totals        Metrics       `json:"totals"`
 	TotalRuns     int           `json:"total_runs"`
+	Harness       string        `json:"harness,omitempty"` // preset the run used; empty = server default
 }
 
 // AgentGenerator abstracts the LLM Agent generation response.

@@ -1,6 +1,6 @@
 import { defineComponent, ref, onMounted, computed, type PropType } from 'vue'
 import { wailsCall, wailsCallWithTimeout } from '../wails'
-import { HARNESSES, getHarness, harnessOf, type HarnessId } from '../harness'
+import { harnessList, getHarness, harnessOf, type HarnessId } from '../harness'
 
 type Theme = 'light' | 'dark'
 
@@ -210,7 +210,7 @@ export const SettingsPanel = defineComponent({
       }
     }
 
-    const activeHarnessId = computed(() => harnessOf(profile.value, canvas.value).id)
+    const activeHarnessId = computed(() => harnessOf(profile.value, canvas.value)?.id ?? `${profile.value} · ${canvas.value}`)
 
     const selectHarnessPreset = async (id: HarnessId) => {
       const h = getHarness(id)
@@ -341,7 +341,7 @@ export const SettingsPanel = defineComponent({
                 与对话栏底部胶囊完全同步。底层自动启用 Cache-First 上下文卫生策略：保留最近 6 轮完整工具输出，对更早轮次超长输出按头尾比例确定性裁剪（100% 保留编译与测试报错尾部）。
               </div>
               <div class="provider-presets-grid" style={{ marginBottom: '12px' }}>
-                {HARNESSES.map(m => (
+                {harnessList().map(m => (
                   <button
                     key={m.id}
                     type="button"

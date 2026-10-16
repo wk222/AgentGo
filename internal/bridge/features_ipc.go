@@ -221,6 +221,7 @@ func (s *AppService) SetSessionMode(profile, canvas string) map[string]any {
 		"success":        true,
 		"profile":        string(sm.Profile),
 		"canvas":         string(sm.Canvas),
+		"harness":        sm.Harness().ID,
 		"max_iterations": sm.MaxIterations(),
 	}
 }
@@ -237,6 +238,7 @@ func (s *AppService) SetSessionModeForSession(sessionID, profile, canvas string)
 		"session_id":     sessionID,
 		"profile":        string(sm.Profile),
 		"canvas":         string(sm.Canvas),
+		"harness":        sm.Harness().ID,
 		"max_iterations": sm.MaxIterations(),
 	}
 }
@@ -252,6 +254,7 @@ func (s *AppService) GetSessionModeForSession(sessionID string) map[string]any {
 		"session_id":     sessionID,
 		"profile":        string(sm.Profile),
 		"canvas":         string(sm.Canvas),
+		"harness":        sm.Harness().ID,
 		"max_iterations": sm.MaxIterations(),
 	}
 }

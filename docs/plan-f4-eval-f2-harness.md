@@ -135,19 +135,29 @@ agentgo-eval ──HTTP SSE──▶ agentgo --serve (/api/v1/chat/stream)
 - 评测里偶发过一次 3/8 失败，未能复现（见 `docs/eval-baseline.md`）。
 - 工具数组仍有 2 种顺序（21 个 / 22 个工具），是工具搜索加载了新工具后的正常变化，不是随机。
 
-## 3. F2 设计（F4 完成后做）
+## 3. F2 Harness 一等化（✅ 2026-10-16）
 
-目标：后端有 `Harness` 一等类型，前端不再维护映射。
+目标：后端有 `Harness` 一等类型，所有客户端入口读同一份定义。
 
-| 步骤 | 内容 |
-|------|------|
-| 3.1 | `internal/agent/harness.go`：`Harness{ID, Name, Desc, Profile, Canvas}`；`Harnesses()` 返回四档；`HarnessOf(SessionMode)` 反推 |
-| 3.2 | `ModeHints` 增加 harness 标识，让提示词里出现的是用户看到的四档名而不是 profile×canvas |
-| 3.3 | 桥接新增 `ListHarnesses`；网关新增 `GET /api/v1/harnesses`（ACP 的 `SetSessionMode` 也接受 harness id） |
-| 3.4 | 前端 `harness.ts` 改为启动时从后端拉取，保留内置默认值作离线兜底 |
-| 3.5 | 单测：四档与 profile/canvas 的双向映射；旧会话里存的 profile/canvas 组合能反推到合理档位 |
+| 步骤 | 状态 | 内容 |
+|------|------|------|
+| 3.1 | ✅ | `internal/agent/harness.go`：`Harness{ID,Name,Label,Desc,Profile,Canvas}`、`Harnesses()`、`HarnessByID`、`ResolveHarness`（含旧 ACP id 别名）、`SessionMode.Harness()`（非预设组合取最近预设） |
+| 3.2 | ⏸ 暂缓 | `ModeHints` 不改。见下方"决定" |
+| 3.3 | ✅ | IPC：`ListHarnesses`、`SetSessionHarness`，模式响应带 `harness` 字段；网关：`GET /api/v1/harnesses`、聊天请求可带 `harness`；ACP：模式列表直接取自 `Harnesses()`，`architect/coder/ask` 作为别名继续可用 |
+| 3.4 | ✅ | 前端 `harness.ts` 启动时 `loadHarnesses()` 从后端拉取；内置默认值仅作离线/浏览器预览兜底 |
+| 3.5 | ✅ | 测试：预设与 SessionMode 往返、非预设组合、别名、返回副本；前端兜底与后端逐字段一致（解析 `harness.ts`）；三个入口（IPC/ACP/网关）列表一致；网关端点（含鉴权/方法/501）；`--harness` 请求体 |
 
-验收：新增或改名一个档位只改后端一处；前端不出现 profile/canvas 字面量（`harness.ts` 兜底除外）。
+**验收**
+- ✅ 新增或改名一个档位只改 `internal/agent/harness.go` 一处（外加前端兜底，由 Go 测试盯住不漂移）。
+- ✅ 前端不再有 profile/canvas → 档位的推断规则：`harnessOf` 只做与后端预设的精确匹配，对不上就显示 `profile · canvas`。
+- ✅ 真机：`GET /api/v1/harnesses` 返回四档；`harness=minimal` 的会话生效；未知档位明确报错。
+
+**决定与取舍**
+- **`ModeHints` 暂缓**：初稿想让提示词里出现用户看到的档位名。这会改动发给模型的系统提示，属于行为变更，应当用评测验证收益后再做，而不是顺手改。已有 `agentgo-eval --harness` 可以按档位跑，下一步可以做"加 harness 名行 vs 不加"的对照。
+- **ACP 默认档位从 `coder` 变为 `standard`**，旧 id 通过别名保留（`architect→ultimate`、`coder→standard`、`ask→minimal`）。注意 `architect` 原来是 `app_matrix+deep`，现在落到 `admin+deep`，行为更接近"深度模式"但不完全相同，Zed 用户首次切换时可能感觉到差异。
+- **前端 `dist` 未重建**：`frontend/dist` 是入库的构建产物（F7 要处理），本次只做了 `tsc --noEmit`。桌面端要看到前端改动需要重新 `vite build`。
+
+**顺带发现**：`harness=minimal` 的 prompt 约 3450 token，`standard` 约 3900，档位确实会改变工具集/提示，评测应当按档位各跑一份基线。
 
 ## 4. 执行顺序与提交粒度
 
@@ -174,13 +184,17 @@ agentgo-eval ──HTTP SSE──▶ agentgo --serve (/api/v1/chat/stream)
 | 2026-10-16 | "合并/重写消息列表"的中间件会静默破坏其他中间件的状态标记（脊柱丢了 eino 的 `Extra` 判重标记） | 凡是整体重建消息列表的逻辑，必须透传框架打了标记的消息；写中间件时每个 `BeforeModelRewriteState` 都要问："连续调用 N 次，输出是否一样？"并写成测试 |
 | 2026-10-16 | 对 `map` 做 `range` 生成要发给模型的内容 | 任何进入提示词/工具列表的集合都必须排序；Go map 顺序随机，会让前缀每次不同 |
 | 2026-10-16 | 一个"每次调用都会追加一次"的 bug 在单元测试里完全看不见（每个单测只调一次） | 对"会被反复调用"的转换写多轮幂等测试：同一输入连续喂回自己的输出 5 次，断言不变 |
+| 2026-10-16 | F2 前端想"去掉推断规则"时，发现另一套（ACP 的 architect/coder/ask）也在后端各写一份 | 清理"同一概念多处定义"时先全仓搜一遍同义入口（IPC、ACP、网关、环境变量），不要只看前端；本次三个入口现在由一个测试保证一致 |
+| 2026-10-16 | 前端兜底列表是后端的副本，注释里写"有测试盯住"很容易变成空话 | 凡是写了"必须与 X 保持一致"，同一提交里就写一个会失败的测试（这里是解析 `harness.ts` 对比 Go 定义） |
+| 2026-10-16 | `gofmt -w` 可能连带改行尾 | 对 CRLF 工作区的文件，格式化后先看 `git diff --stat`，确认只有预期行变化再提交 |
 | 2026-10-16 | Grep 工具对指定到模块缓存目录（工作区外）的搜索结果混入了工作区文件 | 搜工作区外的目录用 `rg` 直接在 shell 里查，别依赖 Grep 工具的 path |
 
 ### 下一步（滚动）
 
 1. ✅ F4 评测基线（已完成并有首份基线）。
 2. ✅ F4.1 缓存命中调查（1% → 89%，prompt -19%）。
-3. **F2 Harness 一等化**（下一项）。
+3. ✅ F2 Harness 一等化。
+3a. **按档位各跑一份基线**（`agentgo-eval --harness minimal|ultimate|creative`），并用它验证 `ModeHints` 是否值得加档位名。
 3b. 补评测用例到 20 个（多步修改+验证、报错堆栈定位、审批、Inner App），并加一个"多轮同会话"用例专门盯前缀稳定性。
 4. F3 中间件流水线：用评测前后对比证明收益（prompt token、工具调用数、缓存命中）。
 5. 之后按 `docs/plan.md` 的 F5 → F6 → F7 推进。

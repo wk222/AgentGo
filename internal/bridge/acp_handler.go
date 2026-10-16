@@ -148,12 +148,8 @@ func (h *ACPBridgeHandler) NewSession(params acp.NewSessionParams) (*acp.NewSess
 	return &acp.NewSessionResult{
 		SessionID: sessionID,
 		Modes: &acp.SessionModes{
-			CurrentModeID: "coder",
-			AvailableModes: []acp.ModeItem{
-				{ID: "architect", Name: "Architect (系统架构师)", Description: "系统设计、范式推演与设计审查"},
-				{ID: "coder", Name: "Coder (开发工程师)", Description: "编写实现代码、执行测试并修复缺陷"},
-				{ID: "ask", Name: "Ask (专家答疑)", Description: "代码库解读、问答与只读建议"},
-			},
+			CurrentModeID:  agent.DefaultHarnessID,
+			AvailableModes: acpModeItems(),
 		},
 		ConfigOptions: []acp.ConfigOptionItem{
 			{
@@ -180,18 +176,24 @@ func (h *ACPBridgeHandler) SetSessionMode(sessionID, modeID string) error {
 		return nil
 	}
 
-	var sm agent.SessionMode
-	switch strings.ToLower(modeID) {
-	case "architect":
-		sm = agent.ParseSessionMode(string(agent.ModeAppMatrix), string(agent.CanvasDeep))
-	case "ask":
-		sm = agent.ParseSessionMode(string(agent.ModeAssistant), string(agent.CanvasFocused))
-	default:
-		sm = agent.DefaultSessionMode()
+	// Editors choose among the same harness presets as the desktop UI. Ids from older
+	// editor configs (architect/coder/ask) still resolve; anything else keeps the default.
+	sm := agent.DefaultSessionMode()
+	if h, ok := agent.ResolveHarness(modeID); ok {
+		sm = h.Mode()
 	}
 
 	runner.SetSessionModeForSession(sessionID, sm)
 	return nil
+}
+
+func acpModeItems() []acp.ModeItem {
+	hs := agent.Harnesses()
+	items := make([]acp.ModeItem, 0, len(hs))
+	for _, h := range hs {
+		items = append(items, acp.ModeItem{ID: h.ID, Name: h.Label, Description: h.Desc})
+	}
+	return items
 }
 
 // CloseSession releases session resources.
