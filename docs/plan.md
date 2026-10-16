@@ -171,3 +171,16 @@ go build -o bin\agentgo.exe .\cmd\agentgo
 ```
 
 手动：设置 API Key → 对话「用 build_inner_app_iteratively 创建 demo_chat」→ 应用面板打开。
+
+### F5 下一步设计草案：审批恢复下沉（2026-10-17）
+
+读完 ridge/approval_resume.go（334 行）后的结论：esolveApproval 同时做了四类事，下沉前必须拆开，否则只是把耦合搬家。
+
+| 职责 | 现在耦合在 | 目标 |
+|---|---|---|
+| 记录决定、抢占恢复权（Resolve / pending.Take / elay） | Runtime 字段 | 进 core.ApprovalFlow，只依赖 governance、PendingStore、ApprovalRelay |
+| 按 ResumeKind 恢复（agent / matrix / workflow） | Runtime.resumeAgent 等方法 | core 定义 Resumer 接口，ridge 注入三种实现 |
+| 运行日志收尾（waitingRunID / commitRun） | AppService + sessions | 进 core，仅依赖 sessions |
+| 桌面事件与消息 DTO（pproval:resolved、chat:done、ChatMessageDTO） | s.app.Event、桌面 DTO | 留在 ridge，通过 core 返回的结果结构体翻译 |
+
+先做第 1、3 行（无 UI 依赖），再做第 2 行；第 4 行永远留在 bridge。每步带单测并跑 go test ./internal/bridge/。
