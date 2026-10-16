@@ -1,18 +1,8 @@
-# 架构与矩阵文档入库；其余 Markdown 默认忽略（本地笔记）
+# 设计文档（docs/ 下全部 Markdown）入库；其余目录的 Markdown 默认忽略（本地笔记）
 **/*.md
 !README.md
 !README_zh-CN.md
-!docs/ARCHITECTURE.md
-!docs/matrix-orchestration.md
-!docs/pybot-layer-map.md
-!docs/plan.md
-!docs/build-reproducible.md
-!docs/cursor-codex-parity-plan.md
-!docs/summary-parity-and-opensumi.md
-!docs/plan-f4-eval-f2-harness.md
-!docs/eval-baseline.md
-!docs/openbitfun-architecture-and-borrowing-plan.md
-!docs/reasonix-learning-and-ui-refactor.md
+!docs/**/*.md
 # OpenSumi 本地参考（不提交 GitHub）
 frontend-opensumi/
 opensumi-reference/
@@ -74,3 +64,14 @@ config.local.json
 # 忽略根目录下的 ps1 脚本，防止密钥泄漏
 /*.ps1
 
+
+# eval scratch files written by agentgo-eval cases
+.eval-scratch/
+
+# 构建产物不入库：前端由 build/Taskfile.yml 的 build:frontend 或 scripts/build-frontend.ps1 生成，
+# frontend/dist/.gitkeep 仅用于满足 go:embed。
+/frontend/dist/*
+!/frontend/dist/.gitkeep
+
+# Eino 上游参考副本不参与构建（构建用模块缓存里的版本）；本地联调见 docs/build-reproducible.md 的 go.work
+/eino-ext/
