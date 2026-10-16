@@ -612,29 +612,10 @@ func (s *AppService) SendMessageWithSession(sessionID, userText string, images [
 		applog.Warn("SendMessageWithSession empty session_id (desktop fallback)")
 		return s.SendMessage(userText)
 	}
-	ctx := context.Background()
-	hist := s.sessionHistory(ctx, sessionID)
-	if len(hist) > 0 {
-		ctx = agent.WithHistory(ctx, hist)
-	}
 	applog.IPC("SendMessageWithSession", "enter session=%s len=%d", sessionID, len(userText))
-	var meta map[string]any
-	if len(images) > 0 {
-		meta = map[string]any{"images": images}
-	}
-	_ = s.rt.Sessions().AppendMessage(ctx, sessionID, "user", userText, "text", meta)
-	_ = s.rt.Sessions().AutoTitleFromUserMessage(ctx, sessionID, userText)
+	ctx := s.transcript().Begin(context.Background(), sessionID, userText, images)
 	res := s.sendMessageCore(ctx, sessionID, userText, images, nil)
-	for _, m := range res.Messages {
-		mmeta := map[string]any{}
-		if m.Type == "approval" {
-			mmeta["approval_id"] = m.ApprovalID
-			mmeta["tool_name"] = m.ToolName
-			mmeta["arguments"] = m.Arguments
-			mmeta["status"] = m.Status
-		}
-		_ = s.rt.Sessions().AppendMessage(ctx, sessionID, m.Role, m.Content, m.Type, mmeta)
-	}
+	s.transcript().Finish(sessionID, coreMessages(res.Messages))
 	return res
 }
 

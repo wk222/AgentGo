@@ -3,8 +3,9 @@ package agent
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
+
+	"agentgo/internal/config"
 )
 
 // RunAdminTask implements admin.AgentRunner using Eino DeepAgent when checkpoint is available.
@@ -18,7 +19,7 @@ func (r *Runner) RunAdminTask(ctx context.Context, sessionID, goal string) (stri
 		return "", fmt.Errorf("empty admin goal")
 	}
 
-	switch path, exclusive := adminExecPlan(r.cpStore != nil, os.Getenv); path {
+	switch path, exclusive := adminExecPlan(r.cpStore != nil, config.Raw); path {
 	case adminPathPlanExecute:
 		out, err := r.runAdminPlanExecute(ctx, cfg, sessionID, goal)
 		if err == nil && strings.TrimSpace(out) != "" {
@@ -78,11 +79,11 @@ const (
 // set and a failure/empty result must surface as an error rather than fall through to
 // the legacy Generate path.
 func adminExecPlan(hasCheckpoint bool, env func(string) string) (path adminPath, exclusive bool) {
-	if !hasCheckpoint || env("AGENTGO_ADMIN_LEGACY") == "1" {
+	if !hasCheckpoint || env(config.AdminLegacy.Name()) == "1" {
 		return adminPathLegacy, false
 	}
-	if env("AGENTGO_ADMIN_PLANEXECUTE") == "1" {
-		return adminPathPlanExecute, env("AGENTGO_ADMIN_PE_ONLY") == "1"
+	if env(config.AdminPlanExecute.Name()) == "1" {
+		return adminPathPlanExecute, env(config.AdminPEOnly.Name()) == "1"
 	}
-	return adminPathDeep, env("AGENTGO_ADMIN_DEEP_ONLY") == "1"
+	return adminPathDeep, env(config.AdminDeepOnly.Name()) == "1"
 }

@@ -14,6 +14,7 @@ import (
 	ct "github.com/charmbracelet/crush/pkg/codetools"
 	"github.com/wailsapp/wails/v3/pkg/application"
 
+	"agentgo/internal/config"
 	"agentgo/internal/engine"
 	"agentgo/internal/memory"
 	"agentgo/internal/plugin"
@@ -132,7 +133,7 @@ func (s *AppService) GetLLMConfig() map[string]any {
 	if hasAzureLuna {
 		azureBase = strings.TrimRight(azEp, "/") + "/openai/v1/"
 	}
-	azureModel := os.Getenv("AGENTGO_AZURE_DEPLOYMENT")
+	azureModel := config.AzureDeployment.Get()
 	if azureModel == "" {
 		azureModel = "gpt-6-luna"
 	}
@@ -186,7 +187,7 @@ func (s *AppService) LoadAzureLunaConfig() map[string]any {
 	if azKey == "" || azEp == "" {
 		return map[string]any{"success": false, "error": "本地环境中未检测到 AZURE_OPENAI_API_KEY / AZURE_OPENAI_API_ENDPOINT"}
 	}
-	model := os.Getenv("AGENTGO_AZURE_DEPLOYMENT")
+	model := config.AzureDeployment.Get()
 	if model == "" {
 		model = "gpt-6-luna"
 	}
@@ -198,8 +199,8 @@ func (s *AppService) LoadAzureLunaConfig() map[string]any {
 	if err := s.rt.SetLLMConfig(cfg); err != nil {
 		return map[string]any{"success": false, "error": err.Error()}
 	}
-	if os.Getenv("AGENTGO_REASONING_EFFORT") == "" {
-		_ = os.Setenv("AGENTGO_REASONING_EFFORT", "none")
+	if !config.ReasoningEffort.IsSet() {
+		config.ReasoningEffort.Set("none")
 	}
 	return map[string]any{"success": true, "model": model, "api_base": cfg.APIBase}
 }

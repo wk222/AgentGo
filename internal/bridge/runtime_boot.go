@@ -13,6 +13,7 @@ import (
 	"agentgo/internal/agent"
 	"agentgo/internal/applog"
 	"agentgo/internal/capability"
+	"agentgo/internal/config"
 	"agentgo/internal/plugin"
 	"agentgo/internal/tools"
 )
@@ -46,7 +47,6 @@ const (
 
 // pluginsDisabledEnv lists plugins to keep from starting, comma separated.
 // config.json can do the same with {"plugins": {"disabled": [...]}}.
-const pluginsDisabledEnv = "AGENTGO_PLUGINS_DISABLE"
 
 // DefaultDataDir is the user's AgentGo data directory. Surfaces that look for a
 // running host (see internal/hostlink) need it before they have a Runtime.
@@ -174,7 +174,7 @@ func disabledPlugins(dataDir string) []string {
 			out = append(out, name)
 		}
 	}
-	for _, n := range strings.Split(os.Getenv(pluginsDisabledEnv), ",") {
+	for _, n := range strings.Split(config.PluginsDisable.Get(), ",") {
 		add(n)
 	}
 	if b, err := os.ReadFile(configPath(dataDir)); err == nil {

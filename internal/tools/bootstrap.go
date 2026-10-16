@@ -2,10 +2,10 @@ package tools
 
 import (
 	"context"
-	"os"
 	"strings"
 
 	"agentgo/internal/coderuntime"
+	"agentgo/internal/config"
 )
 
 // Bootstrap registers built-in tools and optionally MCP servers from environment.
@@ -36,9 +36,9 @@ func Bootstrap(ctx context.Context, r *Registry, workspaceRoot string) error {
 	AutoLoadMCPServers(ctx, r, workspaceRoot)
 
 	// Optional MCP fallback via env: AGENTGO_MCP_COMMAND="npx" AGENTGO_MCP_ARGS="-y,@modelcontextprotocol/server-filesystem,/path"
-	cmd := strings.TrimSpace(os.Getenv("AGENTGO_MCP_COMMAND"))
+	cmd := config.MCPCommand.Get()
 	if cmd != "" {
-		args := strings.Fields(os.Getenv("AGENTGO_MCP_ARGS"))
+		args := strings.Fields(config.MCPArgs.Get())
 		_ = r.LoadMCPServer(ctx, "mcp", cmd, args)
 	}
 	return nil

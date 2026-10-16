@@ -13,6 +13,7 @@ import (
 
 	"github.com/cloudwego/eino/components/tool/utils"
 
+	"agentgo/internal/config"
 	"agentgo/internal/sandbox"
 )
 
@@ -59,8 +60,8 @@ func RegisterDynamicPythonExec(r *Registry, store *DynamicStore, sandboxDir stri
 			defer cancel()
 
 			// If sandbox docker is active and available, run inside Docker container
-			if strings.TrimSpace(os.Getenv("AGENTGO_SANDBOX_DOCKER")) == "1" && sandbox.IsDockerAvailable(ctx) {
-				image := strings.TrimSpace(os.Getenv("AGENTGO_SANDBOX_IMAGE_PYTHON"))
+			if config.SandboxDocker.On() && sandbox.IsDockerAvailable(ctx) {
+				image := config.SandboxImagePython.Get()
 				if image == "" {
 					image = "python:3.10-slim"
 				}
@@ -83,7 +84,7 @@ exec(open("/sandbox/%s.py", encoding="utf-8").read(), globals_dict)
 					out.Error = err.Error()
 				}
 				return out, nil
-			} else if strings.TrimSpace(os.Getenv("AGENTGO_SANDBOX_DOCKER")) == "1" {
+			} else if config.SandboxDocker.On() {
 				fmt.Println("[sandbox] WARNING: Docker Sandbox Mode requested but Docker daemon is unreachable. Falling back to local execution.")
 			}
 

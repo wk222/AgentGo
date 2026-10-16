@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"sync/atomic"
 	"time"
+
+	"agentgo/internal/config"
 )
 
 // AGENTGO_DUMP_LLM_DIR=<dir> writes every request body sent to the model as
@@ -16,7 +18,7 @@ import (
 // and find the first differing byte). The files contain full prompts, so this is
 // off by default and must point at a private directory. Headers (API keys) are
 // never written.
-func dumpLLMDir() string { return os.Getenv("AGENTGO_DUMP_LLM_DIR") }
+func dumpLLMDir() string { return config.DumpLLMDir.Get() }
 
 var llmDumpSeq atomic.Uint64
 

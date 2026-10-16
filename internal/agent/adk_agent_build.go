@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"os"
 	"strings"
 	"time"
 
@@ -12,7 +11,7 @@ import (
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 
-	"agentgo/internal/governance"
+	"agentgo/internal/config"
 )
 
 func (r *Runner) newOpenAIModel(ctx context.Context, cfg LLMSettings, modelName string) (model.ToolCallingChatModel, error) {
@@ -34,7 +33,7 @@ func (r *Runner) newOpenAIModel(ctx context.Context, cfg LLMSettings, modelName 
 	}
 	// Reasoning models (e.g. Azure gpt-5/o-series deployments) reject function tools on
 	// /chat/completions unless reasoning_effort is "none". Opt-in, default unchanged.
-	if v := strings.TrimSpace(os.Getenv("AGENTGO_REASONING_EFFORT")); v != "" {
+	if v := config.ReasoningEffort.Get(); v != "" {
 		mc.ReasoningEffort = openai.ReasoningEffortLevel(v)
 	} else if strings.Contains(strings.ToLower(name), "luna") || strings.Contains(strings.ToLower(name), "gpt-5") {
 		mc.ReasoningEffort = openai.ReasoningEffortLevel("none")
@@ -78,13 +77,9 @@ func (r *Runner) buildChatModelAgent(ctx context.Context, cfg LLMSettings) (*adk
 	sm := SessionModeFromContext(ctx)
 	toolList := RegistryToolsForMode(r.toolReg, sm)
 	toolsCfg := adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{Tools: toolList}}
-	var toolMW []compose.ToolMiddleware
-	policy := r.effectivePolicyForCtx(ctx)
-	if r.queue != nil {
-		toolMW = append(toolMW, governance.ComposeToolMiddleware(r.queue, policy))
-	}
-	toolMW = append(toolMW, ComposeToolHealMiddleware())
-	toolsCfg.ToolsNodeConfig.ToolCallMiddlewares = toolMW
+	// Governance and tool-heal are mounted once, as ADK handlers (BuildADKHandlers).
+	toolsCfg.ToolsNodeConfig.ToolCallMiddlewares = r.composeToolMiddlewares(
+		r.effectivePolicyForCtx(ctx), toolMounts{GovernanceInHandlers: true, HealInHandlers: true})
 	failover, err := r.modelFailoverConfig(ctx, cfg)
 	if err != nil {
 		return nil, err

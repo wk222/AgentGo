@@ -10,7 +10,6 @@ import (
 	"github.com/cloudwego/eino/compose"
 
 	"agentgo/internal/checkpoint"
-	"agentgo/internal/governance"
 )
 
 const adminPlanExecuteSessionPrefix = "admin_pe:"
@@ -30,12 +29,8 @@ func (r *Runner) runAdminPlanExecute(ctx context.Context, cfg LLMSettings, sessi
 
 	sm := SessionModeFromContext(ctx)
 	toolList := RegistryToolsForMode(r.toolReg, sm)
-	var toolMW []compose.ToolMiddleware
-	policy := r.effectivePolicy()
-	if r.queue != nil {
-		toolMW = append(toolMW, governance.ComposeToolMiddleware(r.queue, policy))
-	}
-	toolMW = append(toolMW, ComposeToolHealMiddleware())
+	// planexecute has no ADK handlers: compose mount is the single mount point.
+	toolMW := r.composeToolMiddlewares(r.effectivePolicy(), toolMounts{})
 
 	planner, err := planexecute.NewPlanner(ctx, &planexecute.PlannerConfig{
 		ToolCallingChatModel: chatModel,

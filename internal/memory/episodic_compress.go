@@ -3,12 +3,13 @@ package memory
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/cloudwego/eino/schema"
+
+	"agentgo/internal/config"
 )
 
 // EpisodicCompressor runs MemoryDistill when the session spine needs compaction.
@@ -31,12 +32,8 @@ func NewEpisodicCompressor(pipeline *Pipeline, caller LLMCaller) *EpisodicCompre
 
 // EpisodicCompressEnabled reports env / auto trigger policy.
 func EpisodicCompressEnabled(autoTrigger bool) bool {
-	v := strings.TrimSpace(os.Getenv("AGENTGO_EPISODIC_COMPRESS"))
-	if v == "1" || strings.EqualFold(v, "true") {
-		return true
-	}
-	if v == "0" || strings.EqualFold(v, "false") {
-		return false
+	if on, ok := config.EpisodicCompress.Lookup(); ok {
+		return on
 	}
 	return autoTrigger
 }

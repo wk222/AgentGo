@@ -4,18 +4,15 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
-	"strconv"
 	"strings"
 
 	milvusindexer "github.com/cloudwego/eino-ext/components/indexer/milvus2"
 	milvusretriever "github.com/cloudwego/eino-ext/components/retriever/milvus2"
 	"github.com/cloudwego/eino-ext/components/retriever/milvus2/search_mode"
 	"github.com/milvus-io/milvus/client/v2/milvusclient"
-)
 
-// defaultEmbeddingModel is the fallback embedding model when AGENTGO_EMBEDDING_MODEL is unset.
-const defaultEmbeddingModel = "text-embedding-3-small"
+	"agentgo/internal/config"
+)
 
 // HybridEngine combines SQLite FTS + optional embedding rerank + optional Milvus vector store.
 type HybridEngine struct {
@@ -42,28 +39,20 @@ func BootConfigFromEnv(llmAPIBase, llmAPIKey string) BootConfig {
 	cfg := BootConfig{
 		APIBase:          llmAPIBase,
 		APIKey:           llmAPIKey,
-		EmbeddingModel:   envOrDefault("AGENTGO_EMBEDDING_MODEL", defaultEmbeddingModel),
-		MilvusAddr:       strings.TrimSpace(os.Getenv("AGENTGO_MILVUS_ADDR")),
-		MilvusCollection: envOrDefault("AGENTGO_MILVUS_COLLECTION", "agentgo_memory"),
-		VectorDim:        envIntOr("AGENTGO_EMBEDDING_DIM", 1536),
+		EmbeddingModel:   config.EmbeddingModel.Get(),
+		MilvusAddr:       config.MilvusAddr.Get(),
+		MilvusCollection: config.MilvusColl.Get(),
+		VectorDim:        embeddingDim(),
 	}
 	return cfg
 }
 
-func envOrDefault(key, def string) string {
-	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
-		return v
+// embeddingDim is the configured vector dimension; non-positive values fall back to 1536.
+func embeddingDim() int {
+	if n := config.EmbeddingDim.Get(); n > 0 {
+		return n
 	}
-	return def
-}
-
-func envIntOr(key string, def int) int {
-	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			return n
-		}
-	}
-	return def
+	return 1536
 }
 
 // NewHybridEngine builds the full memory stack (always SQLite; Milvus when addr is set and reachable).

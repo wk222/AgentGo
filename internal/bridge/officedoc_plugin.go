@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
 	"strings"
 
+	"agentgo/internal/config"
 	"agentgo/internal/governance"
 	"agentgo/internal/officedoc"
 	"agentgo/internal/plugin"
@@ -34,7 +34,7 @@ func (s *AppService) officedocEnv() officedocEnv {
 //
 //	AGENTGO_OFFICEDOC=0  disable the plugin
 func officedocPlugin(env officedocEnv) (plugin.Plugin, bool) {
-	if env.WorkspaceRoot == nil || os.Getenv("AGENTGO_OFFICEDOC") == "0" {
+	if env.WorkspaceRoot == nil || !config.OfficeDoc.On() {
 		return plugin.Plugin{}, false
 	}
 	return plugin.Plugin{

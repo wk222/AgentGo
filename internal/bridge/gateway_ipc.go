@@ -2,16 +2,15 @@ package bridge
 
 import (
 	"encoding/json"
-	"os"
-	"strings"
 
+	"agentgo/internal/config"
 	"agentgo/internal/workflow"
 )
 
 func (s *AppService) sseGatewayStatus() map[string]any {
-	addr := strings.TrimSpace(os.Getenv("AGENTGO_GATEWAY_ADDR"))
+	addr := config.GatewayAddr.Get()
 	if addr == "" {
-		if p := strings.TrimSpace(os.Getenv("AGENTGO_GATEWAY_PORT")); p != "" {
+		if p := config.GatewayPort.Get(); p != "" {
 			addr = "127.0.0.1:" + p
 		}
 	}

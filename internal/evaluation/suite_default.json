@@ -1,5 +1,5 @@
 {
-  "id": "agentgo-default-v1",
+  "id": "agentgo-default-v2",
   "cases": [
     {
       "id": "fact-busy-timeout",
@@ -13,7 +13,7 @@
     },
     {
       "id": "fact-keep-recent-turns",
-      "input": "internal/agent/tool_result_pruner.go 里常量 defaultKeepRecentToolTurns 的值是多少？只回答数字。",
+      "input": "internal/sessions/compile.go 里 snipStaleToolResults 函数，当 recentTail 参数 <= 0 时缺省取多少？只回答数字。",
       "expected_text": "\\b6\\b"
     },
     {
@@ -28,8 +28,8 @@
     },
     {
       "id": "fact-error-exempt",
-      "input": "internal/agent/tool_result_pruner.go 的 isLikelyToolErrorOutput 靠哪些字符串特征判断工具输出是报错？请全部列出。",
-      "keywords": ["exit status", "panic", "syntaxerror", "compilation failed"]
+      "input": "internal/sessions/compile.go 的 looksLikeErrorToolOutput 判断工具输出是否报错时，只检查输出的前多少个字符？只回答数字。",
+      "expected_text": "\\b512\\b"
     },
     {
       "id": "plain-arith",
@@ -41,6 +41,91 @@
       "id": "plain-capital",
       "input": "法国的首都是哪里？只回答城市名，不要使用任何工具。",
       "expected_text": "(?i)巴黎|paris",
+      "max_tool_calls": 0
+    },
+    {
+      "id": "fact-gateway-token-header",
+      "input": "internal/gateway/server.go 里，除了标准的 Authorization: Bearer 之外，还接受哪个自定义请求头携带令牌？只回答头名称。",
+      "expected_text": "(?i)X-AgentGo-Token",
+      "min_tool_calls": 1
+    },
+    {
+      "id": "fact-sqlite-max-conns",
+      "input": "internal/db/sqlite.go 里 SetMaxOpenConns 的参数是多少？只回答数字。",
+      "expected_text": "\\b1\\b",
+      "min_tool_calls": 1
+    },
+    {
+      "id": "fact-eval-case-timeout",
+      "input": "cmd/agentgo-eval/main.go 里 --case-timeout 参数的默认值是多少？",
+      "expected_text": "(?i)5\\s*(分钟|m\\b|min)",
+      "min_tool_calls": 1
+    },
+    {
+      "id": "fact-harness-ultimate",
+      "input": "internal/agent/harness.go 里 ultimate 这个 harness 对应的 Profile 和 Canvas 分别是什么？",
+      "keywords": ["admin", "deep"],
+      "min_tool_calls": 1
+    },
+    {
+      "id": "fact-snip-max-chars",
+      "input": "internal/sessions/compile.go 里 snipStaleToolResults 在 maxChars <= 0 时缺省取多少个字符？只回答数字。",
+      "expected_text": "1600",
+      "min_tool_calls": 1
+    },
+    {
+      "id": "err-tail-locate",
+      "input": "读取 internal/evaluation/testdata/build.log，它是一份很长的构建日志。告诉我真正的编译错误出在哪个文件的第几行、缺的是哪个标识符。",
+      "keywords": ["invoice.go", "217", "computeTaxRate"],
+      "min_tool_calls": 1
+    },
+    {
+      "id": "multi-turn-sqlite",
+      "input": "internal/db/sqlite.go 里 busy_timeout 被设置成多少毫秒？只回答数字。",
+      "expected_text": "10000",
+      "follow_ups": [
+        {
+          "input": "同一个文件里 SetMaxOpenConns 的参数是多少？只回答数字。",
+          "expected_text": "\\b1\\b"
+        },
+        {
+          "input": "把你前两次回答的两个数字相加，只回答结果，不要使用任何工具。",
+          "expected_text": "10001"
+        }
+      ]
+    },
+    {
+      "id": "multi-turn-memory",
+      "input": "请记住代号：蓝鲸-7319。只回答“好的”，不要使用任何工具。",
+      "expected_text": "好",
+      "follow_ups": [
+        {
+          "input": "我刚才让你记住的代号是什么？只回答代号，不要使用任何工具。",
+          "expected_text": "蓝鲸-7319"
+        }
+      ],
+      "max_tool_calls": 0
+    },
+    {
+      "id": "approval-write-file",
+      "input": "在工作区创建文件 .eval-scratch/note.txt，内容只有一行：hello-eval-7421。",
+      "expect_approval": true
+    },
+    {
+      "id": "approval-bash",
+      "input": "用 execute_bash 工具执行命令 echo approval-probe，把输出告诉我。",
+      "expect_approval": true
+    },
+    {
+      "id": "inner-app-list",
+      "input": "调用 list_inner_apps 工具，告诉我当前一共有多少个 Inner App，只回答数字。",
+      "expected_text": "\\d",
+      "min_tool_calls": 1
+    },
+    {
+      "id": "plain-defer-order",
+      "input": "用一句话说明 Go 里多个 defer 语句的执行顺序，不要使用任何工具。",
+      "expected_text": "(?i)后进先出|LIFO|逆序|反序|相反",
       "max_tool_calls": 0
     }
   ]

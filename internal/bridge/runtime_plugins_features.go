@@ -6,22 +6,22 @@ import (
 	"errors"
 	"log"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
 	"agentgo/internal/applog"
+	"agentgo/internal/config"
 	"agentgo/internal/gateway"
-	"agentgo/internal/tools"
-	"agentgo/internal/trigger"
 	"agentgo/internal/ideruntime"
 	"agentgo/internal/kanban"
 	"agentgo/internal/memory"
 	"agentgo/internal/plugin"
 	"agentgo/internal/scheduler"
 	"agentgo/internal/taskhub"
+	"agentgo/internal/tools"
+	"agentgo/internal/trigger"
 )
 
 // newDistillScheduler builds the periodic memory distillation job. Its scope
@@ -78,9 +78,9 @@ func (rt *Runtime) featurePlugins() []plugin.Plugin {
 
 		// The HTTP gateway only runs when an address is configured.
 		optionalPlugin("gateway", nil, []string{svcTaskHub}, nil, func(c *plugin.Context) error {
-			addr := strings.TrimSpace(os.Getenv("AGENTGO_GATEWAY_ADDR"))
+			addr := config.GatewayAddr.Get()
 			if addr == "" {
-				if p := strings.TrimSpace(os.Getenv("AGENTGO_GATEWAY_PORT")); p != "" {
+				if p := config.GatewayPort.Get(); p != "" {
 					addr = "127.0.0.1:" + p
 				}
 			}
@@ -89,7 +89,7 @@ func (rt *Runtime) featurePlugins() []plugin.Plugin {
 			}
 			srv := gateway.NewServer(gateway.Config{
 				Addr:   addr,
-				Token:  strings.TrimSpace(os.Getenv("AGENTGO_GATEWAY_TOKEN")),
+				Token:  config.GatewayToken.Get(),
 				Broker: rt.gatewayBroker,
 			}, NewRuntimeGateway(rt, rt.gatewayBroker))
 			rt.gatewaySrv = srv
@@ -132,7 +132,7 @@ func (rt *Runtime) featurePlugins() []plugin.Plugin {
 			rt.schedRunner = runner
 			// Headless hosts (MCP/Crush sidecar) set AGENTGO_DISABLE_SCHEDULER=1 so cron
 			// jobs are not fired twice when the desktop app shares the same data dir.
-			if os.Getenv("AGENTGO_DISABLE_SCHEDULER") != "1" {
+			if !config.DisableScheduler.On() {
 				runner.Start()
 				c.Effect("stop scheduler", runner.Stop)
 			}
@@ -155,7 +155,7 @@ func (rt *Runtime) featurePlugins() []plugin.Plugin {
 			rt.triggers = engine
 			tools.SetWatchHandler(rt) // the agent's watch_event tool arms triggers through this
 			c.Effect("unset watch handler", func() { tools.SetWatchHandler(nil) })
-			if os.Getenv("AGENTGO_DISABLE_TRIGGERS") == "1" {
+			if config.DisableTriggers.On() {
 				return nil
 			}
 			if err := engine.Start(scopedContext(c)); err != nil {

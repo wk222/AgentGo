@@ -127,8 +127,9 @@ func TestCMDOnlyImportsBridge(t *testing.T) {
 			}
 			for _, imp := range f.Imports {
 				p := strings.Trim(imp.Path.Value, `"`)
-				if strings.HasPrefix(p, "agentgo/internal/") && p != "agentgo/internal/bridge" {
-					t.Errorf("%s: cmd/%s may only import bridge, found %s", path, sub, p)
+				// internal/config is the stdlib-only settings registry; entrypoints set launcher defaults through it.
+				if strings.HasPrefix(p, "agentgo/internal/") && p != "agentgo/internal/bridge" && p != "agentgo/internal/config" {
+					t.Errorf("%s: cmd/%s may only import bridge (and config), found %s", path, sub, p)
 				}
 			}
 			return nil

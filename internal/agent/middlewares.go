@@ -17,34 +17,23 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 
+	"agentgo/internal/config"
 	"agentgo/internal/skills"
 )
 
 // EinoBackgroundTaskEnabled checks if backgroundtask middleware is enabled (default true).
 func EinoBackgroundTaskEnabled() bool {
-	v := strings.TrimSpace(os.Getenv("AGENTGO_EINO_BG_TASK"))
-	return v != "0" && strings.ToLower(v) != "false" && strings.ToLower(v) != "off"
+	return config.EinoBGTask.On()
 }
 
 // EinoPlanTaskEnabled checks if plantask middleware is enabled (default true).
 func EinoPlanTaskEnabled() bool {
-	v := strings.TrimSpace(os.Getenv("AGENTGO_EINO_PLAN_TASK"))
-	return v != "0" && strings.ToLower(v) != "false" && strings.ToLower(v) != "off"
+	return config.EinoPlanTask.On()
 }
 
 // EinoSpillEnabled checks if spill offloading middleware is enabled (default true).
 func EinoSpillEnabled() bool {
-	v := strings.TrimSpace(os.Getenv("AGENTGO_EINO_SPILL"))
-	return v != "0" && strings.ToLower(v) != "false" && strings.ToLower(v) != "off"
-}
-
-// EinoToolResultPrunerEnabled checks if standalone tool result pruner MW is enabled.
-// Default is false because SessionSpineMiddleware already performs deterministic
-// Cache-First head+tail tool snipping in CompileActiveWindow; enable via AGENTGO_EINO_PRUNER=1
-// only for standalone non-Spine pipelines.
-func EinoToolResultPrunerEnabled() bool {
-	v := strings.TrimSpace(strings.ToLower(os.Getenv("AGENTGO_EINO_PRUNER")))
-	return v == "1" || v == "true" || v == "on"
+	return config.EinoSpill.On()
 }
 
 // BuildTypedMiddlewareStack builds a generic Eino middleware stack for either *schema.Message or *schema.AgenticMessage.
@@ -126,17 +115,7 @@ func BuildTypedMiddlewareStack[M adk.MessageType](ctx context.Context, baseModel
 		}
 	}
 
-	// 7. Tool Result Pruner (opt-in standalone rule-based historical tool compaction)
-	if EinoToolResultPrunerEnabled() {
-		if _, ok := any(new(M)).(**schema.Message); ok {
-			prunerMW := NewToolResultPrunerMiddleware(defaultKeepRecentToolTurns)
-			if typedPruner, ok := any(prunerMW).(adk.TypedChatModelAgentMiddleware[M]); ok {
-				stack = append(stack, typedPruner)
-			}
-		}
-	}
-
-	// 8. Spill Middleware (large tool output offloading with locator preview)
+	// 7. Spill Middleware (large tool output offloading with locator preview)
 	if EinoSpillEnabled() {
 		if _, ok := any(new(M)).(**schema.Message); ok {
 			if spStore, err := BuildDefaultSpillStore(dataDir); err == nil && spStore != nil {
@@ -149,7 +128,7 @@ func BuildTypedMiddlewareStack[M adk.MessageType](ctx context.Context, baseModel
 		}
 	}
 
-	// 9. Reduction (Clear & optional Truncation)
+	// 8. Reduction (Clear & optional Truncation)
 	redBase := BuildReductionConfig(dataDir)
 	redCfg := &reduction.TypedConfig[M]{
 		SkipTruncation:    redBase.SkipTruncation,

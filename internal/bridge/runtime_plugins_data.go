@@ -11,6 +11,7 @@ import (
 
 	"agentgo/internal/capability"
 	"agentgo/internal/checkpoint"
+	"agentgo/internal/config"
 	"agentgo/internal/governance"
 	"agentgo/internal/memory"
 	"agentgo/internal/plugin"
@@ -149,7 +150,7 @@ func (rt *Runtime) dataPlugins() []plugin.Plugin {
 		}),
 
 		corePlugin("workspace", []string{svcWorkspace}, nil, nil, func(c *plugin.Context) error {
-			wsRoot := strings.TrimSpace(os.Getenv("AGENTGO_WORKSPACE_ROOT"))
+			wsRoot := config.WorkspaceRoot.Get()
 			if wsRoot == "" {
 				wsRoot = strings.TrimSpace(rt.workspaceHint)
 			}

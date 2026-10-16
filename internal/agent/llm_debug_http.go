@@ -10,18 +10,20 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"agentgo/internal/config"
 )
 
 // debugLLMEnabled turns on message-shape logging for LLM requests
 // (AGENTGO_DEBUG_LLM=1). It logs only roles and tool-call ids, never headers,
 // keys or message bodies.
-func debugLLMEnabled() bool { return os.Getenv("AGENTGO_DEBUG_LLM") == "1" }
+func debugLLMEnabled() bool { return config.DebugLLM.On() }
 
 // debugf logs one shape line. AGENTGO_DEBUG_LLM_FILE appends to that file
 // instead of the global logger, which an embedded TUI silences.
 func debugf(format string, args ...any) {
 	line := fmt.Sprintf("[llm-debug] "+format, args...)
-	if p := os.Getenv("AGENTGO_DEBUG_LLM_FILE"); p != "" {
+	if p := config.DebugLLMFile.Get(); p != "" {
 		if f, err := os.OpenFile(p, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
 			_, _ = f.WriteString(time.Now().Format("15:04:05.000 ") + line + "\n")
 			_ = f.Close()

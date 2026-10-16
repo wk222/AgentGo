@@ -322,12 +322,16 @@ func (m *ParadigmMiddleware) BeforeModelRewriteState(ctx context.Context, state 
 	injected := false
 	for i, msg := range state.Messages {
 		if msg.Role == schema.System {
-			state.Messages[i].Content = fmt.Sprintf("%s\n\n%s", msg.Content, injectionText)
+			// Idempotent: this hook runs before every model call and its result persists.
+			if !strings.Contains(msg.Content, injectionText) {
+				state.Messages[i].Content = fmt.Sprintf("%s\n\n%s", msg.Content, injectionText)
+			}
 			injected = true
 			break
 		}
 	}
 	if !injected {
+		// No system message yet: prepend one (a later call finds it above and skips).
 		state.Messages = append([]*schema.Message{schema.SystemMessage(injectionText)}, state.Messages...)
 	}
 

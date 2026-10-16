@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"agentgo/internal/bridge"
+	"agentgo/internal/config"
 	"agentgo/internal/hostlink"
 
 	"github.com/charmbracelet/crush/pkg/embedtui"
@@ -129,21 +130,17 @@ func runAttached(ctx context.Context, info hostlink.Info, opts embedtui.Options)
 // runStandalone is the single-process mode: brain and TUI together.
 func runStandalone(ctx context.Context, root string, yolo bool, engineID, api string, opts embedtui.Options) error {
 	if api != "" {
-		os.Setenv("AGENTGO_LLM_API", api)
+		config.LLMAPI.Set(api)
 	}
 	if yolo {
-		os.Setenv("AGENTGO_CRUSHPROTO_YOLO", "1")
+		config.CrushprotoYolo.Set(true)
 	}
 	if engineID != "" {
-		os.Setenv("AGENTGO_CRUSHPROTO_ENGINE", engineID)
+		config.CrushprotoEngine.Set(engineID)
 	}
-	if os.Getenv("AGENTGO_DISABLE_SCHEDULER") == "" {
-		os.Setenv("AGENTGO_DISABLE_SCHEDULER", "1")
-	}
+	config.DisableScheduler.SetDefault(true)
 	// This process owns its run in-process; it is not what others attach to.
-	if os.Getenv("AGENTGO_HOSTLINK") == "" {
-		os.Setenv("AGENTGO_HOSTLINK", "0")
-	}
+	config.Hostlink.SetDefault(false)
 
 	rt, err := bridge.NewRuntime()
 	if err != nil {
@@ -153,17 +150,17 @@ func runStandalone(ctx context.Context, root string, yolo bool, engineID, api st
 		return fmt.Errorf("workspace %s: %w", root, err)
 	}
 	if key, ep := os.Getenv("AZURE_OPENAI_API_KEY"), os.Getenv("AZURE_OPENAI_API_ENDPOINT"); key != "" && ep != "" {
-		model := os.Getenv("AGENTGO_AZURE_DEPLOYMENT")
+		model := config.AzureDeployment.Get()
 		if model == "" {
 			model = "gpt-6-luna"
 		}
-		if os.Getenv("AGENTGO_REASONING_EFFORT") == "" {
+		if !config.ReasoningEffort.IsSet() {
 			// chat/completions rejects function tools on reasoning models unless
 			// effort is "none"; the Responses API has no such limit.
-			if strings.EqualFold(os.Getenv("AGENTGO_LLM_API"), "responses") {
-				os.Setenv("AGENTGO_REASONING_EFFORT", "medium")
+			if strings.EqualFold(config.LLMAPI.Get(), "responses") {
+				config.ReasoningEffort.Set("medium")
 			} else {
-				os.Setenv("AGENTGO_REASONING_EFFORT", "none")
+				config.ReasoningEffort.Set("none")
 			}
 		}
 		cfg := bridge.LLMConfig{APIBase: strings.TrimRight(ep, "/") + "/openai/v1/", APIKey: key, Model: model}

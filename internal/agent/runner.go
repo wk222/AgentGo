@@ -17,6 +17,7 @@ import (
 
 	"agentgo/internal/admin"
 	"agentgo/internal/capability"
+	"agentgo/internal/config"
 	"agentgo/internal/governance"
 	"agentgo/internal/ledger"
 	"agentgo/internal/memory"
@@ -45,7 +46,7 @@ For UI cards and system metrics (CPU, memory, health), call render_ui with compo
 // otherwise it falls back to defaultSystemPrompt. Per-run mode guidance is
 // layered on separately via SessionMode.ModeHints (see mode_middleware.go).
 func baseSystemPrompt() string {
-	if v := strings.TrimSpace(os.Getenv("AGENTGO_SYSTEM_PROMPT")); v != "" {
+	if v := config.SystemPrompt.Get(); v != "" {
 		return v
 	}
 	return defaultSystemPrompt

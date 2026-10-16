@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -13,6 +12,7 @@ import (
 	"github.com/cloudwego/eino/compose"
 
 	"agentgo/internal/agent"
+	"agentgo/internal/config"
 	"agentgo/internal/governance"
 	"agentgo/internal/tools"
 	"agentgo/internal/workflow"
@@ -135,11 +135,7 @@ func (r *Runtime) workflowToolInvoke(ctx context.Context, toolName, argsJSON str
 }
 
 func workflowCheckpointEnabled() bool {
-	v := strings.TrimSpace(os.Getenv("AGENTGO_WORKFLOW_CHECKPOINT"))
-	if v == "0" || strings.EqualFold(v, "false") {
-		return false
-	}
-	return true
+	return config.WorkflowCheckpoint.On()
 }
 
 func (r *Runtime) executeWorkflow(ctx context.Context, workflowID, input string) (string, error) {

@@ -12,6 +12,7 @@ import (
 
 	frontendui "agentgo/frontend"
 	"agentgo/internal/bridge"
+	"agentgo/internal/config"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -124,10 +125,10 @@ func main() {
 
 	// 自动适配环境变量中的 Azure OpenAI / GPT-6 Luna 密钥与端点
 	if key, ep := os.Getenv("AZURE_OPENAI_API_KEY"), os.Getenv("AZURE_OPENAI_API_ENDPOINT"); key != "" && ep != "" {
-		useLuna := hasArg("--luna") || os.Getenv("AGENTGO_USE_LUNA") == "1"
+		useLuna := hasArg("--luna") || config.UseLuna.On()
 		cfg := rt.LLMConfig()
 		if useLuna || cfg.APIKey == "" || cfg.APIBase == "https://api.openai.com/v1" {
-			model := os.Getenv("AGENTGO_AZURE_DEPLOYMENT")
+			model := config.AzureDeployment.Get()
 			if model == "" {
 				model = "gpt-6-luna"
 			}
@@ -137,8 +138,8 @@ func main() {
 			_ = rt.SetLLMConfig(cfg)
 			log.Printf("[AgentGo] 已启用本地 Azure Luna: model=%s, api_base=%s", model, cfg.APIBase)
 		}
-		if os.Getenv("AGENTGO_REASONING_EFFORT") == "" {
-			_ = os.Setenv("AGENTGO_REASONING_EFFORT", "none")
+		if !config.ReasoningEffort.IsSet() {
+			config.ReasoningEffort.Set("none")
 		}
 	}
 
@@ -158,7 +159,7 @@ func main() {
 
 	// 2. Vue3 TSX Desktop IDE (Wails + frontend as primary UI)
 	targetURL := "/"
-	if hasArg("--dev") || os.Getenv("AGENTGO_DEV") == "1" {
+	if hasArg("--dev") || config.Dev.On() {
 		vitePort := os.Getenv("WAILS_VITE_PORT")
 		if vitePort == "" {
 			vitePort = "9245"
@@ -211,7 +212,7 @@ func main() {
 		Width:                  1280,
 		Height:                 850,
 		URL:                    targetURL,
-		OpenInspectorOnStartup: hasArg("--dev") || os.Getenv("AGENTGO_DEV") == "1",
+		OpenInspectorOnStartup: hasArg("--dev") || config.Dev.On(),
 		DevToolsEnabled:        true,
 		Mac: application.MacWindow{
 			InvisibleTitleBarHeight: 50,

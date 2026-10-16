@@ -1,10 +1,9 @@
 package memory
 
 import (
-	"os"
-	"strconv"
-	"strings"
 	"time"
+
+	"agentgo/internal/config"
 )
 
 // RecallRuntimeConfig controls hybrid recall latency and source weighting.
@@ -17,12 +16,17 @@ type RecallRuntimeConfig struct {
 
 // RecallConfigFromEnv reads AGENTGO_RECALL_* knobs.
 func RecallConfigFromEnv() RecallRuntimeConfig {
-	ms := envIntOr("AGENTGO_RECALL_TIMEOUT_MS", 800)
+	ms := config.RecallTimeoutMS.Get()
 	if ms < 100 {
 		ms = 100
 	}
-	ftsw := envFloatOr("AGENTGO_RECALL_FTS_WEIGHT", 0.45)
-	mw := envFloatOr("AGENTGO_RECALL_MILVUS_WEIGHT", 0.55)
+	ftsw, mw := config.RecallFTSWeight.Get(), config.RecallMilvusW.Get()
+	if ftsw < 0 {
+		ftsw = 0.45
+	}
+	if mw < 0 {
+		mw = 0.55
+	}
 	sum := ftsw + mw
 	if sum <= 0 {
 		ftsw, mw = 0.45, 0.55
@@ -34,23 +38,6 @@ func RecallConfigFromEnv() RecallRuntimeConfig {
 		Timeout:      time.Duration(ms) * time.Millisecond,
 		FTSWeight:    ftsw,
 		MilvusWeight: mw,
-		EmbedRerank:  envBool("AGENTGO_RECALL_EMBED_RERANK"),
+		EmbedRerank:  config.RecallEmbedRerank.On(),
 	}
-}
-
-func envFloatOr(key string, def float64) float64 {
-	v := strings.TrimSpace(os.Getenv(key))
-	if v == "" {
-		return def
-	}
-	f, err := strconv.ParseFloat(v, 64)
-	if err != nil || f < 0 {
-		return def
-	}
-	return f
-}
-
-func envBool(key string) bool {
-	v := strings.TrimSpace(os.Getenv(key))
-	return v == "1" || strings.EqualFold(v, "true") || strings.EqualFold(v, "yes")
 }

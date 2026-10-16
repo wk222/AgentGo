@@ -1,4 +1,4 @@
-package bridge
+package core
 
 import (
 	"strings"
@@ -14,7 +14,7 @@ func sm(role, typ, content string) sessions.Message {
 }
 
 func TestBuildHistoryKeepsOnlyChatTextOldestFirst(t *testing.T) {
-	got := buildHistory([]sessions.Message{
+	got := BuildHistory([]sessions.Message{
 		sm("user", "text", "q1"),
 		sm("assistant", "text", "a1"),
 		sm("assistant", "approval", "等待审批: write"), // not replayed
@@ -38,13 +38,13 @@ func TestBuildHistoryRespectsBudgetsAndStartsWithUser(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		in = append(in, sm("user", "text", "u"), sm("assistant", "text", "a"))
 	}
-	got := buildHistory(in, 5, 10000) // 5 newest = a u a u a -> leading assistant dropped
+	got := BuildHistory(in, 5, 10000) // 5 newest = a u a u a -> leading assistant dropped
 	if len(got) != 4 || got[0].Role != schema.User || got[len(got)-1].Role != schema.Assistant {
 		t.Fatalf("history = %+v", got)
 	}
 
 	big := strings.Repeat("x", 600)
-	got = buildHistory([]sessions.Message{
+	got = BuildHistory([]sessions.Message{
 		sm("user", "text", big), sm("assistant", "text", big), sm("user", "text", "latest"), sm("assistant", "text", big),
 	}, 24, 1000)
 	// budget keeps the newest turns; the oldest big ones fall off
@@ -55,7 +55,7 @@ func TestBuildHistoryRespectsBudgetsAndStartsWithUser(t *testing.T) {
 	if total > 1000+len("latest") || (len(got) > 0 && got[0].Role != schema.User) {
 		t.Fatalf("budget/ordering violated: total=%d msgs=%d", total, len(got))
 	}
-	if buildHistory(nil, 5, 100) != nil {
+	if BuildHistory(nil, 5, 100) != nil {
 		t.Fatal("empty input must give no history")
 	}
 }

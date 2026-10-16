@@ -44,7 +44,8 @@ func (r *Runner) BuildADKHandlers(ctx context.Context, chatModel model.ToolCalli
 		}
 	}
 	if r.queue != nil {
-		handlers = append(handlers, governance.NewGovernanceMiddleware(r.queue, r.effectivePolicy()))
+		// Single governance mount (the compose-level one was removed); canvas-aware policy.
+		handlers = append(handlers, governance.NewGovernanceMiddleware(r.queue, r.effectivePolicyForCtx(ctx)))
 	}
 	handlers = append(handlers, governance.NewSubagentMonotoneMiddleware())
 
