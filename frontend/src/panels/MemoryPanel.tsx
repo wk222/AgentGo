@@ -197,7 +197,7 @@ export default defineComponent({
       busy.value = 'truth-detect'
       try {
         const r = await wailsCall('DetectMemoryContradictions', truthNewFact.value, truthScope.value || 'global')
-        contradictions.value = Array.isArray(r) ? r : (r?.contradictions || [])
+        contradictions.value = r || []
         status.value = `Detected ${contradictions.value.length} contradiction candidate(s)`
       } catch (e: any) {
         status.value = e?.message || 'Truth detection failed'

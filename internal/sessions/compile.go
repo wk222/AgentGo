@@ -11,7 +11,7 @@ import (
 type CompileOptions struct {
 	MaxActiveTurns int
 	// RecentTailTurns controls how many most-recent messages keep full tool outputs
-	// before Reasonix-style deterministic head/tail snipping applies (default 6).
+	// before deterministic head/tail snipping applies (default 6).
 	RecentTailTurns int
 	// MaxStaleToolChars is the character threshold above which older tool results
 	// are deterministically snipped to preserve prompt prefix cache economics (default 1600).
@@ -121,7 +121,7 @@ func CompileProjectedView(messages []*schema.Message, opt CompileOptions) *Proje
 	return view
 }
 
-// snipStaleToolResults implements Reasonix SPEC §3.6 tiered tool-result snipping:
+// snipStaleToolResults implements tiered tool-result snipping:
 // Tool outputs before the recent tail that exceed maxChars are shortened with deterministic
 // head/tail markers while preserving message pairing and keeping error/failed outputs intact.
 func snipStaleToolResults(active []FlatMessage, recentTail int, maxChars int) ([]FlatMessage, int) {

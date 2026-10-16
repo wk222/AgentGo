@@ -42,13 +42,7 @@ export const SearchPanel = defineComponent({
       loading.value = true
       errorMsg.value = ''
       try {
-        const res = await wailsCall<{
-          success?: boolean
-          results?: FileSearchResult[]
-          totalMatches?: number
-          totalFiles?: number
-          error?: string
-        }>(
+        const res = await wailsCall(
           'WorkspaceSearch',
           options.query,
           options.isRegex,
@@ -88,7 +82,7 @@ export const SearchPanel = defineComponent({
 
     const replaceAllInFile = async (fileResult: FileSearchResult) => {
       try {
-        const readRes = await wailsCall<{ content?: string; error?: string }>('ReadWorkspaceFile', fileResult.filePath)
+        const readRes = await wailsCall('ReadWorkspaceFile', fileResult.filePath)
         if (readRes?.error || readRes?.content == null) {
           alert(`读取文件失败: ${readRes?.error}`)
           return
@@ -107,7 +101,7 @@ export const SearchPanel = defineComponent({
         }
 
         const newContent = content.replace(regex, options.replaceText)
-        const writeRes = await wailsCall<{ error?: string }>('WriteWorkspaceFile', fileResult.filePath, newContent)
+        const writeRes = await wailsCall('WriteWorkspaceFile', fileResult.filePath, newContent)
         if (writeRes?.error) {
           alert(`写入文件失败: ${writeRes.error}`)
           return

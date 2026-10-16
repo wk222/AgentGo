@@ -20,12 +20,7 @@ export const ImagePreview = defineComponent({
       loading.value = true
       errorMsg.value = ''
       try {
-        const res = await wailsCall<{
-          success?: boolean
-          data_url?: string
-          size?: number
-          error?: string
-        }>('WorkspaceReadBase64', props.filePath)
+        const res = await wailsCall('WorkspaceReadBase64', props.filePath)
 
         if (res?.error || !res?.data_url) {
           errorMsg.value = res?.error || '无法读取图片数据'

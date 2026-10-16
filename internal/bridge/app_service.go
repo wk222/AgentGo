@@ -152,7 +152,7 @@ func (s *AppService) GetLLMConfig() map[string]any {
 	}
 }
 
-// LoadDeepSeekConfig switches the current LLM configuration to the DeepSeek preset (Reasonix style).
+// LoadDeepSeekConfig switches the current LLM configuration to the DeepSeek preset (preset).
 func (s *AppService) LoadDeepSeekConfig(model string) map[string]any {
 	model = strings.TrimSpace(model)
 	if model == "" {

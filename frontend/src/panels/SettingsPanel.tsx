@@ -19,7 +19,7 @@ const PROVIDER_PRESETS: ProviderPreset[] = [
   {
     id: 'deepseek-reasoner',
     name: 'DeepSeek Reasoner',
-    tag: 'Reasonix 推荐',
+    tag: '推荐',
     desc: '原生思维链推理 + 前缀缓存友好，适合复杂架构与重构任务',
     apiBase: 'https://api.deepseek.com/v1',
     model: 'deepseek-reasoner',
@@ -107,8 +107,8 @@ export const SettingsPanel = defineComponent({
     const load = async () => {
       try {
         const [cfg, flags] = await Promise.all([
-          wailsCall<any>('GetLLMConfig'),
-          wailsCall<any>('GetFeatureFlags'),
+          wailsCall('GetLLMConfig'),
+          wailsCall('GetFeatureFlags'),
         ])
         if (cfg) {
           apiBase.value = cfg.api_base || ''
@@ -202,7 +202,7 @@ export const SettingsPanel = defineComponent({
       status.value = null
       try {
         const res = await wailsCallWithTimeout('TestLLM', 20000)
-        status.value = { ok: !!res?.ok, msg: res?.message || res?.error || '测试完成' }
+        status.value = { ok: !!res?.ok, msg: res?.message || '测试完成' }
       } catch (e: any) {
         status.value = { ok: false, msg: e?.message || '连接测试失败' }
       } finally {

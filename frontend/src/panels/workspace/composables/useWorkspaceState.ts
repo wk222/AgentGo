@@ -51,7 +51,7 @@ export function useWorkspaceState(initialRoot: string = '') {
     errorMsg.value = ''
     try {
       if (targetPath) {
-        const res = await wailsCall<{ root?: string; error?: string }>('SetWorkspaceRoot', targetPath)
+        const res = await wailsCall('SetWorkspaceRoot', targetPath)
         if (res?.error) {
           errorMsg.value = res.error
           return
@@ -60,18 +60,18 @@ export function useWorkspaceState(initialRoot: string = '') {
           workspaceRoot.value = res.root
         }
       } else if (!workspaceRoot.value) {
-        const info = await wailsCall<{ root?: string }>('GetWorkspaceInfo')
+        const info = await wailsCall('GetWorkspaceInfo')
         if (info?.root) {
           workspaceRoot.value = info.root
         }
       }
 
-      const files = await wailsCall<WorkspaceFileItem[]>('ListWorkspace', '')
+      const files = await wailsCall('ListWorkspace', '')
       rootFiles.value = Array.isArray(files) ? files : []
 
       // Refresh git branch
       try {
-        const branchRes = await wailsCall<{ stdout?: string }>('ExecuteTerminalCommand', 'git branch --show-current')
+        const branchRes = await wailsCall('ExecuteTerminalCommand', 'git branch --show-current')
         if (branchRes?.stdout?.trim()) {
           gitBranch.value = branchRes.stdout.trim()
         }
@@ -94,7 +94,7 @@ export function useWorkspaceState(initialRoot: string = '') {
       expandedPaths.value.add(item.path)
       if (!childrenMap[item.path]) {
         try {
-          const files = await wailsCall<WorkspaceFileItem[]>('ListWorkspaceDir', item.path)
+          const files = await wailsCall('ListWorkspaceDir', item.path)
           childrenMap[item.path] = Array.isArray(files) ? files : []
         } catch (e: any) {
           console.error(`Failed to list dir: ${item.path}`, e)
@@ -106,10 +106,10 @@ export function useWorkspaceState(initialRoot: string = '') {
   const refreshDirectory = async (parentPath: string) => {
     try {
       if (!parentPath) {
-        const files = await wailsCall<WorkspaceFileItem[]>('ListWorkspace', '')
+        const files = await wailsCall('ListWorkspace', '')
         rootFiles.value = Array.isArray(files) ? files : []
       } else {
-        const files = await wailsCall<WorkspaceFileItem[]>('ListWorkspaceDir', parentPath)
+        const files = await wailsCall('ListWorkspaceDir', parentPath)
         childrenMap[parentPath] = Array.isArray(files) ? files : []
       }
     } catch (e) {
@@ -136,10 +136,10 @@ export function useWorkspaceState(initialRoot: string = '') {
     }
 
     const relPath = inlineCreating.parentPath ? `${inlineCreating.parentPath}/${name}` : name
-    const method = inlineCreating.type === 'dir' ? 'CreateWorkspaceDir' : 'CreateWorkspaceFile'
-
     try {
-      const res = await wailsCall<{ error?: string }>(method, relPath)
+      const res = inlineCreating.type === 'dir'
+        ? await wailsCall('CreateWorkspaceDir', relPath)
+        : await wailsCall('CreateWorkspaceFile', relPath)
       if (res?.error) {
         alert(res.error)
       } else {
@@ -178,7 +178,7 @@ export function useWorkspaceState(initialRoot: string = '') {
     const newPath = parentPath ? `${parentPath}/${newName}` : newName
 
     try {
-      const res = await wailsCall<{ error?: string }>('RenameWorkspacePath', inlineRenaming.targetPath, newPath)
+      const res = await wailsCall('RenameWorkspacePath', inlineRenaming.targetPath, newPath)
       if (res?.error) {
         alert(res.error)
       } else {
@@ -209,7 +209,7 @@ export function useWorkspaceState(initialRoot: string = '') {
       : ''
 
     try {
-      const res = await wailsCall<{ error?: string }>('DeleteWorkspacePath', item.path)
+      const res = await wailsCall('DeleteWorkspacePath', item.path)
       if (res?.error) {
         alert(res.error)
       } else {

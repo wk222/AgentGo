@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   AgentGo · Wails v3 Desktop Polish & DeepSeek-Reasonix Harness Enhancements
+   AgentGo · Wails v3 Desktop Polish
    ═══════════════════════════════════════════════════════════════════════════ */
 
 :root {
@@ -80,7 +80,7 @@
   color: var(--accent-text);
 }
 
-/* ── Engineering Empty State (Reasonix + Cursor IDE style) ── */
+/* ── Engineering Empty State (engineering style) ── */
 .chat-welcome {
   padding: 28px 20px !important;
   gap: 16px !important;
@@ -410,7 +410,7 @@
   max-width: 380px;
 }
 
-/* ── OpenBitFun-inspired ChatInputApprovalBand (Sticky confirmation bar above Composer) ── */
+/* ── Approval band (sticky confirmation bar above Composer) ── */
 .chat-approval-band {
   display: flex;
   align-items: center;
@@ -456,7 +456,7 @@
   flex-shrink: 0;
 }
 
-/* ── OpenBitFun-inspired FlowChat Transcript, Explore Capsule & Turn Rail ── */
+/* ── FlowChat Transcript, Explore Capsule & Turn Rail ── */
 .flowchat-transcript-wrap {
   position: relative;
   display: flex;
@@ -650,7 +650,7 @@
   border-color: var(--danger);
 }
 
-/* ── OpenBitFun-inspired InnerApp Creative Companion & Handshake Bar ── */
+/* ── InnerApp Creative Companion & Handshake Bar ── */
 .inner-app-handshake-badge {
   font-family: var(--font-mono);
   font-size: 11px;

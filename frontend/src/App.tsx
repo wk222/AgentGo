@@ -2,7 +2,7 @@ import { defineComponent, ref, computed, onMounted, onUnmounted, watch } from 'v
 // @ts-ignore
 import logoSingle from './logo_single.png'
 import { useChat, sessionIdOf, sessionTitle, type Session } from './composables/useChat'
-import { wailsCall } from './wails'
+import { wailsCall, wailsCallRaw } from './wails'
 import { loadHarnesses } from './harness'
 import ChatPanel from './ChatPanel'
 import RightPanel from './RightPanel'
@@ -197,7 +197,7 @@ export default defineComponent({
 
     const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n))
 
-    // Borrowed from OpenBitFun panelConfig.ts: snap points & double-click mode toggle
+    // 面板吸附点与双击切换模式
     const SIDEBAR_SNAP_POINTS = [200, 240, 300, 360]
     const RIGHT_PANEL_SNAP_POINTS = [340, 420, 540, 680]
     const snapToNearest = (val: number, points: number[], range = 16) => {
@@ -262,7 +262,7 @@ export default defineComponent({
 
     const loadLLM = async () => {
       try {
-        const cfg = await wailsCall<any>('GetLLMConfig')
+        const cfg = await wailsCall('GetLLMConfig')
         if (cfg) {
           llmForm.value.api_base = cfg.api_base || llmForm.value.api_base
           llmForm.value.model = cfg.model || llmForm.value.model
@@ -276,7 +276,7 @@ export default defineComponent({
 
     const applyAzureLuna = async () => {
       try {
-        const res = await wailsCall<any>('LoadAzureLunaConfig')
+        const res = await wailsCall('LoadAzureLunaConfig')
         if (res?.success) {
           await loadLLM()
           await testAPI()
@@ -342,7 +342,7 @@ export default defineComponent({
       agentPanelOpen.value = true
       localStorage.setItem('agentgo-agent-open', 'true')
       try {
-        const review = await wailsCall<{ success?: boolean; error?: string }>('BeginWorkspaceReview', chat.sessionId.value)
+        const review = await wailsCall('BeginWorkspaceReview', chat.sessionId.value)
         if (review?.success === false || review?.error) {
           alert(`AI 变更保护未能启动，本次仍可对话，但文件修改不能自动恢复：${review?.error || '未知错误'}`)
         }
@@ -376,7 +376,7 @@ export default defineComponent({
       } else {
         await chat.newSession()
       }
-      void loadHarnesses(wailsCall)
+      void loadHarnesses(wailsCallRaw)
       await loadSessionMode()
     })
 

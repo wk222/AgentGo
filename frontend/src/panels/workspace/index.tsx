@@ -234,12 +234,7 @@ export const Workspace = defineComponent({
 
     const openDiff = async (item: { path: string; name: string }) => {
       try {
-        const res = await wailsCall<{
-          success?: boolean
-          error?: string
-          original_content?: string
-          modified_content?: string
-        }>('WorkspaceFileDiff', item.path)
+        const res = await wailsCall('WorkspaceFileDiff', item.path)
         if (res?.success === false || res?.error) {
           alert(`无法打开差异比对: ${res?.error || '未知错误'}`)
           return
@@ -309,7 +304,7 @@ export const Workspace = defineComponent({
     const diagnosticCount = ref(0)
     const refreshDiagnostics = async () => {
       try {
-        const res = await wailsCall<any>('WorkspaceDiagnostics')
+        const res = await wailsCall('WorkspaceDiagnostics')
         if (res?.success) {
           diagnosticCount.value = res.total ?? 0
         }
