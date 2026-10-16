@@ -57,7 +57,7 @@ func NewWorkflowGraphTool(ctx context.Context, def Definition, rc *RunContext, t
 		return nil, err
 	}
 	if strings.TrimSpace(toolName) == "" {
-		toolName = "graph_workflow_" + sanitizeToolName(def.Name)
+		toolName = "graph_workflow_" + SafeToolName(def.Name, def.ID)
 	}
 	if desc == "" {
 		desc = "Execute saved workflow via Eino compose graph: " + def.Name
@@ -185,12 +185,4 @@ func (t *runnerShellGraphTool) InvokableRun(ctx context.Context, argsJSON string
 	return t.runnable.Invoke(ctx, strings.TrimSpace(in.Input))
 }
 
-func sanitizeToolName(name string) string {
-	s := strings.ToLower(strings.TrimSpace(name))
-	s = strings.ReplaceAll(s, " ", "_")
-	s = strings.ReplaceAll(s, "-", "_")
-	if s == "" {
-		return "unnamed"
-	}
-	return s
-}
+func sanitizeToolName(name string) string { return SafeToolName(name, "") }

@@ -34,6 +34,34 @@ type doneEvent struct {
 	} `json:"usage"`
 }
 
+// DefaultHarness asks the gateway which harness preset new sessions use. It is best
+// effort: any failure yields "".
+func (a *HTTPAgent) DefaultHarness(ctx context.Context) string {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(a.BaseURL, "/")+"/api/v1/harnesses", nil)
+	if err != nil {
+		return ""
+	}
+	if a.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+a.Token)
+	}
+	cli := a.Client
+	if cli == nil {
+		cli = &http.Client{Timeout: 10 * time.Second}
+	}
+	resp, err := cli.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	var body struct {
+		Default string `json:"default"`
+	}
+	if resp.StatusCode != http.StatusOK || json.NewDecoder(resp.Body).Decode(&body) != nil {
+		return ""
+	}
+	return body.Default
+}
+
 // Generate implements AgentGenerator.
 func (a *HTTPAgent) Generate(ctx context.Context, sessionID, input string) (string, error) {
 	out, _, err := a.GenerateMeasured(ctx, sessionID, input)

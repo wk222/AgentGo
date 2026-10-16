@@ -60,7 +60,15 @@ func run() int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	agent := &timeoutAgent{inner: &evaluation.HTTPAgent{BaseURL: base, Token: tok, Harness: *harness}, d: *timeout}
+	httpAgent := &evaluation.HTTPAgent{BaseURL: base, Token: tok, Harness: *harness}
+	// Cases that do not apply to a preset (e.g. write/approval cases under read-only
+	// "minimal") are dropped; without --harness the server's default preset decides.
+	effective := *harness
+	if effective == "" {
+		effective = httpAgent.DefaultHarness(ctx)
+	}
+	set = set.ForHarness(effective)
+	agent := &timeoutAgent{inner: httpAgent, d: *timeout}
 	fmt.Printf("suite %s: %d cases x %d runs against %s (harness: %s)\n", set.ID, len(set.Cases), *runs, base, orDefault(*harness))
 	// Serial on purpose: stable timings and one backend session at a time.
 	res, err := evaluation.EvaluateSetTagged(ctx, agent, set, *runs, false, evaluation.DefaultRunTag())

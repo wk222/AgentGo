@@ -86,8 +86,7 @@ func SyncWorkflowGraphTools(r *Registry, store *workflow.Store, mkRC WorkflowGra
 		if rc == nil {
 			continue
 		}
-		cleanName := strings.ReplaceAll(strings.ToLower(def.Name), " ", "_")
-		toolName := "graph_workflow_" + strings.ReplaceAll(cleanName, "-", "_")
+		toolName := "graph_workflow_" + workflow.SafeToolName(def.Name, def.ID)
 		desc := def.Description
 		if desc == "" {
 			desc = "Eino compose graph for workflow " + def.Name
@@ -113,9 +112,7 @@ func SyncWorkflowTools(r *Registry, store *workflow.Store, runner WorkflowRunner
 	}
 
 	for _, def := range defs {
-		cleanName := strings.ReplaceAll(strings.ToLower(def.Name), " ", "_")
-		cleanName = strings.ReplaceAll(cleanName, "-", "_")
-		toolName := "workflow_" + cleanName
+		toolName := "workflow_" + workflow.SafeToolName(def.Name, def.ID)
 
 		desc := def.Description
 		if desc == "" {

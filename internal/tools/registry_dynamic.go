@@ -42,6 +42,9 @@ func (r *Registry) SyncDynamicFromStore(store *DynamicStore) error {
 		if err != nil || info == nil {
 			continue
 		}
+		if !ValidToolName(info.Name) {
+			continue
+		}
 		r.tools[info.Name] = t
 		r.dynamicCompiled[info.Name] = true
 	}
@@ -65,6 +68,9 @@ func (r *Registry) RegisterDynamicTool(def DynamicToolDef) error {
 	info, err := t.Info(context.Background())
 	if err != nil || info == nil {
 		return fmt.Errorf("tool info: %w", err)
+	}
+	if !ValidToolName(info.Name) {
+		return fmt.Errorf("invalid tool name %q: use only letters, digits, '_', '.', '-' (max 64 chars)", info.Name)
 	}
 	r.tools[info.Name] = t
 	if r.dynamicCompiled == nil {
