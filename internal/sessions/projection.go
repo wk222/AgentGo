@@ -2,6 +2,7 @@ package sessions
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -20,6 +21,32 @@ type ProjectedRuntimeView struct {
 	Isolation       []string
 	ActiveTurn      []FlatMessage
 	ToolOutputs     []string
+
+	// baseSystem is the raw system content this view was compiled from. Render stores
+	// it on the system message (ExtraProjectedBase) so a later compile of the already
+	// rendered message starts from the raw input again instead of re-wrapping the
+	// rendered text (see projectedBase).
+	baseSystem []string
+}
+
+// ExtraProjectedBase marks a rendered system message and carries (JSON []string) the
+// raw system contents it was rendered from.
+const ExtraProjectedBase = "agentgo.projected_base_system"
+
+// projectedBase returns the raw system contents a rendered message came from.
+func projectedBase(msg *schema.Message) ([]string, bool) {
+	if msg == nil || msg.Extra == nil {
+		return nil, false
+	}
+	s, ok := msg.Extra[ExtraProjectedBase].(string)
+	if !ok {
+		return nil, false
+	}
+	var base []string
+	if err := json.Unmarshal([]byte(s), &base); err != nil {
+		return nil, false
+	}
+	return base, true
 }
 
 // Render compiles the projection into []*schema.Message for the chat model.
@@ -63,7 +90,13 @@ func (p *ProjectedRuntimeView) Render(ctx context.Context) ([]*schema.Message, e
 	writeBlock("isolation", "", p.Isolation)
 
 	if s := strings.TrimSpace(sys.String()); s != "" {
-		msgs = append(msgs, schema.SystemMessage(s))
+		sm := schema.SystemMessage(s)
+		if len(p.baseSystem) > 0 {
+			if raw, err := json.Marshal(p.baseSystem); err == nil {
+				sm.Extra = map[string]any{ExtraProjectedBase: string(raw)}
+			}
+		}
+		msgs = append(msgs, sm)
 	}
 
 	for _, m := range p.ActiveTurn {

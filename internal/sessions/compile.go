@@ -66,7 +66,17 @@ func CompileProjectedView(messages []*schema.Message, opt CompileOptions) *Proje
 
 		switch {
 		case msg.Role == schema.System:
-			view.SystemRules = append(view.SystemRules, classifySystemContent(content)...)
+			// A message rendered by an earlier compile of this run carries its raw input.
+			// Re-reading its rendered text would wrap <system_rules> again and again and
+			// fold every block back into the rules, growing the prompt on each model call.
+			raws := []string{content}
+			if base, ok := projectedBase(msg); ok {
+				raws = base
+			}
+			for _, raw := range raws {
+				view.baseSystem = append(view.baseSystem, raw)
+				view.SystemRules = append(view.SystemRules, classifySystemContent(raw)...)
+			}
 
 		case msg.Role == schema.User:
 			switch {

@@ -58,7 +58,7 @@ func (r *Registry) GetStaticToolsForMode(allow map[string]bool) []einotool.BaseT
 	defer r.mu.RUnlock()
 	ctx := context.Background()
 	var list []einotool.BaseTool
-	for _, t := range r.tools {
+	for _, t := range r.sortedToolsLocked() {
 		name := toolName(ctx, t)
 		if name == "" {
 			continue
@@ -87,7 +87,7 @@ func (r *Registry) GetDynamicToolsForMode(allowDynamic func(string) bool) []eino
 	defer r.mu.RUnlock()
 	ctx := context.Background()
 	var list []einotool.BaseTool
-	for _, t := range r.tools {
+	for _, t := range r.sortedToolsLocked() {
 		name := toolName(ctx, t)
 		if name == "" || IsStaticTool(name) {
 			continue

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/schema"
@@ -40,7 +41,12 @@ func (m *ModeProfileMiddleware) BeforeModelRewriteState(ctx context.Context, sta
 	injected := false
 	for i, msg := range state.Messages {
 		if msg.Role == schema.System {
-			state.Messages[i].Content = fmt.Sprintf("%s\n\n%s", msg.Content, hint)
+			// Idempotent: this runs before every model call of a run, and the state
+			// carries the rewritten message into the next call. Appending blindly made
+			// the system prompt grow on each call and broke prefix caching.
+			if !strings.Contains(msg.Content, hint) {
+				state.Messages[i].Content = fmt.Sprintf("%s\n\n%s", msg.Content, hint)
+			}
 			injected = true
 			break
 		}
@@ -84,7 +90,9 @@ func (m *AgenticModeProfileMiddleware) BeforeModelRewriteState(
 	injected := false
 	for i, msg := range state.Messages {
 		if msg != nil && msg.Role == schema.AgenticRoleTypeSystem {
-			state.Messages[i] = schema.SystemAgenticMessage(msg.String() + "\n\n" + hint)
+			if cur := msg.String(); !strings.Contains(cur, hint) {
+				state.Messages[i] = schema.SystemAgenticMessage(cur + "\n\n" + hint)
+			}
 			injected = true
 			break
 		}

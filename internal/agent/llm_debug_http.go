@@ -50,6 +50,7 @@ func (t llmShapeTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		_ = req.Body.Close()
 		if err == nil {
 			log.Printf("[llm-debug] %s", describeMessages(raw))
+			dumpLLMRequest(raw)
 		}
 		req.Body = io.NopCloser(bytes.NewReader(raw))
 		req.ContentLength = int64(len(raw))

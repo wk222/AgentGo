@@ -48,12 +48,12 @@ func newResponsesModel(cfg LLMSettings, modelName string, timeout time.Duration,
 	if hc == nil {
 		// No overall Timeout: it would cut long streams. The context bounds the call;
 		// the header timeout bounds a dead endpoint.
-		hc = &http.Client{Transport: &http.Transport{
+		hc = &http.Client{Transport: dumpTransport{next: &http.Transport{
 			Proxy:                 http.ProxyFromEnvironment,
 			ResponseHeaderTimeout: timeout,
 			TLSHandshakeTimeout:   15 * time.Second,
 			IdleConnTimeout:       60 * time.Second,
-		}}
+		}}}
 	}
 	summary := strings.TrimSpace(os.Getenv("AGENTGO_REASONING_SUMMARY"))
 	if summary == "" {
