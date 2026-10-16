@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"agentgo/internal/core"
 	"context"
 	"fmt"
 	"strings"
@@ -45,8 +46,8 @@ type Runtime struct {
 	toolReg          *tools.Registry
 	capBus           *capability.Bus
 	kanban           *kanban.Store
-	pending          *pendingStore
-	relay            approvalRelay // decisions on approvals, for surfaces waiting on another surface
+	pending          *core.PendingStore
+	relay            core.ApprovalRelay // decisions on approvals, for surfaces waiting on another surface
 	taskHub          *taskhub.Hub
 	sched            *scheduler.Store
 	schedRunner      *scheduler.Runner
@@ -64,7 +65,7 @@ type Runtime struct {
 	appsRoot         string
 	adminRunner      *admin.AdminRunner
 	interactStore    *tools.InteractionStore
-	runTrack         *RunTracker
+	runTrack         *core.RunTracker
 	agentPack        *agentpack.Engine
 	workspaceReviews *workspaceReviewStore
 	supervisor       *ideruntime.ProcessSupervisor
@@ -83,7 +84,7 @@ type Runtime struct {
 	workspaceHint string // workspace root from config.json, used when the env does not set one
 
 	// resumeFn replaces the agent resume in tests; nil in production.
-	resumeFn func(ctx context.Context, pr pendingRun, resume *governance.ResumePayload) (*agent.RunResult, error)
+	resumeFn func(ctx context.Context, pr core.PendingRun, resume *governance.ResumePayload) (*agent.RunResult, error)
 
 	bindMu       sync.Mutex // guards workspaceBinders (see workspace_runtime.go)
 	wsBinders    []workspaceBinderEntry

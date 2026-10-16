@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"agentgo/internal/core"
 	"bufio"
 	"bytes"
 	"context"
@@ -164,7 +165,7 @@ func TestDesktopApprovalContinuesATUIRunAcrossAReconnect(t *testing.T) {
 	g := newResumeRig(t)
 	id := g.pause(t, "code_edit")
 	g.startRun(t, "run_a")
-	g.script = func(context.Context, int, pendingRun) (*agent.RunResult, error) {
+	g.script = func(context.Context, int, core.PendingRun) (*agent.RunResult, error) {
 		return &agent.RunResult{Content: "edited a.go and the tests pass", UsedTools: true}, nil
 	}
 	ts := handoffServer(t, g, id)
@@ -228,7 +229,7 @@ func TestSimultaneousDecisionsResumeOnce(t *testing.T) {
 		g := newResumeRig(t)
 		id := g.pause(t, "code_edit")
 		g.startRun(t, "run_a")
-		g.script = func(context.Context, int, pendingRun) (*agent.RunResult, error) {
+		g.script = func(context.Context, int, core.PendingRun) (*agent.RunResult, error) {
 			return &agent.RunResult{Content: "done", UsedTools: true}, nil
 		}
 		ts := handoffServer(t, g, id)
@@ -261,11 +262,11 @@ func TestSimultaneousDecisionsResumeOnce(t *testing.T) {
 }
 
 func TestApprovalRelayDeliversEarlyAndLateDecisions(t *testing.T) {
-	var r approvalRelay
+	var r core.ApprovalRelay
 
 	// Decided before anyone watches: the watcher still sees it.
-	r.markDecided("a", true, "desktop_user")
-	w := r.watch("a")
+	r.MarkDecided("a", true, "desktop_user")
+	w := r.Watch("a")
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	ch, stop := w.Decision(ctx)
@@ -280,7 +281,7 @@ func TestApprovalRelayDeliversEarlyAndLateDecisions(t *testing.T) {
 	}
 
 	// Not decided yet: nothing is delivered, and stop ends the waiter.
-	w2 := r.watch("b")
+	w2 := r.Watch("b")
 	ch2, stop2 := w2.Decision(context.Background())
 	select {
 	case <-ch2:
@@ -298,8 +299,8 @@ func TestApprovalRelayDeliversEarlyAndLateDecisions(t *testing.T) {
 	if _, _, ok := w2.Outcome(short); ok {
 		t.Fatal("outcome returned before completion")
 	}
-	r.markDecided("b", false, "x")
-	r.markCompleted("b", map[string]any{"success": true})
+	r.MarkDecided("b", false, "x")
+	r.MarkCompleted("b", map[string]any{"success": true})
 	if ap, out, ok := w2.Outcome(context.Background()); !ok || ap || out["success"] != true {
 		t.Fatalf("outcome = %v %v %v", ap, out, ok)
 	}

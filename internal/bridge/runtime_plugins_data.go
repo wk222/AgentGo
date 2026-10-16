@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"agentgo/internal/core"
 	"context"
 	"database/sql"
 	"log"
@@ -124,7 +125,7 @@ func (rt *Runtime) dataPlugins() []plugin.Plugin {
 				return err
 			}
 			rt.approvals = queue
-			rt.pending = newDurablePendingStore(rt.sessions)
+			rt.pending = core.NewDurablePendingStore(rt.sessions)
 
 			ctx := scopedContext(c)
 			rt.RecoverPending(ctx)

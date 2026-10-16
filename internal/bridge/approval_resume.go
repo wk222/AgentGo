@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"agentgo/internal/core"
 	"context"
 	"errors"
 	"fmt"
@@ -46,7 +47,7 @@ func (s *AppService) registerPending(sessionID, userText string, p *agent.Pendin
 	if approvalID == "" {
 		approvalID = interruptID
 	}
-	s.rt.pending.Set(pendingRun{
+	s.rt.pending.Set(core.PendingRun{
 		SessionID: sessionID, UserText: userText,
 		ToolName: p.ToolName, Arguments: p.Arguments,
 		ApprovalID: approvalID, InterruptID: interruptID,
@@ -78,7 +79,7 @@ func (s *AppService) registerPending(sessionID, userText string, p *agent.Pendin
 }
 
 // resumeAgent continues a paused agent run with the user's decision.
-func (rt *Runtime) resumeAgent(ctx context.Context, pr pendingRun, resume *governance.ResumePayload) (*agent.RunResult, error) {
+func (rt *Runtime) resumeAgent(ctx context.Context, pr core.PendingRun, resume *governance.ResumePayload) (*agent.RunResult, error) {
 	if rt.resumeFn != nil {
 		return rt.resumeFn(ctx, pr, resume)
 	}
@@ -111,9 +112,9 @@ func (s *AppService) resolveApproval(ctx context.Context, approvalID string, app
 	}
 	// The decision is on record: let any surface waiting on it close its dialog,
 	// and give it the outcome once the resume below is over.
-	s.rt.relay.markDecided(approvalID, approved, resolvedBy)
+	s.rt.relay.MarkDecided(approvalID, approved, resolvedBy)
 	out := map[string]any{"success": true}
-	defer func() { s.rt.relay.markCompleted(approvalID, out) }()
+	defer func() { s.rt.relay.MarkCompleted(approvalID, out) }()
 	if s.app != nil {
 		s.app.Event.Emit("approval:resolved", map[string]any{
 			"approval_id": approvalID,
@@ -250,7 +251,7 @@ func (s *AppService) resolveApproval(ctx context.Context, approvalID string, app
 
 // afterResume stores and announces what a resumed run produced and registers a
 // further pause if the run stopped for another approval.
-func (s *AppService) afterResume(approvalID string, pr pendingRun, res *agent.RunResult) []ChatMessageDTO {
+func (s *AppService) afterResume(approvalID string, pr core.PendingRun, res *agent.RunResult) []ChatMessageDTO {
 	msgs := []ChatMessageDTO{}
 	if res.Content != "" {
 		msgs = append(msgs, ChatMessageDTO{Role: "assistant", Type: "text", Content: res.Content})
@@ -309,7 +310,7 @@ func toEngineMessages(msgs []ChatMessageDTO) []engine.Message {
 // awaitingRunID returns the run the log shows as paused for this session, or ""
 // when there is none (matrix/workflow runs, sessions without a log, or paths
 // that never wrote one). Only a run that is awaiting approval can be closed.
-func (s *AppService) awaitingRunID(ctx context.Context, pr pendingRun) string {
+func (s *AppService) awaitingRunID(ctx context.Context, pr core.PendingRun) string {
 	if pr.ResumeKind != "" || pr.SessionID == "" || s.rt.Sessions() == nil {
 		return ""
 	}

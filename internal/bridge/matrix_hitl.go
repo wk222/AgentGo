@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"agentgo/internal/core"
 	"context"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -34,7 +35,7 @@ func (rt *Runtime) matrixRegisterPause(res *agent.RunResult, ev capability.Event
 	if interruptID == "" {
 		interruptID = approvalID
 	}
-	rt.pending.Set(pendingRun{
+	rt.pending.Set(core.PendingRun{
 		SessionID:   agent.MatrixCoordinatorSession,
 		UserText:    prompt,
 		ToolName:    p.ToolName,

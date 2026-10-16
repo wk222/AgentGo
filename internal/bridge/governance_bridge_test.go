@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"agentgo/internal/core"
 	"context"
 	"testing"
 
@@ -17,7 +18,7 @@ func TestBridgeGovernancePendingResolve(t *testing.T) {
 
 	rt := &Runtime{
 		approvals: queue,
-		pending:   newPendingStore(),
+		pending:   core.NewPendingStore(),
 	}
 	ctx := context.Background()
 
@@ -32,7 +33,7 @@ func TestBridgeGovernancePendingResolve(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rt.pending.Set(pendingRun{
+	rt.pending.Set(core.PendingRun{
 		SessionID:   "sess-1",
 		ToolName:    "execute_bash",
 		Arguments:   `{"command":"ls"}`,
@@ -69,7 +70,7 @@ func TestBridgeGovernancePendingResolveWithArguments(t *testing.T) {
 
 	rt := &Runtime{
 		approvals: queue,
-		pending:   newPendingStore(),
+		pending:   core.NewPendingStore(),
 	}
 	ctx := context.Background()
 
@@ -84,7 +85,7 @@ func TestBridgeGovernancePendingResolveWithArguments(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rt.pending.Set(pendingRun{
+	rt.pending.Set(core.PendingRun{
 		SessionID:   "sess-1",
 		ToolName:    "execute_bash",
 		Arguments:   `{"command":"rm -rf /"}`,

@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"agentgo/internal/core"
 	"context"
 	"encoding/json"
 	"log"
@@ -31,7 +32,7 @@ const (
 // resumabilityProblem says why a pending run could never be resumed, or "" when
 // it looks resumable. It only looks at what resuming needs: the interrupt id and
 // the agent's checkpoint.
-func (rt *Runtime) resumabilityProblem(ctx context.Context, pr pendingRun) string {
+func (rt *Runtime) resumabilityProblem(ctx context.Context, pr core.PendingRun) string {
 	if pr.ResumeKind == "workflow" {
 		return "" // resumed through the workflow engine, which validates its own checkpoint
 	}
@@ -57,7 +58,7 @@ func (rt *Runtime) resumabilityProblem(ctx context.Context, pr pendingRun) strin
 //
 // An ask_user question is not in the approval queue by design, so a missing
 // request is normal for it.
-func (rt *Runtime) judgePending(ctx context.Context, pr pendingRun) (keep bool, res engine.RunResult, extra map[string]any) {
+func (rt *Runtime) judgePending(ctx context.Context, pr core.PendingRun) (keep bool, res engine.RunResult, extra map[string]any) {
 	failed := func(reason string) (bool, engine.RunResult, map[string]any) {
 		return false, engine.RunResult{Error: reason}, map[string]any{"resolution": "recovered"}
 	}
@@ -130,7 +131,7 @@ func (rt *Runtime) RecoverPending(ctx context.Context) (adopted, closed int) {
 		if row.OwnerPID == self || processAlive(row.OwnerPID) {
 			continue
 		}
-		var pr pendingRun
+		var pr core.PendingRun
 		if err := json.Unmarshal([]byte(row.PayloadJSON), &pr); err != nil || pr.ApprovalID == "" {
 			// Without its description the run cannot be resumed.
 			log.Printf("[recover] pending run %s is unreadable (%v); dropping it", row.ApprovalID, err)

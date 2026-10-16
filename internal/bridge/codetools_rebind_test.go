@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"agentgo/internal/core"
 	"context"
 	"errors"
 	"os"
@@ -104,8 +105,8 @@ func TestFailedWorkspaceSwitchKeepsOldWorkspaceUsable(t *testing.T) {
 func TestWorkspaceSwitchRefusedWhileApprovalPending(t *testing.T) {
 	a, b := markedWorkspace(t, "ALPHA"), markedWorkspace(t, "BRAVO")
 	s, reg, _ := newCodetoolsService(t, a)
-	s.rt.pending = newPendingStore()
-	s.rt.pending.Set(pendingRun{ApprovalID: "appr_1", ToolName: "code_edit"})
+	s.rt.pending = core.NewPendingStore()
+	s.rt.pending.Set(core.PendingRun{ApprovalID: "appr_1", ToolName: "code_edit"})
 
 	_, err := s.rt.SetWorkspaceRoot(b)
 	if !errors.Is(err, ErrWorkspaceBusy) {

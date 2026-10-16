@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"agentgo/internal/core"
 	"context"
 	"errors"
 	"strings"
@@ -22,7 +23,7 @@ type resumeRig struct {
 	sid   string
 	calls atomic.Int32
 	// script is called with the 1-based call number.
-	script func(ctx context.Context, n int, pr pendingRun) (*agent.RunResult, error)
+	script func(ctx context.Context, n int, pr core.PendingRun) (*agent.RunResult, error)
 }
 
 func newResumeRig(t *testing.T) *resumeRig {
@@ -34,9 +35,9 @@ func newResumeRig(t *testing.T) *resumeRig {
 	}
 	t.Cleanup(func() { _ = queue.Close() })
 	s.rt.approvals = queue
-	s.rt.pending = newDurablePendingStore(s.rt.Sessions())
+	s.rt.pending = core.NewDurablePendingStore(s.rt.Sessions())
 	g := &resumeRig{s: s, queue: queue, sid: sid}
-	s.rt.resumeFn = func(ctx context.Context, pr pendingRun, _ *governance.ResumePayload) (*agent.RunResult, error) {
+	s.rt.resumeFn = func(ctx context.Context, pr core.PendingRun, _ *governance.ResumePayload) (*agent.RunResult, error) {
 		n := int(g.calls.Add(1))
 		if g.script == nil {
 			return &agent.RunResult{Content: "resumed", UsedTools: true}, nil
@@ -54,7 +55,7 @@ func (g *resumeRig) pause(t *testing.T, tool string) string {
 	if err := g.queue.CreateRequest(context.Background(), req); err != nil {
 		t.Fatal(err)
 	}
-	g.s.rt.pending.Set(pendingRun{
+	g.s.rt.pending.Set(core.PendingRun{
 		SessionID: g.sid, UserText: "do it", ToolName: tool, Arguments: `{}`,
 		ApprovalID: req.ID, InterruptID: "ic-" + req.ID,
 	})
@@ -100,7 +101,7 @@ func TestResolveApprovalChainsTwoApprovals(t *testing.T) {
 	g.startRun(t, "run_a")
 
 	secondID := ""
-	g.script = func(_ context.Context, n int, pr pendingRun) (*agent.RunResult, error) {
+	g.script = func(_ context.Context, n int, pr core.PendingRun) (*agent.RunResult, error) {
 		if n == 1 {
 			// The resumed run does some work and stops for a second approval.
 			req := governance.NewApprovalRequest(string(governance.KindToolApproval), "test", "Approve execute_bash", "risk")
@@ -258,7 +259,7 @@ func TestResolveApprovalCancelledDuringResumeFailsTheRun(t *testing.T) {
 	g.startRun(t, "run_a")
 
 	ctx, cancel := context.WithCancel(context.Background())
-	g.script = func(ctx context.Context, _ int, _ pendingRun) (*agent.RunResult, error) {
+	g.script = func(ctx context.Context, _ int, _ core.PendingRun) (*agent.RunResult, error) {
 		cancel() // the user cancels while the resumed run is working
 		<-ctx.Done()
 		return nil, ctx.Err()
@@ -299,7 +300,7 @@ func TestResolveApprovalResumeFailureFailsTheRun(t *testing.T) {
 	g := newResumeRig(t)
 	id := g.pause(t, "code_edit")
 	g.startRun(t, "run_a")
-	g.script = func(context.Context, int, pendingRun) (*agent.RunResult, error) {
+	g.script = func(context.Context, int, core.PendingRun) (*agent.RunResult, error) {
 		return nil, errors.New("checkpoint not found")
 	}
 	out := resolve(g, context.Background(), id, true)
