@@ -11,6 +11,7 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/components/tool/utils"
 
+	"agentgo/internal/config"
 	"agentgo/internal/sandbox"
 	"agentgo/internal/shellcmd"
 )
@@ -126,8 +127,8 @@ func registerExecuteBash(r *Registry, workspaceRoot string) error {
 			}
 
 			// If sandbox docker is active and available, run inside Docker container
-			if strings.TrimSpace(os.Getenv("AGENTGO_SANDBOX_DOCKER")) == "1" && sandbox.IsDockerAvailable(ctx) {
-				image := strings.TrimSpace(os.Getenv("AGENTGO_SANDBOX_IMAGE_BASH"))
+			if config.SandboxDocker.On() && sandbox.IsDockerAvailable(ctx) {
+				image := config.SandboxImageBash.Get()
 				if image == "" {
 					image = "node:20-alpine"
 				}
@@ -140,7 +141,7 @@ func registerExecuteBash(r *Registry, workspaceRoot string) error {
 					Stderr:   stderr,
 					ExitCode: exitCode,
 				}, nil
-			} else if strings.TrimSpace(os.Getenv("AGENTGO_SANDBOX_DOCKER")) == "1" {
+			} else if config.SandboxDocker.On() {
 				fmt.Println("[sandbox] WARNING: Docker Sandbox Mode requested but Docker daemon is unreachable. Falling back to local execution.")
 			}
 

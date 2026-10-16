@@ -2,64 +2,40 @@ package bridge
 
 import (
 	"context"
-	"strings"
 
 	"github.com/cloudwego/eino/schema"
 
-	"agentgo/internal/sessions"
+	"agentgo/internal/core"
 )
 
-const (
-	historyMaxMessages = 24
-	historyMaxRunes    = 24000 // rough budget; oldest turns are dropped first
-)
+// transcript returns the session transcript service (see core.Transcript).
+func (s *AppService) transcript() *core.Transcript {
+	return transcriptOf(s.rt)
+}
 
-// buildHistory turns stored session messages into chat history: plain
-// user/assistant text only (approval/question rows and tool traffic are not
-// replayed), newest turns kept within the budget, oldest first.
-func buildHistory(msgs []sessions.Message, maxMsgs, maxRunes int) []*schema.Message {
-	var picked []*schema.Message
-	total := 0
-	for i := len(msgs) - 1; i >= 0 && len(picked) < maxMsgs; i-- {
-		m := msgs[i]
-		if (m.Type != "" && m.Type != "text") || strings.TrimSpace(m.Content) == "" {
-			continue
-		}
-		var msg *schema.Message
-		switch m.Role {
-		case "user":
-			msg = schema.UserMessage(m.Content)
-		case "assistant":
-			msg = schema.AssistantMessage(m.Content, nil)
-		default:
-			continue
-		}
-		n := len([]rune(m.Content))
-		if total+n > maxRunes && len(picked) > 0 {
-			break
-		}
-		total += n
-		picked = append(picked, msg)
+// transcriptOf builds the transcript service for a runtime; persistence is
+// disabled when the runtime has no session store.
+func transcriptOf(rt *Runtime) *core.Transcript {
+	if rt == nil || rt.Sessions() == nil {
+		return core.NewTranscript(nil)
 	}
-	for i, j := 0, len(picked)-1; i < j; i, j = i+1, j-1 { // newest-first -> oldest-first
-		picked[i], picked[j] = picked[j], picked[i]
-	}
-	// A transcript must not start with an assistant turn.
-	for len(picked) > 0 && picked[0].Role != schema.User {
-		picked = picked[1:]
-	}
-	return picked
+	return core.NewTranscript(rt.Sessions())
 }
 
 // sessionHistory loads the stored transcript of an AgentGo session. Call it
-// BEFORE runEngineTurn, which appends the new user message to the same store.
+// BEFORE the turn appends the new user message to the same store.
 func (s *AppService) sessionHistory(ctx context.Context, sessionID string) []*schema.Message {
-	if sessionID == "" || s.rt == nil || s.rt.Sessions() == nil {
-		return nil
+	return s.transcript().History(ctx, sessionID)
+}
+
+// coreMessages converts reply DTOs into persistable core messages.
+func coreMessages(msgs []ChatMessageDTO) []core.Message {
+	out := make([]core.Message, 0, len(msgs))
+	for _, m := range msgs {
+		out = append(out, core.Message{
+			Role: m.Role, Content: m.Content, Type: m.Type,
+			ApprovalID: m.ApprovalID, ToolName: m.ToolName, Arguments: m.Arguments, Status: m.Status,
+		})
 	}
-	msgs, err := s.rt.Sessions().GetMessages(ctx, sessionID, 500)
-	if err != nil {
-		return nil
-	}
-	return buildHistory(msgs, historyMaxMessages, historyMaxRunes)
+	return out
 }

@@ -3,20 +3,21 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"regexp"
 	"strings"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
+
+	"agentgo/internal/config"
 )
 
 const maxToolHealAttempts = 2
 
 // ToolHealEnabled returns true unless AGENTGO_TOOL_HEAL=0.
 func ToolHealEnabled() bool {
-	return strings.TrimSpace(os.Getenv("AGENTGO_TOOL_HEAL")) != "0"
+	return config.ToolHeal.On()
 }
 
 // ComposeToolHealMiddleware repairs malformed tool JSON and retries transient arg/parse failures.

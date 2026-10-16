@@ -10,11 +10,11 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
 	"agentgo/internal/bridge"
+	"agentgo/internal/config"
 )
 
 // serveInfo is written next to the database so clients (VS Code extension, tray, scripts)
@@ -41,19 +41,19 @@ func newToken() string {
 // prepareServeEnv must run BEFORE bridge.NewRuntime(): the gateway plugin reads these env vars at boot.
 // It never binds beyond loopback unless the user explicitly set AGENTGO_GATEWAY_ADDR.
 func prepareServeEnv() (addr, token string) {
-	addr = strings.TrimSpace(os.Getenv("AGENTGO_GATEWAY_ADDR"))
+	addr = config.GatewayAddr.Get()
 	if addr == "" {
-		if p := strings.TrimSpace(os.Getenv("AGENTGO_GATEWAY_PORT")); p != "" {
+		if p := config.GatewayPort.Get(); p != "" {
 			addr = "127.0.0.1:" + p
 		} else {
 			addr = defaultServeAddr
 		}
-		_ = os.Setenv("AGENTGO_GATEWAY_ADDR", addr)
+		config.GatewayAddr.Set(addr)
 	}
-	token = strings.TrimSpace(os.Getenv("AGENTGO_GATEWAY_TOKEN"))
+	token = config.GatewayToken.Get()
 	if token == "" {
 		token = newToken()
-		_ = os.Setenv("AGENTGO_GATEWAY_TOKEN", token)
+		config.GatewayToken.Set(token)
 	}
 	return addr, token
 }

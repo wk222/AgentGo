@@ -135,6 +135,7 @@ func (m *GovernanceMiddleware) WrapInvokableToolCall(ctx context.Context, endpoi
 	}
 
 	return func(ctx context.Context, argumentsInJSON string, opts ...tool.Option) (string, error) {
+		ctx = WithCallID(ctx, tCtx.CallID)
 		return m.InvokeWithPolicy(ctx, tCtx.Name, argumentsInJSON, func(ctx context.Context, args string) (string, error) {
 			return endpoint(ctx, args, opts...)
 		})

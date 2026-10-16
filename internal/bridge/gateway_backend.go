@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"agentgo/internal/agent"
+	"agentgo/internal/core"
 	"agentgo/internal/gateway"
 	"agentgo/internal/workflow"
 )
@@ -57,6 +58,10 @@ func (g *RuntimeGateway) StreamChat(ctx context.Context, req gateway.ChatRequest
 	var full string
 	meter := &agent.RunMeter{}
 	ctx = agent.WithRunMeter(ctx, meter)
+	// Same transcript handling as the desktop: without it a gateway session
+	// forgets every earlier turn.
+	transcript := transcriptOf(g.rt)
+	ctx = transcript.Begin(ctx, req.SessionID, req.Message, nil)
 	res, err := runner.GenerateStream(ctx, llm, req.SessionID, req.Message, nil, func(delta string) {
 		full += delta
 		_ = emit("chunk", mustJSON(map[string]string{"delta": delta, "session_id": req.SessionID}))
@@ -74,6 +79,9 @@ func (g *RuntimeGateway) StreamChat(ctx context.Context, req gateway.ChatRequest
 			"approval_id": res.PendingApproval.ApprovalID,
 			"tool_name":   res.PendingApproval.ToolName,
 		}))
+	}
+	if strings.TrimSpace(content) != "" {
+		transcript.Finish(req.SessionID, []core.Message{{Role: "assistant", Content: content}})
 	}
 	meter.Wait(2 * time.Second)
 	u := meter.Snapshot()

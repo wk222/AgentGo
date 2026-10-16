@@ -30,21 +30,8 @@ func (s *AppService) runStream(sessionID, userText string, images []string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 
-	if sessionID != "" {
-		// Load conversational history from persisted sessions before appending the current turn
-		hist := s.sessionHistory(ctx, sessionID)
-		if len(hist) > 0 {
-			ctx = agent.WithHistory(ctx, hist)
-		}
-
-		pctx := context.Background()
-		var meta map[string]any
-		if len(images) > 0 {
-			meta = map[string]any{"images": images}
-		}
-		_ = s.rt.Sessions().AppendMessage(pctx, sessionID, "user", userText, "text", meta)
-		_ = s.rt.Sessions().AutoTitleFromUserMessage(pctx, sessionID, userText)
-	}
+	// History is loaded and the user message stored by the shared transcript service.
+	ctx = s.transcript().Begin(ctx, sessionID, userText, images)
 	if s.rt.runTrack != nil {
 		s.rt.runTrack.Set(sessionID, "goroutine", "runStream 已启动")
 	}
@@ -120,7 +107,6 @@ func (s *AppService) runStream(sessionID, userText string, images []string) {
 	applog.Stream("done session=%s msgs=%d streamed=%d err=%q", sessionID, len(res.Messages), len(fullStream), res.Error)
 
 	if sessionID != "" {
-		persistCtx := context.Background()
 		persistTypes := map[string]int{}
 		for _, m := range res.Messages {
 			t := m.Type
@@ -128,15 +114,8 @@ func (s *AppService) runStream(sessionID, userText string, images []string) {
 				t = "text"
 			}
 			persistTypes[t]++
-			meta := map[string]any{}
-			if m.Type == "approval" {
-				meta["approval_id"] = m.ApprovalID
-				meta["tool_name"] = m.ToolName
-				meta["arguments"] = m.Arguments
-				meta["status"] = m.Status
-			}
-			_ = s.rt.Sessions().AppendMessage(persistCtx, sessionID, m.Role, m.Content, m.Type, meta)
 		}
+		s.transcript().Finish(sessionID, coreMessages(res.Messages))
 		applog.Stream("persist session=%s types=%s", sessionID, applog.FormatCounts(persistTypes))
 	}
 }

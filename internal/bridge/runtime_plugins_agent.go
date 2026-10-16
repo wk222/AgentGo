@@ -14,6 +14,7 @@ import (
 	"agentgo/internal/apps"
 	"agentgo/internal/capability"
 	"agentgo/internal/checkpoint"
+	"agentgo/internal/config"
 	"agentgo/internal/governance"
 	"agentgo/internal/memory"
 	"agentgo/internal/plugin"
@@ -212,7 +213,7 @@ func (rt *Runtime) registerBuiltinTools(c *plugin.Context, reg *tools.Registry, 
 		bus.Register(kind, name, scope, nil)
 	}, onCompiled, onApp, wfSave)
 	_ = reg.SyncDynamicFromStore(rt.dynStore)
-	if os.Getenv("AGENTGO_LEGACY_DYNAMIC_EXEC") == "1" {
+	if config.LegacyDynExec.On() {
 		_ = tools.RegisterDynamicPythonExec(reg, rt.dynStore, sandboxDir)
 	}
 	_ = capability.NewMatrixCoordinator(bus, rt.onCapabilityEvent)

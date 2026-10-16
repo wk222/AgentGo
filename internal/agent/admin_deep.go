@@ -9,7 +9,6 @@ import (
 	"github.com/cloudwego/eino/adk/prebuilt/deep"
 	"github.com/cloudwego/eino/compose"
 
-	"agentgo/internal/governance"
 )
 
 const adminDeepSessionPrefix = "admin_deep:"
@@ -27,12 +26,8 @@ func (r *Runner) runAdminDeep(ctx context.Context, cfg LLMSettings, sessionID, u
 	}
 	sm := SessionModeFromContext(ctx)
 	toolList := RegistryToolsForMode(r.toolReg, sm)
-	var toolMW []compose.ToolMiddleware
-	policy := r.effectivePolicy()
-	if r.queue != nil {
-		toolMW = append(toolMW, governance.ComposeToolMiddleware(r.queue, policy))
-	}
-	toolMW = append(toolMW, ComposeToolHealMiddleware())
+	// deep.New has no ADK handlers: compose mount is the single mount point.
+	toolMW := r.composeToolMiddlewares(r.effectivePolicy(), toolMounts{})
 
 	deepAgent, err := deep.New(ctx, &deep.Config{
 		Name:        "agentgo_admin",

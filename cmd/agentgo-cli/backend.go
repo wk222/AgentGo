@@ -8,6 +8,7 @@ import (
 	"agentgo/internal/applog"
 	"agentgo/internal/bridge"
 	"agentgo/internal/cli"
+	"agentgo/internal/config"
 	"agentgo/internal/engine"
 )
 
@@ -24,12 +25,12 @@ type bridgeBackend struct {
 func openStandalone(cfg cli.Config) (cli.Backend, error) {
 	root := strings.TrimSpace(cfg.Workspace) // empty = keep the workspace AgentGo last used
 	if cfg.API != "" {
-		os.Setenv("AGENTGO_LLM_API", cfg.API)
+		config.LLMAPI.Set(cfg.API)
 	}
 	// A CLI process owns its runs; it is not something others attach to, and it
 	// must not fire the desktop app's scheduled tasks.
-	setDefaultEnv("AGENTGO_DISABLE_SCHEDULER", "1")
-	setDefaultEnv("AGENTGO_HOSTLINK", "0")
+	config.DisableScheduler.SetDefault(true)
+	config.Hostlink.SetDefault(false)
 
 	applog.SetQuiet(!cfg.Verbose)
 	rt, err := bridge.NewRuntime()
@@ -45,17 +46,17 @@ func openStandalone(cfg cli.Config) (cli.Backend, error) {
 		}
 	}
 	if key, ep := os.Getenv("AZURE_OPENAI_API_KEY"), os.Getenv("AZURE_OPENAI_API_ENDPOINT"); key != "" && ep != "" {
-		model := os.Getenv("AGENTGO_AZURE_DEPLOYMENT")
+		model := config.AzureDeployment.Get()
 		if model == "" {
 			model = "gpt-6-luna"
 		}
-		if os.Getenv("AGENTGO_REASONING_EFFORT") == "" {
+		if !config.ReasoningEffort.IsSet() {
 			// chat/completions rejects function tools on reasoning models unless
 			// effort is "none"; the Responses API has no such limit.
-			if strings.EqualFold(os.Getenv("AGENTGO_LLM_API"), "responses") {
-				os.Setenv("AGENTGO_REASONING_EFFORT", "medium")
+			if strings.EqualFold(config.LLMAPI.Get(), "responses") {
+				config.ReasoningEffort.Set("medium")
 			} else {
-				os.Setenv("AGENTGO_REASONING_EFFORT", "none")
+				config.ReasoningEffort.Set("none")
 			}
 		}
 		llm := bridge.LLMConfig{APIBase: strings.TrimRight(ep, "/") + "/openai/v1/", APIKey: key, Model: model}
@@ -64,12 +65,6 @@ func openStandalone(cfg cli.Config) (cli.Backend, error) {
 		}
 	}
 	return &bridgeBackend{rt: rt, svc: bridge.NewAppService(rt)}, nil
-}
-
-func setDefaultEnv(k, v string) {
-	if os.Getenv(k) == "" {
-		os.Setenv(k, v)
-	}
 }
 
 func (b *bridgeBackend) Run(sessionID, input string, sink engine.EventSink) engine.RunResult {

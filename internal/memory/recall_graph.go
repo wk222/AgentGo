@@ -7,12 +7,13 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/cloudwego/eino/compose"
+
+	"agentgo/internal/config"
 )
 
 type RecallInput struct {
@@ -60,7 +61,7 @@ func rewriteQueryLLM(ctx context.Context, apiBase, apiKey, query, historyStr str
 	if base == "" {
 		base = "https://api.openai.com/v1"
 	}
-	model := os.Getenv("AGENTGO_REWRITE_MODEL")
+	model := config.RewriteModel.Get()
 	if model == "" {
 		model = "gpt-4o-mini"
 	}

@@ -141,6 +141,21 @@ func (s *Store) Create(ctx context.Context, title string) (Session, error) {
 	return sess, err
 }
 
+// EnsureSession creates the session row when it does not exist yet. Callers that
+// receive a session id from outside (HTTP gateway, ACP) use it so message writes
+// do not fail on the chat_sessions foreign key.
+func (s *Store) EnsureSession(ctx context.Context, id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return fmt.Errorf("empty session id")
+	}
+	now := time.Now().Unix()
+	_, err := s.db.ExecContext(ctx, `
+		INSERT OR IGNORE INTO chat_sessions (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)
+	`, id, "New chat", now, now)
+	return err
+}
+
 func (s *Store) Touch(ctx context.Context, id string) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE chat_sessions SET updated_at = ? WHERE id = ?`, time.Now().Unix(), id)
 	return err

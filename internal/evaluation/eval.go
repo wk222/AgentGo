@@ -13,11 +13,14 @@ import (
 
 // EvalCase represents a single query test scenario.
 type EvalCase struct {
-	ID           string   `json:"id"`
-	Input        string   `json:"input"`
-	ExpectedText string   `json:"expected_text,omitempty"` // Regex expression or substring
-	Keywords     []string `json:"keywords,omitempty"`      // Must-contain keyword tags
-	MaxToolCalls *int     `json:"max_tool_calls,omitempty"` // Fail when a measured run used more tools (0 = "no tools")
+	ID             string     `json:"id"`
+	Input          string     `json:"input"`
+	ExpectedText   string     `json:"expected_text,omitempty"`   // Regex expression or substring
+	Keywords       []string   `json:"keywords,omitempty"`        // Must-contain keyword tags
+	MaxToolCalls   *int       `json:"max_tool_calls,omitempty"`  // Fail when a measured run used more tools (0 = "no tools")
+	MinToolCalls   *int       `json:"min_tool_calls,omitempty"`  // Fail when the run used fewer tools (answer must be grounded in tools)
+	FollowUps      []EvalTurn `json:"follow_ups,omitempty"`      // Extra turns sent in the same session (multi-turn / prefix-stability cases)
+	ExpectApproval bool       `json:"expect_approval,omitempty"` // Passing outcome is pausing for human approval
 }
 
 // EvalSet groups together a series of cases.
@@ -137,31 +140,9 @@ func EvaluateSetTagged(ctx context.Context, agent AgentGenerator, set EvalSet, n
 				sessionID := fmt.Sprintf("eval-%s%s-run-%d", tag, c.ID, runID)
 				runStart := time.Now()
 
-				var output string
-				var metrics Metrics
-				var err error
-				if ma, ok := agent.(MeasuredAgent); ok {
-					output, metrics, err = ma.GenerateMeasured(ctx, sessionID, c.Input)
-				} else {
-					output, err = agent.Generate(ctx, sessionID, c.Input)
-				}
+				cr := runCase(ctx, agent, sessionID, c)
 				duration := time.Since(runStart)
-
-				var score float64
-				var passed bool
-				var errMsg string
-
-				if err != nil {
-					errMsg = err.Error()
-					score = 0.0
-					passed = false
-				} else {
-					score, passed = ScoreCase(output, c)
-					if passed && c.MaxToolCalls != nil && metrics.ToolCalls > *c.MaxToolCalls {
-						passed, score = false, 0
-						errMsg = fmt.Sprintf("used %d tool calls, limit %d", metrics.ToolCalls, *c.MaxToolCalls)
-					}
-				}
+				output, metrics, score, passed, errMsg := cr.Output, cr.Metrics, cr.Score, cr.Passed, cr.ErrorMsg
 
 				if passed {
 					passedCount++

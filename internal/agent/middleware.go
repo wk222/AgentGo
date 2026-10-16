@@ -3,13 +3,13 @@ package agent
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/schema"
 
+	"agentgo/internal/config"
 	"agentgo/internal/memory"
 )
 
@@ -94,7 +94,7 @@ func (m *MemoryMiddleware) AfterAgent(ctx context.Context, state *adk.ChatModelA
 }
 
 func (m *MemoryMiddleware) maybeRunReflect(ctx context.Context, scope string) {
-	if m == nil || m.journalCaller == nil || strings.TrimSpace(os.Getenv("AGENTGO_AUTO_REFLECT")) != "1" {
+	if m == nil || m.journalCaller == nil || !config.AutoReflect.On() {
 		return
 	}
 	p := memory.PipelineFromEngine(m.engine)
@@ -113,7 +113,7 @@ func (m *MemoryMiddleware) maybeRunReflect(ctx context.Context, scope string) {
 }
 
 func (m *MemoryMiddleware) maybeRunGC(ctx context.Context) {
-	if strings.TrimSpace(os.Getenv("AGENTGO_AUTO_GC")) != "1" {
+	if !config.AutoGC.On() {
 		return
 	}
 	p := memory.PipelineFromEngine(m.engine)
@@ -128,7 +128,7 @@ func (m *MemoryMiddleware) maybeRunGC(ctx context.Context) {
 }
 
 func (m *MemoryMiddleware) maybeSyncGarden(ctx context.Context, scope string) {
-	if strings.TrimSpace(os.Getenv("AGENTGO_MEMORY_GARDEN")) != "1" {
+	if !config.MemoryGarden.On() {
 		return
 	}
 	p := memory.PipelineFromEngine(m.engine)
@@ -136,7 +136,7 @@ func (m *MemoryMiddleware) maybeSyncGarden(ctx context.Context, scope string) {
 		return
 	}
 	// garden sync is best-effort; workspace root from env
-	root := strings.TrimSpace(os.Getenv("AGENTGO_WORKSPACE"))
+	root := config.Workspace.Get()
 	if root == "" {
 		return
 	}
@@ -149,7 +149,7 @@ func (m *MemoryMiddleware) maybeSyncGarden(ctx context.Context, scope string) {
 }
 
 func (m *MemoryMiddleware) maybeRunJournal(ctx context.Context, scope string, msgs []*schema.Message) {
-	if m == nil || m.journalCaller == nil || strings.TrimSpace(os.Getenv("AGENTGO_AUTO_JOURNAL")) != "1" {
+	if m == nil || m.journalCaller == nil || !config.AutoJournal.On() {
 		return
 	}
 	p := memory.PipelineFromEngine(m.engine)

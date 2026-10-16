@@ -6,11 +6,10 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
+	"agentgo/internal/config"
 	"agentgo/internal/crushproto"
 	"agentgo/internal/plugin"
 )
@@ -20,9 +19,9 @@ import (
 // a no-op in the embedded TUI, which owns the terminal.
 func newCrushprotoServer(s *AppService, logf func(string, ...any)) (*crushproto.Server, error) {
 	return crushproto.New(crushproto.Options{
-		Runner:          newCrushRunner(s, strings.TrimSpace(os.Getenv("AGENTGO_CRUSHPROTO_ENGINE"))),
+		Runner:          newCrushRunner(s, config.CrushprotoEngine.Get()),
 		Logf:            logf,
-		SkipPermissions: os.Getenv("AGENTGO_CRUSHPROTO_YOLO") == "1",
+		SkipPermissions: config.CrushprotoYolo.On(),
 		Store:           crushproto.FileStore{Dir: filepath.Join(s.rt.DataDir(), "crushproto")},
 		LSPProvider:     &crushprotoLSPBridge{svc: s},
 		ModelProvider:   &crushprotoModelBridge{svc: s},
@@ -59,7 +58,7 @@ func (s *AppService) CrushHandler() (http.Handler, func(), error) {
 // dependency is visible in the plugin graph and the architecture tests keep it
 // the only one.
 func crushprotoPlugin(rt *Runtime) (plugin.Plugin, bool) {
-	addr := strings.TrimSpace(os.Getenv("AGENTGO_CRUSHPROTO_ADDR"))
+	addr := config.CrushprotoAddr.Get()
 	if rt == nil || addr == "" {
 		return plugin.Plugin{}, false
 	}
@@ -73,7 +72,7 @@ func crushprotoPlugin(rt *Runtime) (plugin.Plugin, bool) {
 			}
 			host, _, err := net.SplitHostPort(addr)
 			if err != nil {
-				return fmt.Errorf("AGENTGO_CRUSHPROTO_ADDR: %w", err)
+				return fmt.Errorf("%s: %w", config.CrushprotoAddr.Name(), err)
 			}
 			if ip := net.ParseIP(host); host != "localhost" && (ip == nil || !ip.IsLoopback()) {
 				return fmt.Errorf("refusing non-loopback address %q: the protocol is unauthenticated", addr)

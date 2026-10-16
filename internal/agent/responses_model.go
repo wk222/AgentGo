@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -17,6 +16,8 @@ import (
 	"github.com/cloudwego/eino/components"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
+
+	"agentgo/internal/config"
 )
 
 // responsesModel is a model.ToolCallingChatModel over the OpenAI Responses API
@@ -41,7 +42,7 @@ type responsesModel struct {
 
 // responsesEnabled reports whether the Responses channel is selected.
 func responsesEnabled() bool {
-	return strings.EqualFold(strings.TrimSpace(os.Getenv("AGENTGO_LLM_API")), "responses")
+	return strings.EqualFold(config.LLMAPI.Get(), "responses")
 }
 
 func newResponsesModel(cfg LLMSettings, modelName string, timeout time.Duration, hc *http.Client) *responsesModel {
@@ -55,7 +56,7 @@ func newResponsesModel(cfg LLMSettings, modelName string, timeout time.Duration,
 			IdleConnTimeout:       60 * time.Second,
 		}}}
 	}
-	summary := strings.TrimSpace(os.Getenv("AGENTGO_REASONING_SUMMARY"))
+	summary := config.ReasoningSummary.Get()
 	if summary == "" {
 		summary = "auto"
 	}
@@ -63,7 +64,7 @@ func newResponsesModel(cfg LLMSettings, modelName string, timeout time.Duration,
 		baseURL: strings.TrimRight(strings.TrimSpace(cfg.APIBase), "/"),
 		apiKey:  cfg.APIKey,
 		model:   modelName,
-		effort:  strings.TrimSpace(os.Getenv("AGENTGO_REASONING_EFFORT")),
+		effort:  config.ReasoningEffort.Get(),
 		summary: summary,
 		client:  hc,
 	}

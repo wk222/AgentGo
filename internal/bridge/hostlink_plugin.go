@@ -9,26 +9,18 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
+	"agentgo/internal/config"
 	"agentgo/internal/hostlink"
 	"agentgo/internal/plugin"
 )
 
-// hostlinkEnv switches the host endpoint off ("0"/"false"/"off"). It is on by
-// default for the desktop app and the headless server, which are what other
-// surfaces attach to. A standalone terminal sets it to off for itself: it owns
-// its run in-process and should not become the thing others discover.
-const hostlinkEnv = "AGENTGO_HOSTLINK"
-
-func hostlinkEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv(hostlinkEnv))) {
-	case "0", "false", "off", "no":
-		return false
-	}
-	return true
-}
+// hostlinkEnabled reports config.Hostlink: on by default for the desktop app and
+// the headless server, which are what other surfaces attach to. A standalone
+// terminal sets it to off for itself: it owns its run in-process and should not
+// become the thing others discover.
+func hostlinkEnabled() bool { return config.Hostlink.On() }
 
 // hostlinkPlugin makes this process the host other surfaces attach to: a
 // loopback endpoint, protected by a per-start token and announced in the data
@@ -59,7 +51,7 @@ func hostlinkPlugin(rt *Runtime) (plugin.Plugin, bool) {
 				return err
 			}
 			logf := func(string, ...any) {} // the stream of protocol requests is noise in a GUI log
-			if os.Getenv("AGENTGO_HOSTLINK_LOG") == "1" {
+			if config.HostlinkLog.On() {
 				logf = log.Printf
 			}
 			crush, err := newCrushprotoServer(s, logf)

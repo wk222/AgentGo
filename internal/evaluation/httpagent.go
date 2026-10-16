@@ -125,7 +125,7 @@ func parseChatSSE(r io.Reader) (string, Metrics, error) {
 					return out, m, fmt.Errorf("agent error: %s", d.Error)
 				}
 				if interrupt != "" {
-					return out, m, fmt.Errorf("run paused for approval of tool %q; evaluation cases must not need approval", interrupt)
+					return out, m, fmt.Errorf("%w: tool %q (cases that are not marked expect_approval must not need approval)", ErrApprovalPaused, interrupt)
 				}
 				return out, m, nil
 			}

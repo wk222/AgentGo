@@ -7,12 +7,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
 	"github.com/cloudwego/eino-ext/components/model/openai"
 	"github.com/cloudwego/eino/schema"
+
+	"agentgo/internal/config"
 )
 
 // APITestResult is returned to the frontend after probing the OpenAI-compatible endpoint.
@@ -102,7 +103,7 @@ func ChatOnce(ctx context.Context, cfg LLMConfig, systemPrompt, userMessage stri
 		BaseURL: cfg.APIBase,
 		Model:   modelName,
 	}
-	if v := strings.TrimSpace(os.Getenv("AGENTGO_REASONING_EFFORT")); v != "" {
+	if v := config.ReasoningEffort.Get(); v != "" {
 		chatCfg.ReasoningEffort = openai.ReasoningEffortLevel(v)
 	} else if strings.Contains(strings.ToLower(modelName), "luna") || strings.Contains(strings.ToLower(modelName), "gpt-5") {
 		chatCfg.ReasoningEffort = openai.ReasoningEffortLevel("none")

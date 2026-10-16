@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
 	"agentgo/internal/agent"
+	"agentgo/internal/config"
 	"agentgo/internal/crushproto"
 	"agentgo/internal/engine"
 )
@@ -66,7 +66,7 @@ func (r *crushRunner) Run(ctx context.Context, req crushproto.RunRequest, em *cr
 		Workspace: em.WorkDir(),
 	}, engine.SinkFunc(t.onEvent))
 
-	if os.Getenv("AGENTGO_DEBUG_LLM") == "1" {
+	if config.DebugLLM.On() {
 		shapes := make([]string, 0, len(res.Messages))
 		for _, m := range res.Messages {
 			shapes = append(shapes, fmt.Sprintf("%s/%s/%s/%s:%.100q", m.Role, m.Type, m.Status, m.ToolName, m.Content))

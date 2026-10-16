@@ -171,7 +171,7 @@ func TestDefaultSuiteIsWellFormed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(set.Cases) < 8 {
+	if len(set.Cases) < 20 {
 		t.Fatalf("default suite has %d cases", len(set.Cases))
 	}
 	seen := map[string]bool{}
@@ -180,7 +180,7 @@ func TestDefaultSuiteIsWellFormed(t *testing.T) {
 			t.Errorf("bad or duplicate case %q", c.ID)
 		}
 		seen[c.ID] = true
-		if c.ExpectedText == "" && len(c.Keywords) == 0 {
+		if c.ExpectedText == "" && len(c.Keywords) == 0 && !c.ExpectApproval {
 			t.Errorf("%s has no scoring criterion", c.ID)
 		}
 		if c.ExpectedText != "" {

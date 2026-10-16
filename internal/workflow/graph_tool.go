@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -12,6 +11,8 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
+
+	"agentgo/internal/config"
 )
 
 // WorkflowRunner executes a stored workflow by id (implemented by bridge.Runtime).
@@ -21,14 +22,7 @@ type WorkflowRunner interface {
 
 // GraphToolEnabled reports whether workflows register as Eino compose graph tools (default on).
 func GraphToolEnabled() bool {
-	v := strings.TrimSpace(os.Getenv("AGENTGO_WORKFLOW_GRAPH_TOOL"))
-	if v == "0" || strings.EqualFold(v, "false") {
-		return false
-	}
-	if v == "1" || strings.EqualFold(v, "true") {
-		return true
-	}
-	return true
+	return config.WorkflowGraphTool.On()
 }
 
 // graphToolInput is the JSON args schema for workflow graph tools.

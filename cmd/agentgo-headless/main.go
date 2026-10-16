@@ -19,6 +19,7 @@ import (
 	"syscall"
 
 	"agentgo/internal/bridge"
+	"agentgo/internal/config"
 )
 
 func main() {
@@ -28,16 +29,14 @@ func main() {
 	engineID := flag.String("engine", "", "engine id (default: router default)")
 	flag.Parse()
 
-	os.Setenv("AGENTGO_CRUSHPROTO_ADDR", *addr)
+	config.CrushprotoAddr.Set(*addr)
 	if *yolo {
-		os.Setenv("AGENTGO_CRUSHPROTO_YOLO", "1")
+		config.CrushprotoYolo.Set(true)
 	}
 	if *engineID != "" {
-		os.Setenv("AGENTGO_CRUSHPROTO_ENGINE", *engineID)
+		config.CrushprotoEngine.Set(*engineID)
 	}
-	if os.Getenv("AGENTGO_DISABLE_SCHEDULER") == "" {
-		os.Setenv("AGENTGO_DISABLE_SCHEDULER", "1")
-	}
+	config.DisableScheduler.SetDefault(true)
 
 	root := *ws
 	if root == "" {
@@ -52,12 +51,12 @@ func main() {
 		log.Fatalf("workspace %s: %v", root, err)
 	}
 	if key, ep := os.Getenv("AZURE_OPENAI_API_KEY"), os.Getenv("AZURE_OPENAI_API_ENDPOINT"); key != "" && ep != "" {
-		model := os.Getenv("AGENTGO_AZURE_DEPLOYMENT")
+		model := config.AzureDeployment.Get()
 		if model == "" {
 			model = "gpt-6-luna"
 		}
-		if os.Getenv("AGENTGO_REASONING_EFFORT") == "" {
-			os.Setenv("AGENTGO_REASONING_EFFORT", "none")
+		if !config.ReasoningEffort.IsSet() {
+			config.ReasoningEffort.Set("none")
 		}
 		cfg := bridge.LLMConfig{APIBase: strings.TrimRight(ep, "/") + "/openai/v1/", APIKey: key, Model: model}
 		if err := rt.SetLLMConfig(cfg); err != nil {

@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"agentgo/internal/agent"
 	"agentgo/internal/applog"
+	"agentgo/internal/core"
 	"agentgo/internal/engine"
 )
 
@@ -85,15 +85,7 @@ func (s *AppService) runEngineTurn(parent context.Context, req engine.RunRequest
 	ctx, cancel := context.WithTimeout(parent, engineRunTimeout)
 	defer cancel()
 
-	if req.SessionID != "" {
-		ctx = agent.WithHistory(ctx, s.sessionHistory(ctx, req.SessionID))
-		var meta map[string]any
-		if len(req.Images) > 0 {
-			meta = map[string]any{"images": req.Images}
-		}
-		_ = s.rt.Sessions().AppendMessage(ctx, req.SessionID, "user", req.Input, "text", meta)
-		_ = s.rt.Sessions().AutoTitleFromUserMessage(ctx, req.SessionID, req.Input)
-	}
+	ctx = s.transcript().Begin(ctx, req.SessionID, req.Input, req.Images)
 
 	// Publish completion only after the transcript and commit point are stored.
 	// A client can safely reload the session as soon as it receives done.
@@ -110,16 +102,14 @@ func (s *AppService) runEngineTurn(parent context.Context, req engine.RunRequest
 	res := s.engines.Run(ctx, req, s.logRunEvents(req.SessionID, forward))
 
 	if req.SessionID != "" {
+		reply := make([]core.Message, 0, len(res.Messages))
 		for _, m := range res.Messages {
-			meta := map[string]any{}
-			if m.Type == "approval" || m.Type == "question" {
-				meta["approval_id"] = m.ApprovalID
-				meta["tool_name"] = m.ToolName
-				meta["arguments"] = m.Arguments
-				meta["status"] = m.Status
-			}
-			_ = s.rt.Sessions().AppendMessage(context.Background(), req.SessionID, m.Role, m.Content, m.Type, meta)
+			reply = append(reply, core.Message{
+				Role: m.Role, Content: m.Content, Type: m.Type,
+				ApprovalID: m.ApprovalID, ToolName: m.ToolName, Arguments: m.Arguments, Status: m.Status,
+			})
 		}
+		s.transcript().Finish(req.SessionID, reply)
 		// Commit point: only now is the transcript complete for this run.
 		s.commitRun(req.SessionID, res.RunID, res)
 	}

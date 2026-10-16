@@ -9,6 +9,8 @@ import (
 
 	"github.com/cloudwego/eino/adk/filesystem"
 	"github.com/cloudwego/eino/adk/middlewares/reduction"
+
+	"agentgo/internal/config"
 )
 
 // diskReductionBackend implements reduction.Backend (Write-only) without eino-ext/local.
@@ -40,17 +42,17 @@ func (b *diskReductionBackend) Write(_ context.Context, req *filesystem.WriteReq
 
 // ReductionTruncationEnabled enables file offload truncation (Linux/CI default; Windows needs opt-in).
 func ReductionTruncationEnabled() bool {
-	if boolEnv("AGENTGO_REDUCTION_TRUNC") {
+	if config.ReductionTrunc.On() {
 		return true
 	}
-	if strings.TrimSpace(os.Getenv("AGENTGO_REDUCTION_BACKEND")) != "" {
+	if config.ReductionBackend.IsSet() {
 		return true
 	}
 	return runtime.GOOS != "windows"
 }
 
 func reductionOffloadRoot(dataDir string) string {
-	if v := strings.TrimSpace(os.Getenv("AGENTGO_REDUCTION_BACKEND")); v != "" {
+	if v := config.ReductionBackend.Get(); v != "" {
 		return v
 	}
 	return filepath.Join(dataDir, "tool_offload")

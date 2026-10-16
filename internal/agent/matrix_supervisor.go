@@ -24,12 +24,9 @@ func (r *Runner) buildChatModelAgentWithTools(
 	if err != nil {
 		return nil, err
 	}
-	var toolMW []compose.ToolMiddleware
 	policy := r.effectivePolicy()
-	if r.queue != nil {
-		toolMW = append(toolMW, governance.ComposeToolMiddleware(r.queue, policy))
-	}
-	toolMW = append(toolMW, ComposeToolHealMiddleware())
+	// Governance is mounted once as an ADK handler below; tool-heal has no handler here.
+	toolMW := r.composeToolMiddlewares(policy, toolMounts{GovernanceInHandlers: true})
 	toolsCfg := adk.ToolsConfig{
 		EmitInternalEvents: emitInternal,
 		ToolsNodeConfig: compose.ToolsNodeConfig{

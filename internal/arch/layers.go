@@ -10,8 +10,9 @@ const (
 	LayerSystems    Layer = 1 // governance, memory, capability, gateway, …
 	LayerAssets     Layer = 2 // tools, skills, workflow, apps, admin, …
 	LayerModes      Layer = 3 // agent orchestration (profiles, matrix, ADK)
-	LayerConsumer   Layer = 4 // bridge: Wails IPC + runtime assembly
-	LayerCMD        Layer = 5 // cmd/* entrypoints
+	LayerKernel     Layer = 4 // core: business logic shared by every entry point
+	LayerConsumer   Layer = 5 // bridge / acp / cli: protocol adapters + runtime assembly
+	LayerCMD        Layer = 6 // cmd/* entrypoints
 )
 
 // PackageLayer maps agentgo/internal/<pkg> to its layer.
@@ -20,6 +21,7 @@ var PackageLayer = map[string]Layer{
 	"sessions":           LayerFoundation,
 	"workspace":          LayerFoundation,
 	"applog":             LayerFoundation,
+	"config":             LayerFoundation, // typed AGENTGO_* runtime settings (single read point); stdlib only
 	"event":              LayerFoundation,
 	"telemetry":          LayerFoundation,
 	"governance":         LayerSystems,
@@ -60,6 +62,7 @@ var PackageLayer = map[string]Layer{
 	"terminal":           LayerAssets,
 	"evaluation":         LayerAssets,
 	"agent":              LayerModes,
+	"core":               LayerKernel,     // kernel services (chat transcript, ...) shared by gateway/ACP/desktop
 	"bridge":             LayerConsumer,
 	"acp":                LayerConsumer,
 	"tui":                LayerConsumer,
@@ -89,10 +92,12 @@ func LayerLabel(l Layer) string {
 		return "L2 Assets"
 	case LayerModes:
 		return "L3 Modes"
+	case LayerKernel:
+		return "L4 Kernel (core)"
 	case LayerConsumer:
-		return "L4 Consumer (bridge)"
+		return "L5 Consumer (bridge)"
 	case LayerCMD:
-		return "L5 CMD"
+		return "L6 CMD"
 	default:
 		return "unknown"
 	}

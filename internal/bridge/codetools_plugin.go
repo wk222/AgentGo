@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
 	"path/filepath"
 	"strings"
 
 	ct "github.com/charmbracelet/crush/pkg/codetools"
 
 	"agentgo/internal/codetools"
+	"agentgo/internal/config"
 	"agentgo/internal/plugin"
 	"agentgo/internal/tools"
 )
@@ -69,7 +69,7 @@ func (s *AppService) rebindCodetools(string) error {
 // registered in initPlugins and reloads this plugin, so the tools, grants,
 // visibility and language servers move together or the switch is rolled back.
 func codetoolsPlugin(env codetoolsEnv) (plugin.Plugin, bool) {
-	if env.WorkspaceRoot == nil || os.Getenv("AGENTGO_CODETOOLS") == "0" {
+	if env.WorkspaceRoot == nil || !config.CodeTools.On() {
 		return plugin.Plugin{}, false
 	}
 	return plugin.Plugin{
@@ -85,7 +85,7 @@ func codetoolsPlugin(env codetoolsEnv) (plugin.Plugin, bool) {
 				return fmt.Errorf("no workspace selected")
 			}
 			opts := ct.Options{WorkDir: root, DataDir: filepath.Join(env.DataDir, "codetools")}
-			if os.Getenv("AGENTGO_CODETOOLS_APPROVE") == "0" {
+			if !config.CodeToolsAppr.On() {
 				opts.Approver = func(context.Context, ct.Request) bool { return false }
 			}
 			tb, err := ct.New(opts)

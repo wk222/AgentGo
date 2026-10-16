@@ -3,9 +3,8 @@ package agent
 import (
 	"context"
 	"fmt"
-	"os"
-	"strconv"
-	"strings"
+
+	"agentgo/internal/config"
 )
 
 // ModeProfile mirrors PyBot assistant | app_matrix | admin.
@@ -69,10 +68,10 @@ func (m SessionMode) ModeHints() string {
 // EnvSessionMode reads AGENTGO_MODE_PROFILE.
 func EnvSessionMode() SessionMode {
 	m := DefaultSessionMode()
-	if v := os.Getenv("AGENTGO_MODE_PROFILE"); v != "" {
+	if v := config.ModeProfile.Get(); v != "" {
 		m.Profile = ModeProfile(v)
 	}
-	if v := os.Getenv("AGENTGO_EXECUTION_CANVAS"); v != "" {
+	if v := config.ExecutionCanvas.Get(); v != "" {
 		m.Canvas = ExecutionCanvas(v)
 	}
 	return m.Normalized()
@@ -109,17 +108,8 @@ func (m SessionMode) SummarizationTokenTrigger() int {
 	return CanvasPolicyFor(c).SummarizationTokens
 }
 
-func boolEnv(key string) bool {
-	raw := strings.TrimSpace(os.Getenv(key))
-	if raw == "1" || strings.EqualFold(raw, "true") {
-		return true
-	}
-	v, _ := strconv.ParseBool(raw)
-	return v
-}
+func EinoAgentsMDEnabled() bool   { return !config.DisableAgentsMD.On() }
+func EinoSkillMWEnabled() bool    { return config.EinoSkillMW.On() }
+func EinoPlanTaskMWEnabled() bool { return config.EinoPlanTaskMW.On() }
 
-func EinoAgentsMDEnabled() bool   { return !boolEnv("AGENTGO_DISABLE_AGENTSMD") }
-func EinoSkillMWEnabled() bool    { return boolEnv("AGENTGO_EINO_SKILL_MW") }
-func EinoPlanTaskMWEnabled() bool { return boolEnv("AGENTGO_EINO_PLANTASK") }
-
-func TurnLoopEnabled() bool { return boolEnv("AGENTGO_TURN_LOOP") }
+func TurnLoopEnabled() bool { return config.TurnLoop.On() }
