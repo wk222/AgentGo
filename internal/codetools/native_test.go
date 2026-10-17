@@ -11,10 +11,7 @@ import (
 	"testing"
 	"time"
 
-	ct "agentgo/third_party/crush/pkg/codetools"
 	einotool "github.com/cloudwego/eino/components/tool"
-
-	"agentgo/internal/coderuntime"
 )
 
 // Parity (plan-crush-digestion D2): the native file tools must tell the model
@@ -296,38 +293,6 @@ func TestNativeSearchSkipsNoiseDirs(t *testing.T) {
 	}
 }
 
-// The production assembly (Crush toolbox in LSPOnly mode + native overlay) must
-// expose exactly the tool names the full Crush toolbox does, so nothing the
-// model or the governance traits refer to goes missing.
-func TestNativeAssemblyKeepsToolSet(t *testing.T) {
-	names := func(tb coderuntime.Toolbox) string {
-		var n []string
-		for _, tl := range tb.Tools() {
-			n = append(n, tl.Name)
-		}
-		sort.Strings(n)
-		return strings.Join(n, ",")
-	}
-	dir := t.TempDir()
-	full, err := ct.New(ct.Options{WorkDir: dir, DataDir: t.TempDir()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer full.Close()
-	lspOnly, err := ct.New(ct.Options{WorkDir: dir, DataDir: t.TempDir(), LSPOnly: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer lspOnly.Close()
-
-	base := Wrap(lspOnly)
-	native := NativeFS(base, dir, nil)
-	native = append(native, NativeSearch(SearchOptions{WorkDir: dir})...)
-	if got, want := names(Overlay(base, native)), names(Wrap(full)); got != want {
-		t.Fatalf("tool set changed\n got: %s\nwant: %s", got, want)
-	}
-}
-
 // With ripgrep available, grep and glob must find the same files as the Go
 // walker (the walker is the fallback when rg is missing).
 func TestNativeSearchRgMatchesWalker(t *testing.T) {
@@ -370,6 +335,9 @@ func TestNativeSearchRgMatchesWalker(t *testing.T) {
 // by only producing errors.
 func assertParity(t *testing.T, seed func(*testing.T, string), scenario []step, markers []string) {
 	t.Helper()
+	if crushBoxFactory == nil {
+		t.Skip("Crush reference not linked; run with -tags crushparity")
+	}
 	wantT, wantD := runParity(t, false, seed, scenario)
 	gotT, gotD := runParity(t, true, seed, scenario)
 

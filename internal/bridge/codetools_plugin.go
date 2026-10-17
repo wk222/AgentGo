@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	ct "agentgo/third_party/crush/pkg/codetools"
-
 	"agentgo/internal/codelsp"
 	"agentgo/internal/coderuntime"
 	"agentgo/internal/codetools"
@@ -60,10 +58,9 @@ func (s *AppService) rebindCodetools(string) error {
 	return nil
 }
 
-// newToolbox assembles the code tools for root. By default everything is
-// native: codelsp for the language-server tools, with the native file tools
-// (view/write/edit/multiedit, grep/glob/ls) layered on top. With
-// AGENTGO_CODETOOLS_NATIVE=0 it falls back to the vendored Crush toolbox. The
+// newToolbox assembles the code tools for root, all native: codelsp for the
+// language-server tools, with the native file tools (view/write/edit/multiedit,
+// grep/glob/ls) layered on top. Nothing here links the vendored Crush. The
 // returned func releases it (stops language servers).
 func newToolbox(root, dataDir string) (coderuntime.Toolbox, func(), error) {
 	var approve func(context.Context, coderuntime.FSRequest) bool
@@ -72,28 +69,16 @@ func newToolbox(root, dataDir string) (coderuntime.Toolbox, func(), error) {
 	}
 	search := codetools.SearchOptions{WorkDir: root, Approve: approve, Rg: ideruntime.RgBinary}
 
-	if config.CodeToolsNative.On() {
-		overrides, err := codelsp.LoadOverrides(dataDir)
-		if err != nil {
-			log.Printf("[codetools] ignoring %s: %v", filepath.Join(dataDir, "lsp.json"), err)
-		}
-		lsp, err := codelsp.New(codelsp.Options{WorkDir: root, Overrides: overrides, Search: codetools.SymbolSearch(search)})
-		if err != nil {
-			return nil, nil, err
-		}
-		native := append(codetools.NativeFS(lsp, root, approve), codetools.NativeSearch(search)...)
-		return codetools.Overlay(lsp, native), lsp.Close, nil
+	overrides, err := codelsp.LoadOverrides(dataDir)
+	if err != nil {
+		log.Printf("[codetools] ignoring %s: %v", filepath.Join(dataDir, "lsp.json"), err)
 	}
-
-	opts := ct.Options{WorkDir: root, DataDir: dataDir}
-	if approve != nil {
-		opts.Approver = func(context.Context, ct.Request) bool { return false }
-	}
-	tb, err := ct.New(opts)
+	lsp, err := codelsp.New(codelsp.Options{WorkDir: root, Overrides: overrides, Search: codetools.SymbolSearch(search)})
 	if err != nil {
 		return nil, nil, err
 	}
-	return codetools.Wrap(tb), tb.Close, nil
+	native := append(codetools.NativeFS(lsp, root, approve), codetools.NativeSearch(search)...)
+	return codetools.Overlay(lsp, native), lsp.Close, nil
 }
 
 // codetoolsPlugin contributes Crush's code-aware tools (LSP diagnostics,

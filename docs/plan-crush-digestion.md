@@ -124,3 +124,11 @@
 对拍：`TestNativeLSPParityWithCrush` 用真 gopls（`GOPATH/bin` 自动加入 PATH，找不到则跳过）跑 symbols/诊断/定义/引用/调用层级（incoming+outgoing）/不存在符号/不存在文件，原生与 Crush 输出逐字一致，连跑 3 次稳定；codelsp 另有单测（lsp.json 解析、filetype/root-marker 选择、覆盖与禁用、"非标识符"判定、启动门）。
 有意差异：① **启动竞态修复**：Crush 在服务器"启动中"时直接放行调用，首个 `lsp_*` 会撞上未初始化客户端（"client not initialized"，预热协程与首次调用并发时必现）；原生让后到者等待 `started` 门（受 initialize 超时约束）。对拍里 Crush 一侧必须先预热才有有效基线，原生不需要。② **符号候选**：Crush 取 grep 的第一个"不报错"候选，gopls 对注释处命中返回空结果而不报错，于是 `Add` 的定义/调用层级是否成功取决于文件 mtime 顺序；原生要求定义解析出至少一个位置，否则跳过候选继续找，结果不再依赖 mtime（对拍种子里手动钉死 mtime 才让 Crush 稳定）。③ 符号搜索由原生 `searcher` 在工作区根执行（Crush 从进程 cwd 起 grep，Wails 进程 cwd ≠ 工作区时会 "symbol not found"，对拍里需 `t.Chdir`）。④ **用户 LSP 配置迁移**：原生不再读 `crush.json` 的 `lsp` 段，改读 `<DataDir>/codetools/lsp.json`（`{"名字":{command,args,env,filetypes,root_markers,init_options,options,disabled,timeout}}`，同名覆盖内置、未知名新增、`disabled` 关闭；用户配置的服务器跳过 PATH 校验）。
 **收尾说明：** `go list` 闭包数字仍未变（37 包 / ~34.9k 行）——不是原生没接上，而是 `AGENTGO_CODETOOLS_NATIVE=0` 回退路径和三套对拍测试仍 import `third_party/crush/pkg/codetools`。删掉回退即同时失去 Crush 基线，因此留一个观察期：原生默认运行稳定后，一步删除 `pkg/codetools` + 回退分支 + 对拍测试（保留原生自测），闭包归零。此步放 D3 收尾 / D7，需用户点头。同时顺带修了 `TestNativeFSParityWithCrush` 的偶发失败（staleness 报错里带文件 mtime，跨秒不一致，现按 ISO 时间归一化）。arch 层注册 `codelsp`=Assets 层。
+
+**D4 结果（2026-10-17）：** 核对后 D4 的三项（permission→governance、config 拆分、shell 对齐）在 codetools 路径上已被 D2/D3 覆盖：Crush 工具箱只含文件/搜索/LSP 工具，这些全部原生化后，原生路径运行时从未碰 Crush 的 `config`/`permission`/`shell`；审批走 `FSRequest`+governance 风险表（`policy_gate_test.go` 现在对**原生**工具箱断言：变更类工具默认策略下必须停下审批、只读类不拦、工具名集合固定）。D4 实际剩下的只是"去掉回退"，按用户选择采用 build tag 而非整删：
+- 生产代码去掉回退：`bridge.newToolbox` 只装配原生工具箱；删除开关 `AGENTGO_CODETOOLS_NATIVE`（设了也无效）。
+- Crush 参照实现退到 build tag `crushparity` 下：`internal/codetools/wrap.go`（`Wrap`）与 `crush_parity_test.go`（FS/搜索/LSP 对拍、工具集一致性）；手动运行 `go test -tags crushparity ./internal/codetools`（本次实测全绿）。默认测试里 baseline/策略门/原生 LSP（真 gopls）仍照跑，对拍用例在无 tag 时 skip。
+- 冻结白名单只剩 `cmd/agentgo-tui/main.go → embedtui`（`internal/codetools/` 的 tag 文件是唯一例外，不在任何默认构建里）。
+- **闭包实测（`scripts/crush-closure.py`）：codetools 闭包 37 包 / 34.9k 行 → 0；`./internal/...` 对 Crush 的依赖 → 0**。仅剩 TUI 入口 72 包 / 99.7k 行（D6 处理）。
+- `crush.json` 的 `lsp` 段不再被读取，迁移到 `<DataDir>/codetools/lsp.json`（见 D3）。
+下一步 D5（裁剪决策，只决策不写码）→ D6（原生终端，需用户改判"冻结 tui/cli"）。

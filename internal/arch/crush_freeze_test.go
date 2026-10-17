@@ -12,8 +12,7 @@ import (
 // shrink: digestion removes entries, and a new import of third_party/crush
 // anywhere else fails this test. Values are the allowed import path.
 var crushImportAllowlist = map[string]string{
-	"cmd/agentgo-tui/main.go":             "agentgo/third_party/crush/pkg/embedtui",
-	"internal/bridge/codetools_plugin.go": "agentgo/third_party/crush/pkg/codetools",
+	"cmd/agentgo-tui/main.go": "agentgo/third_party/crush/pkg/embedtui",
 }
 
 func TestCrushImportsAreFrozen(t *testing.T) {
@@ -26,8 +25,9 @@ func TestCrushImportsAreFrozen(t *testing.T) {
 					continue
 				}
 				seen[rel] = true
-				// The codetools adapter package is where Crush tools are wrapped
-				// behind coderuntime.Toolbox; only it may name the toolbox package.
+				// The Crush reference for the parity tests lives in
+				// internal/codetools behind the crushparity build tag; it is not
+				// part of any default build. Only that package may name it.
 				if strings.HasPrefix(rel, "internal/codetools/") && imp == "agentgo/third_party/crush/pkg/codetools" {
 					continue
 				}

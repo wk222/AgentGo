@@ -1,3 +1,5 @@
+//go:build crushparity
+
 package codetools
 
 import (
@@ -9,8 +11,8 @@ import (
 )
 
 // Wrap presents the vendored Crush toolbox as AgentGo's coderuntime.Toolbox.
-// It is the first (and, until D2/D3 land, only) implementation of that
-// interface; native tools will replace it tool by tool.
+// It exists only for the parity tests (build tag crushparity): production
+// uses the native toolbox (internal/codelsp + Native* tools) exclusively.
 func Wrap(tb *ct.Toolbox) coderuntime.Toolbox {
 	if tb == nil {
 		return nil
