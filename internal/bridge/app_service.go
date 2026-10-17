@@ -11,9 +11,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	ct "agentgo/third_party/crush/pkg/codetools"
 	"github.com/wailsapp/wails/v3/pkg/application"
 
+	"agentgo/internal/coderuntime"
 	"agentgo/internal/config"
 	"agentgo/internal/engine"
 	"agentgo/internal/memory"
@@ -30,13 +30,13 @@ type AppService struct {
 	desktopEventSeq atomic.Int64
 
 	muTools     sync.RWMutex
-	codetools   *ct.Toolbox
-	lspListener func(e ct.LSPEvent)
+	codetools   coderuntime.Toolbox
+	lspListener func(e coderuntime.LSPEvent)
 
 	unbindWorkspace func() // removes this service's binder from the Runtime
 }
 
-func (s *AppService) setCodetools(tb *ct.Toolbox) {
+func (s *AppService) setCodetools(tb coderuntime.Toolbox) {
 	s.muTools.Lock()
 	s.codetools = tb
 	listener := s.lspListener
@@ -46,13 +46,13 @@ func (s *AppService) setCodetools(tb *ct.Toolbox) {
 	s.muTools.Unlock()
 }
 
-func (s *AppService) getCodetools() *ct.Toolbox {
+func (s *AppService) getCodetools() coderuntime.Toolbox {
 	s.muTools.RLock()
 	defer s.muTools.RUnlock()
 	return s.codetools
 }
 
-func (s *AppService) setLSPListener(fn func(e ct.LSPEvent)) {
+func (s *AppService) setLSPListener(fn func(e coderuntime.LSPEvent)) {
 	s.muTools.Lock()
 	s.lspListener = fn
 	if s.codetools != nil && fn != nil {

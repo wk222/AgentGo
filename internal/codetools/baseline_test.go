@@ -24,7 +24,7 @@ func baselineTools(t *testing.T) (dir string, tools map[string]einotool.BaseTool
 		t.Fatal(err)
 	}
 	t.Cleanup(tb.Close)
-	adapted, err := Adapt(tb.Tools)
+	adapted, err := Adapt(Wrap(tb).Tools())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -25,7 +25,7 @@ func newToolbox(t *testing.T) *ct.Toolbox {
 		t.Fatal(err)
 	}
 	t.Cleanup(tb.Close)
-	t.Cleanup(RegisterTraits(tb.Tools))
+	t.Cleanup(RegisterTraits(Wrap(tb).Tools()))
 	return tb
 }
 
