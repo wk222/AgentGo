@@ -6,10 +6,19 @@ import (
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/components/tool/utils"
+	"github.com/cloudwego/eino/schema"
 	"github.com/google/uuid"
 
 	"agentgo/internal/interactive"
 )
+
+func init() {
+	// The question rides in the interrupt info, which the ADK stores in the run
+	// checkpoint as an interface value; gob refuses unregistered concrete types
+	// ("type not registered for interface: interactive.QuestionPayload"), which
+	// made every ask_user call fail the run and fall back to a tool-less reply.
+	schema.RegisterName[interactive.QuestionPayload]("_agentgo_interactive_question_payload")
+}
 
 type askUserInput struct {
 	Prompt   string `json:"prompt" jsonschema:"description=Question for the user"`

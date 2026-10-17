@@ -104,3 +104,5 @@ T1 `internal/tui` 骨架 + 模型 + 测试 → T2 接入 `agentgo-cli`（TTY 默
 验证用的 ConPTY 驱动是一次性脚本,未入库。
 
 补充:`ask_user` 回答后的续跑同样接了事件流(`bridge.AnswerQuestionTap` + `Streamer.AnswerStream`),单测覆盖;未用真实模型走 ask_user 路径。
+
+补充（ask_user 真实终端实测）：用 ConPTY 驱动真跑 gpt-6-luna，让它调用 `ask_user`。抓到两个真问题并已修：① **`ask_user` 在引擎层从未真正可用**：问题载荷 `interactive.QuestionPayload` 放在中断信息里随检查点 gob 编码，类型没注册，整轮报 "gob: type not registered for interface"，被降级成不带工具的纯聊天（模型自己把问题当文本问出来）。已在 `internal/tools/ask_user.go` 注册，并加了编码往返测试；桌面端同一条路径也受益。② 中断信号被当成工具失败显示（红 ✗ 加一长串错误）：工具事件中间件现把它识别为"暂停"，显示为 `✓ waiting for your answer`。修后流程：提问面板 → 输入 `blue` → 续跑里 `ask_user` 返回 `{"answer":"blue"}` → 模型答 "Your preferred color is blue."。

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/cloudwego/eino/adk"
@@ -89,5 +90,20 @@ func TestToolWithoutObserverIsUnaffected(t *testing.T) {
 	}
 	if WithToolObserver(context.Background(), nil) == nil {
 		t.Fatal("nil observer must return ctx unchanged")
+	}
+}
+
+// ask_user stops the run with an interrupt signal. That is a pause for the
+// user, not a failed tool, so frontends must not see an error result.
+func TestToolObserverReportsInterruptAsPauseNotFailure(t *testing.T) {
+	obs := &recObs{}
+	ctx := WithToolObserver(context.Background(), obs)
+	sig := errors.New("[LocalFunc] failed to invoke tool, toolName=ask_user, err=interrupt signal: ID=abc, address:[...]")
+	_, err := wrapAndRun(t, ctx, func(context.Context, string, ...tool.Option) (string, error) { return "", sig })
+	if err == nil {
+		t.Fatal("the interrupt must still propagate so the run pauses")
+	}
+	if len(obs.lines) != 2 || strings.HasSuffix(obs.lines[1], "ERR") {
+		t.Fatalf("pause reported as failure: %q", obs.lines)
 	}
 }
