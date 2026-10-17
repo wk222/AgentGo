@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -74,8 +75,18 @@ func (a *HTTPAgent) GenerateMeasured(ctx context.Context, sessionID, input strin
 	if a.Harness != "" {
 		payload["harness"] = a.Harness
 	}
+	return a.stream(ctx, "/api/v1/chat/stream", payload)
+}
+
+// ResolveApproval implements ApprovalResolver over POST /api/v1/approvals/{id}.
+func (a *HTTPAgent) ResolveApproval(ctx context.Context, approvalID string, approve bool) (string, Metrics, error) {
+	return a.stream(ctx, "/api/v1/approvals/"+url.PathEscape(approvalID), map[string]bool{"approve": approve})
+}
+
+// stream POSTs payload to an SSE endpoint of the gateway and parses its run.
+func (a *HTTPAgent) stream(ctx context.Context, path string, payload any) (string, Metrics, error) {
 	body, _ := json.Marshal(payload)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(a.BaseURL, "/")+"/api/v1/chat/stream", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(a.BaseURL, "/")+path, bytes.NewReader(body))
 	if err != nil {
 		return "", Metrics{}, err
 	}
@@ -105,6 +116,7 @@ func parseChatSSE(r io.Reader) (string, Metrics, error) {
 		event     string
 		chunks    strings.Builder
 		interrupt string
+		approval  string
 	)
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), 8<<20)
@@ -125,10 +137,11 @@ func parseChatSSE(r io.Reader) (string, Metrics, error) {
 				}
 			case "interrupt":
 				var in struct {
-					ToolName string `json:"tool_name"`
+					ApprovalID string `json:"approval_id"`
+					ToolName   string `json:"tool_name"`
 				}
 				_ = json.Unmarshal([]byte(data), &in)
-				interrupt = in.ToolName
+				interrupt, approval = in.ToolName, in.ApprovalID
 			case "error":
 				var e struct {
 					Error string `json:"error"`
@@ -153,7 +166,7 @@ func parseChatSSE(r io.Reader) (string, Metrics, error) {
 					return out, m, fmt.Errorf("agent error: %s", d.Error)
 				}
 				if interrupt != "" {
-					return out, m, fmt.Errorf("%w: tool %q (cases that are not marked expect_approval must not need approval)", ErrApprovalPaused, interrupt)
+					return out, m, &ApprovalPause{ID: approval, Tool: interrupt}
 				}
 				return out, m, nil
 			}

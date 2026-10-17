@@ -75,6 +75,14 @@ func (g *RuntimeGateway) StreamChat(ctx context.Context, req gateway.ChatRequest
 		content = res.Content
 	}
 	if res != nil && res.PendingApproval != nil {
+		// Without a pending-run record the id handed to the client could never
+		// be settled: POST /api/v1/approvals/{id} (and the desktop's approval
+		// list) both resolve it through this store. A question cannot be
+		// answered through the gateway, so recording it would only leave an
+		// unanswerable run blocking workspace switches.
+		if res.PendingApproval.ToolName != "ask_user" {
+			(&AppService{rt: g.rt}).registerPending(req.SessionID, req.Message, res.PendingApproval)
+		}
 		_ = emit("interrupt", mustJSON(map[string]any{
 			"approval_id": res.PendingApproval.ApprovalID,
 			"tool_name":   res.PendingApproval.ToolName,

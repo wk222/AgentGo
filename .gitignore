@@ -78,3 +78,6 @@ config.local.json
 
 # ripgrep binary embedded by internal/ideruntime (go:embed); without it a fresh clone does not build
 !/internal/ideruntime/tools/rg.exe
+
+# the agent's own task list lives in the workspace it works in
+.tasks/

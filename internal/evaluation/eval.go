@@ -24,12 +24,28 @@ type EvalCase struct {
 	// SkipHarnesses lists harness presets for which the case is not meaningful
 	// (for example write/approval cases under the read-only "minimal" preset).
 	SkipHarnesses []string `json:"skip_harnesses,omitempty"`
+
+	// Decision settles every approval the run pauses for ("approve" or "deny")
+	// and continues the run, instead of treating the pause as the outcome.
+	Decision string `json:"decision,omitempty"`
+	// Scratch is a workspace sub-directory the case owns: it is emptied before
+	// the run, filled from Setup, and removed afterwards.
+	Scratch string     `json:"scratch,omitempty"`
+	Setup   []EvalFile `json:"setup,omitempty"`
+	// Verify and VerifyCmd inspect the workspace after the run (needs --workspace).
+	Verify    []EvalCheck  `json:"verify,omitempty"`
+	VerifyCmd *EvalCommand `json:"verify_cmd,omitempty"`
+
+	root string // workspace directory, set from EvalSet.Workspace
 }
 
 // EvalSet groups together a series of cases.
 type EvalSet struct {
 	ID    string     `json:"id"`
 	Cases []EvalCase `json:"cases"`
+	// Workspace is the directory the agent under test works in; cases with
+	// fixtures or disk checks resolve their paths against it.
+	Workspace string `json:"-"`
 }
 
 // ForHarness returns the set without the cases that skip the given harness preset.
@@ -38,7 +54,7 @@ func (s EvalSet) ForHarness(harness string) EvalSet {
 	if harness == "" {
 		return s
 	}
-	out := EvalSet{ID: s.ID}
+	out := EvalSet{ID: s.ID, Workspace: s.Workspace}
 	for _, c := range s.Cases {
 		skip := false
 		for _, h := range c.SkipHarnesses {
@@ -156,6 +172,7 @@ func EvaluateSetTagged(ctx context.Context, agent AgentGenerator, set EvalSet, n
 
 	for i, c := range set.Cases {
 		i, c := i, c
+		c.root = set.Workspace
 		eg.Go(func() error {
 			var results []CaseResult
 			var totalScore float64

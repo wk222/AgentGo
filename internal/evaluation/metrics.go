@@ -65,6 +65,9 @@ func LoadSuite(path string) (EvalSet, error) {
 	if err := json.Unmarshal(raw, &set); err != nil {
 		return EvalSet{}, fmt.Errorf("parse suite %s: %w", path, err)
 	}
+	if err := set.Validate(); err != nil {
+		return EvalSet{}, fmt.Errorf("suite %s: %w", path, err)
+	}
 	return set, nil
 }
 
