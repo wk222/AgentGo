@@ -94,6 +94,13 @@ func codetoolsPlugin(env codetoolsEnv) (plugin.Plugin, bool) {
 				return err
 			}
 			wrapped := codetools.Wrap(tb)
+			if config.CodeToolsNative.On() {
+				var approve func(context.Context, coderuntime.FSRequest) bool
+				if !config.CodeToolsAppr.On() {
+					approve = func(context.Context, coderuntime.FSRequest) bool { return false }
+				}
+				wrapped = codetools.Overlay(wrapped, codetools.NativeFS(wrapped, root, approve))
+			}
 			env.Publish(wrapped)
 			c.Effect("close codetools", func() {
 				env.Publish(nil)

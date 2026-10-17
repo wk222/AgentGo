@@ -57,7 +57,7 @@
 - 现有 Crush 实现作为接口的第一个实现者（适配器），行为不变。
 - **验收**：`bridge` 中除适配器装配外不再出现 `ct.` 类型；测试不变全绿。删 0 行，但解耦完成。
 
-### D2 原生代码工具（3–5 天，收益最大）
+### D2 原生代码工具（3–5 天，收益最大）🟡 D2a 完成（view/write/edit/multiedit），D2b（grep/glob/ls）待做
 - 用 `workspace`+`ideruntime` 实现 view/edit/multiedit/write/grep/glob/ls 七个工具（Eino 工具，经现有 `internal/codetools` 适配层注册），语义对齐 Crush：编辑前快照、文件追踪、skills 路径提示等行为逐条对拍。
 - bash 对齐 `execute_bash`；todos/question 分别对齐已有 taskhub/`ask_user`，不新写。
 - 与 Crush 实现并行注册为影子工具跑对拍（同参数同工作区，比输出），全绿后切换，`pkg/codetools` 改只剩 LSP 工具。
@@ -111,3 +111,7 @@
 **D0 结果（2026-10-17）：** 已落地 `internal/arch/crush_freeze_test.go`（白名单只减不增，目前 5 个文件：tui 入口、bridge 3 处、codetools 适配器）、`scripts/crush-closure.py`（实测：磁盘 75 包 100,321 行；codetools 闭包 37 包 34,929 行；tui 闭包 73 包 100,199 行）、`internal/codetools/baseline_test.go`（view/edit/grep/write 真跑临时工作区 + 诊断非空断言，D2/D3 的原生实现必须过同一组断言）。
 
 **D1 结果（2026-10-17）：** `internal/coderuntime` 新增原生 `Toolbox` 接口（`Tool`/`ToolResult`/`LSPClientInfo`/`LSPEvent`）；`internal/codetools.Wrap` 把 Crush 工具箱包装成该接口，`Adapt`/`RegisterTraits` 改吃 `coderuntime.Tool`；`AppService` 只持有接口，bridge 里只剩插件装配（`codetools_plugin.go` 的 `ct.New`/`ct.Options`）还碰 Crush 类型。冻结白名单从 5 个文件缩到 2 个（tui 入口 + 插件装配），codetools 包内仅适配器文件可引用。闭包数字不变（37 包 / 34,929 行），符合 D1 只解耦不删码的预期。
+
+**D2a 结果（2026-10-17）：** internal/coderuntime 新增原生 view/write/edit/multiedit（`fs_tools.go`、`fs_edit.go`、`edit_match.go`，纯标准库，无 Crush 依赖），`internal/codetools.Overlay`/`NativeFS` 把它们叠在 Crush 工具箱上同名替换；开关 `AGENTGO_CODETOOLS_NATIVE`（默认开，`0` 回退 Crush 实现）。LSP 仍由 Crush 提供：写后诊断 = 调 `lsp_diagnostics`，view 只预热 LSP。对拍测试 `native_test.go` 用 28 步场景（先读后改、重复/缺失匹配、空白容错与提示、删除/创建、分页、multiedit 部分失败、CRLF 保持）在两套实现上比对模型可见输出和磁盘字节，全部一致；`baseline_test.go` 两套实现都过。
+有意差异（4 处，均为小改进或去耦）：① multiedit 把每个失败编辑的原因写进结果（Crush 放在模型看不到的 metadata）；② view 不再附带诊断块（诊断用 `lsp_diagnostics`，省掉每次 300ms 等待）；③ 图片文件返回文本说明（Crush 要靠模型是否支持图片的上下文）；④ 读后改的追踪用内存表，不再落 SQLite（进程重启后需重新 view，与重启后会话本就丢失一致）。
+闭包数字**未变**：`pkg/codetools` 仍构造 Crush 的七个文件工具（grep/glob/ls 还在用），要等 D2b 把 grep/glob/ls 也原生化、并让 `pkg/codetools` 只构造 LSP 工具后，`agent/tools`/`shell`/`skills`/`history`/`filetracker` 才会从闭包里消失。D2b 的难点是 `fsext` 的 gitignore 感知遍历和 Crush 自己的 rg 查找（可直接复用 `ideruntime` 内嵌的 `rg.exe`）。
