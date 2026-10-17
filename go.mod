@@ -12,7 +12,7 @@ require (
 	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/charmbracelet/x/ansi v0.11.8
 	github.com/charmbracelet/x/powernap v0.1.6
-	github.com/cloudwego/eino v0.10.0-alpha.32
+	github.com/cloudwego/eino v0.10.0-alpha.35
 	github.com/cloudwego/eino-ext/components/document/parser/docx v0.0.0-20260909094858-6fe16d48b736
 	github.com/cloudwego/eino-ext/components/document/parser/pdf v0.0.0-20260909094858-6fe16d48b736
 	github.com/cloudwego/eino-ext/components/document/parser/xlsx v0.0.0-20260909094858-6fe16d48b736
