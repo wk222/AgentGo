@@ -100,7 +100,8 @@ func (c *Chat) Turn(input string) Outcome {
 // Resolve decides a pause left behind by an earlier run, then settles whatever
 // the resumed run pauses on next.
 func (c *Chat) Resolve(p Message, approved bool) Outcome {
-	res := c.B.Approve(p.ApprovalID, approved)
+	defer c.R.EndTurn()
+	res := c.approve(p.ApprovalID, approved)
 	if res.Error != "" {
 		return Outcome{Error: res.Error}
 	}
@@ -111,15 +112,43 @@ func (c *Chat) Resolve(p Message, approved bool) Outcome {
 }
 
 func (c *Chat) settleResult(res Result) Outcome {
-	var pending []Message
+	return c.settle(c.show(res, nil))
+}
+
+// approve and answer continue a paused run. A backend that can stream the
+// continuation does, so the tool calls and the reply show up as they happen.
+func (c *Chat) approve(id string, approved bool) Result {
+	if s, ok := c.B.(Streamer); ok {
+		c.R.BeginTurn()
+		r := s.ApproveStream(id, approved, c.R)
+		r.live = true
+		return r
+	}
+	return c.B.Approve(id, approved)
+}
+
+func (c *Chat) answer(id, text string) Result {
+	if s, ok := c.B.(Streamer); ok {
+		c.R.BeginTurn()
+		r := s.AnswerStream(id, text, c.R)
+		r.live = true
+		return r
+	}
+	return c.B.Answer(id, text)
+}
+
+// show prints what a resumed run said and returns the pauses it ended on,
+// added to pending. Text the run already streamed is not printed twice.
+func (c *Chat) show(res Result, pending []Message) []Message {
+	skipText := res.live && c.R.Streamed()
 	for _, m := range res.Messages {
 		if m.Pending() {
 			pending = append(pending, m)
-		} else if m.Role == "assistant" {
+		} else if m.Role == "assistant" && !skipText {
 			c.R.Message(m)
 		}
 	}
-	return c.settle(pending)
+	return pending
 }
 
 // settle works through pauses; each decision may produce new ones.
@@ -135,13 +164,7 @@ func (c *Chat) settle(pending []Message) Outcome {
 		if res.Error != "" {
 			return Outcome{Error: res.Error}
 		}
-		for _, m := range res.Messages {
-			if m.Pending() {
-				pending = append(pending, m)
-			} else if m.Role == "assistant" {
-				c.R.Message(m)
-			}
-		}
+		pending = c.show(res, pending)
 	}
 	return Outcome{}
 }
@@ -156,7 +179,7 @@ func (c *Chat) decide(p Message) (Result, bool) {
 		if !ok {
 			return Result{Error: "no answer given"}, true
 		}
-		return c.B.Answer(p.ApprovalID, answer), true
+		return c.answer(p.ApprovalID, answer), true
 	}
 
 	approved := c.Yolo
@@ -173,7 +196,7 @@ func (c *Chat) decide(p Message) (Result, bool) {
 	} else {
 		c.R.Notice("auto-approved " + p.ToolName)
 	}
-	res := c.B.Approve(p.ApprovalID, approved)
+	res := c.approve(p.ApprovalID, approved)
 	if !approved && res.Error == "" {
 		c.R.Notice("denied " + p.ToolName)
 	}

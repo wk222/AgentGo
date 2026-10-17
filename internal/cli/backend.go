@@ -30,6 +30,16 @@ func (m Message) Pending() bool {
 type Result struct {
 	Messages []Message // what the resumed run said, including any further pause
 	Error    string
+
+	live bool // the resumed run's events were already delivered through a sink
+}
+
+// Streamer is implemented by backends that can deliver the events of the run a
+// decision unblocks (the tool call, its diff, the reply as it is written).
+// Without it a continued run shows up only as its final messages.
+type Streamer interface {
+	ApproveStream(approvalID string, approved bool, sink engine.EventSink) Result
+	AnswerStream(questionID, text string, sink engine.EventSink) Result
 }
 
 // SessionInfo is one saved conversation.

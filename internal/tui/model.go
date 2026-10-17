@@ -33,14 +33,6 @@ type Historian interface {
 	History(sessionID string) ([]cli.Message, error)
 }
 
-// Streamer is implemented by backends that can deliver the events of the run an
-// approval unblocks (the tool call, its diff, the reply as it is written).
-// Without it the continued run shows up only as its final messages.
-type Streamer interface {
-	ApproveStream(approvalID string, approved bool, sink engine.EventSink) cli.Result
-	AnswerStream(questionID, text string, sink engine.EventSink) cli.Result
-}
-
 type mode int
 
 const (
