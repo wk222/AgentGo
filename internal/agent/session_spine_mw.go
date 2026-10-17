@@ -227,7 +227,9 @@ func (m *SessionSpineMiddleware) enrichIsolation(ctx context.Context, snap sessi
 
 func maxActiveTurnsFor(ctx context.Context) int {
 	policy := CanvasPolicyFromContext(ctx)
-	if policy.MaxIterations > 15 {
+	// Thresholds sit between the presets (6 / 20 / 30), so a preset's iteration
+	// budget can change without silently changing how much history it keeps.
+	if policy.MaxIterations > 25 {
 		return 40
 	} else if policy.MaxIterations < 10 {
 		return 20

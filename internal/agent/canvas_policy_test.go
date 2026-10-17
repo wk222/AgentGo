@@ -16,13 +16,13 @@ func TestCanvasPolicyPresets(t *testing.T) {
 	}
 
 	balanced := CanvasPolicyFor(CanvasBalanced)
-	if balanced.MaxIterations != 12 {
-		t.Errorf("expected MaxIterations = 12 for balanced, got %d", balanced.MaxIterations)
+	if balanced.MaxIterations != 20 {
+		t.Errorf("expected MaxIterations = 20 for balanced, got %d", balanced.MaxIterations)
 	}
 
 	deep := CanvasPolicyFor(CanvasDeep)
-	if deep.MaxIterations != 20 {
-		t.Errorf("expected MaxIterations = 20 for deep, got %d", deep.MaxIterations)
+	if deep.MaxIterations != 30 {
+		t.Errorf("expected MaxIterations = 30 for deep, got %d", deep.MaxIterations)
 	}
 	if deep.AgentDepth != 4 {
 		t.Errorf("expected AgentDepth = 4, got %d", deep.AgentDepth)
@@ -34,8 +34,8 @@ func TestContextCanvasPolicy(t *testing.T) {
 
 	// Default fallback
 	pDefault := CanvasPolicyFromContext(ctx)
-	if pDefault.MaxIterations != 12 {
-		t.Errorf("expected default MaxIterations = 12, got %d", pDefault.MaxIterations)
+	if pDefault.MaxIterations != 20 {
+		t.Errorf("expected default MaxIterations = 20, got %d", pDefault.MaxIterations)
 	}
 
 	// Manual injection
@@ -50,7 +50,7 @@ func TestContextCanvasPolicy(t *testing.T) {
 	// Mode-based fallback
 	modeCtx := WithSessionMode(ctx, SessionMode{Profile: ModeAdmin, Canvas: CanvasDeep})
 	pMode := CanvasPolicyFromContext(modeCtx)
-	if pMode.MaxIterations != 20 || pMode.AgentDepth != 4 {
+	if pMode.MaxIterations != 30 || pMode.AgentDepth != 4 {
 		t.Errorf("expected deep policy from session mode, got iterations=%d, depth=%d", pMode.MaxIterations, pMode.AgentDepth)
 	}
 }
