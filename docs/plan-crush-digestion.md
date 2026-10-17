@@ -46,7 +46,7 @@
 
 ## 3. 分阶段
 
-### D0 冻结与基线（0.5–1 天）
+### D0 冻结与基线（0.5–1 天）✅ 2026-10-17
 - 架构测试：`third_party/crush` 只允许被 `internal/codetools`、`internal/bridge`（现有 3 处）、`cmd/agentgo-tui` import；新增引用直接红。
 - 写 `scripts/crush-closure.py`：输出各入口闭包的包数/行数，作为每阶段的进度指标。
 - 给 codetools 建行为基线：现有工具的输入/输出快照测试（编辑、搜索、诊断各至少一条），作为 D2/D3 的对拍标准。
@@ -107,3 +107,5 @@
 - **不要迁 Crush 的 config/provider 目录**：与 AgentGo 的 LLM 设置双轨运行正是当前缝合感来源之一，迁过来等于把双轨固化。
 - **OAuth 默认丢弃**：登录态、回调服务器、令牌存储都是长期维护负担；要保留就做 plugin，隔离在内核之外。
 - 每阶段若评测退化或对拍不绿，停在该阶段，不叠加下一阶段。
+
+**D0 结果（2026-10-17）：** 已落地 `internal/arch/crush_freeze_test.go`（白名单只减不增，目前 5 个文件：tui 入口、bridge 3 处、codetools 适配器）、`scripts/crush-closure.py`（实测：磁盘 75 包 100,321 行；codetools 闭包 37 包 34,929 行；tui 闭包 73 包 100,199 行）、`internal/codetools/baseline_test.go`（view/edit/grep/write 真跑临时工作区 + 诊断非空断言，D2/D3 的原生实现必须过同一组断言）。
