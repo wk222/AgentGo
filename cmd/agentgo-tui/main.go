@@ -35,7 +35,7 @@ import (
 	"agentgo/internal/config"
 	"agentgo/internal/hostlink"
 
-	"github.com/charmbracelet/crush/pkg/embedtui"
+	"agentgo/third_party/crush/pkg/embedtui"
 )
 
 func main() {

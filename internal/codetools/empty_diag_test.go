@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	ct "github.com/charmbracelet/crush/pkg/codetools"
+	ct "agentgo/third_party/crush/pkg/codetools"
 	einotool "github.com/cloudwego/eino/components/tool"
 )
 

@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"strings"
 
-	ct "github.com/charmbracelet/crush/pkg/codetools"
+	ct "agentgo/third_party/crush/pkg/codetools"
 	einotool "github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
