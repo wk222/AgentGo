@@ -144,7 +144,7 @@ func (m *Model) decide(approved bool, note string) tea.Cmd {
 	m.tl.streamed = false // the continued run streams (or returns) its own text
 	be, sk, id := m.be, m.sink, p.ApprovalID
 	return tea.Batch(tick(), func() tea.Msg {
-		if st, ok := be.(Streamer); ok {
+		if st, ok := be.(cli.Streamer); ok {
 			return resolvedMsg{st.ApproveStream(id, approved, sk)}
 		}
 		return resolvedMsg{be.Approve(id, approved)}
@@ -160,7 +160,7 @@ func (m *Model) answer(text string) tea.Cmd {
 	m.tl.streamed = false
 	be, sk, id := m.be, m.sink, p.ApprovalID
 	return tea.Batch(tick(), func() tea.Msg {
-		if st, ok := be.(Streamer); ok {
+		if st, ok := be.(cli.Streamer); ok {
 			return resolvedMsg{st.AnswerStream(id, text, sk)}
 		}
 		return resolvedMsg{be.Answer(id, text)}
