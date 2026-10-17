@@ -5,18 +5,18 @@ import (
 	"strings"
 	"testing"
 
-	ct "agentgo/third_party/crush/pkg/codetools"
+	"agentgo/internal/coderuntime"
 	einotool "github.com/cloudwego/eino/components/tool"
 )
 
-func emptyRun(context.Context, string, string, string) (ct.Result, error) {
-	return ct.Result{Content: ""}, nil
+func emptyRun(context.Context, string, string, string) (coderuntime.ToolResult, error) {
+	return coderuntime.ToolResult{Content: ""}, nil
 }
 
 // An empty lsp_diagnostics result is ambiguous (clean vs. no language server);
 // the model must be told so, while other tools keep the generic placeholder.
 func TestEmptyDiagnosticsIsExplained(t *testing.T) {
-	tools, err := Adapt([]ct.Tool{fake("lsp_diagnostics", emptyRun), fake("grep", emptyRun)})
+	tools, err := Adapt([]coderuntime.Tool{fake("lsp_diagnostics", emptyRun), fake("grep", emptyRun)})
 	if err != nil {
 		t.Fatal(err)
 	}

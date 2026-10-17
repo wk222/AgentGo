@@ -9,6 +9,7 @@ import (
 
 	ct "agentgo/third_party/crush/pkg/codetools"
 
+	"agentgo/internal/coderuntime"
 	"agentgo/internal/codetools"
 	"agentgo/internal/config"
 	"agentgo/internal/plugin"
@@ -18,9 +19,9 @@ import (
 // codetoolsEnv is everything the plugin needs from the app, spelled out so the
 // plugin does not hold the whole AppService.
 type codetoolsEnv struct {
-	WorkspaceRoot func() string     // current workspace; read each time the plugin starts
-	DataDir       string            // app data dir; the toolbox keeps its state below it
-	Publish       func(*ct.Toolbox) // hands the live toolbox to the app (LSP events, diagnostics); nil on stop
+	WorkspaceRoot func() string             // current workspace; read each time the plugin starts
+	DataDir       string                    // app data dir; the toolbox keeps its state below it
+	Publish       func(coderuntime.Toolbox) // hands the live toolbox to the app (LSP events, diagnostics); nil on stop
 }
 
 // codetoolsEnv wires the plugin to this app. It is the only place the plugin's
@@ -92,13 +93,14 @@ func codetoolsPlugin(env codetoolsEnv) (plugin.Plugin, bool) {
 			if err != nil {
 				return err
 			}
-			env.Publish(tb)
+			wrapped := codetools.Wrap(tb)
+			env.Publish(wrapped)
 			c.Effect("close codetools", func() {
 				env.Publish(nil)
 				tb.Close()
 			}) // registered first => released last
 
-			adapted, err := codetools.Adapt(tb.Tools)
+			adapted, err := codetools.Adapt(wrapped.Tools())
 			if err != nil {
 				return err
 			}
@@ -108,7 +110,7 @@ func codetoolsPlugin(env codetoolsEnv) (plugin.Plugin, bool) {
 					return err
 				}
 				name := info.Name
-				crush := tb.Tools[i].Name
+				crush := wrapped.Tools()[i].Name
 				// One declaration per tool (visibility, file-changing, risk), made
 				// before Contribute so the bus grant it creates sees the risk.
 				c.Effect("declare:"+name, tools.Declare(tools.Spec{

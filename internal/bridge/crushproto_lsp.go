@@ -3,8 +3,7 @@ package bridge
 import (
 	"context"
 
-	ct "agentgo/third_party/crush/pkg/codetools"
-
+	"agentgo/internal/coderuntime"
 	"agentgo/internal/crushproto"
 )
 
@@ -54,7 +53,7 @@ func (b *crushprotoLSPBridge) StopAllLSPs(ctx context.Context, workDir string) {
 }
 
 func (b *crushprotoLSPBridge) SetLSPEventListener(workDir string, fn func(evType, name string, state int, diagCount int)) {
-	b.svc.setLSPListener(func(e ct.LSPEvent) {
+	b.svc.setLSPListener(func(e coderuntime.LSPEvent) {
 		fn(e.Type, e.Name, e.State, e.DiagnosticCount)
 	})
 }

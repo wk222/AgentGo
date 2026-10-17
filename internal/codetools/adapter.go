@@ -1,6 +1,7 @@
 // Package codetools adapts Crush's code-aware tools (LSP diagnostics, view,
 // edit, grep, ...) to Eino tools, so AgentGo's own agent loop can use them.
-// The tool implementations live in the Crush fork (pkg/codetools).
+// Tool implementations arrive as coderuntime.Tool (today wrapped from the
+// vendored Crush toolbox, see Wrap).
 package codetools
 
 import (
@@ -9,7 +10,7 @@ import (
 	"fmt"
 	"strings"
 
-	ct "agentgo/third_party/crush/pkg/codetools"
+	"agentgo/internal/coderuntime"
 	einotool "github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
@@ -52,7 +53,7 @@ func Risk(crushName string) governance.RiskLevel {
 // RegisterTraits declares each tool's traits to governance, so the policy
 // learns which tools change files from IsMutating alone instead of a second
 // list of names. The returned func withdraws them all.
-func RegisterTraits(tools []ct.Tool) (dispose func()) {
+func RegisterTraits(tools []coderuntime.Tool) (dispose func()) {
 	disposers := make([]func(), 0, len(tools))
 	for _, t := range tools {
 		disposers = append(disposers, governance.RegisterToolTraits(ToolName(t.Name),
@@ -78,12 +79,12 @@ func AlwaysVisible(crushName string) bool {
 
 type einoAdapter struct {
 	name string
-	tool ct.Tool
+	tool coderuntime.Tool
 	info *schema.ToolInfo
 }
 
-// Adapt converts Crush tools into Eino invokable tools.
-func Adapt(tools []ct.Tool) ([]einotool.BaseTool, error) {
+// Adapt converts toolbox tools into Eino invokable tools.
+func Adapt(tools []coderuntime.Tool) ([]einotool.BaseTool, error) {
 	out := make([]einotool.BaseTool, 0, len(tools))
 	for _, t := range tools {
 		info, err := toolInfo(t)
@@ -95,7 +96,7 @@ func Adapt(tools []ct.Tool) ([]einotool.BaseTool, error) {
 	return out, nil
 }
 
-func toolInfo(t ct.Tool) (*schema.ToolInfo, error) {
+func toolInfo(t coderuntime.Tool) (*schema.ToolInfo, error) {
 	raw, err := json.Marshal(t.Schema)
 	if err != nil {
 		return nil, err

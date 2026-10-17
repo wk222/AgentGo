@@ -6,14 +6,14 @@ import (
 	"strings"
 	"testing"
 
-	ct "agentgo/third_party/crush/pkg/codetools"
+	"agentgo/internal/coderuntime"
 	einotool "github.com/cloudwego/eino/components/tool"
 
 	"agentgo/internal/governance"
 )
 
-func fake(name string, run func(ctx context.Context, sid, callID, args string) (ct.Result, error)) ct.Tool {
-	return ct.Tool{
+func fake(name string, run func(ctx context.Context, sid, callID, args string) (coderuntime.ToolResult, error)) coderuntime.Tool {
+	return coderuntime.Tool{
 		Name: name, Description: "desc of " + name,
 		Schema: map[string]any{
 			"type": "object",
@@ -44,7 +44,7 @@ func TestToolNameMapping(t *testing.T) {
 }
 
 func TestAdaptBuildsEinoToolInfo(t *testing.T) {
-	out, err := Adapt([]ct.Tool{fake("view", nil)})
+	out, err := Adapt([]coderuntime.Tool{fake("view", nil)})
 	if err != nil || len(out) != 1 {
 		t.Fatalf("adapt: %v %d", err, len(out))
 	}
@@ -66,17 +66,17 @@ func TestAdaptBuildsEinoToolInfo(t *testing.T) {
 
 func TestInvokeRoutesSessionAndShapesResults(t *testing.T) {
 	var gotSID, gotArgs string
-	ok := fake("view", func(_ context.Context, sid, _, args string) (ct.Result, error) {
+	ok := fake("view", func(_ context.Context, sid, _, args string) (coderuntime.ToolResult, error) {
 		gotSID, gotArgs = sid, args
-		return ct.Result{Content: "file body"}, nil
+		return coderuntime.ToolResult{Content: "file body"}, nil
 	})
-	soft := fake("edit", func(context.Context, string, string, string) (ct.Result, error) {
-		return ct.Result{Content: "old_string not found", IsError: true}, nil
+	soft := fake("edit", func(context.Context, string, string, string) (coderuntime.ToolResult, error) {
+		return coderuntime.ToolResult{Content: "old_string not found", IsError: true}, nil
 	})
-	hard := fake("write", func(context.Context, string, string, string) (ct.Result, error) {
-		return ct.Result{}, errors.New("disk on fire")
+	hard := fake("write", func(context.Context, string, string, string) (coderuntime.ToolResult, error) {
+		return coderuntime.ToolResult{}, errors.New("disk on fire")
 	})
-	tools, err := Adapt([]ct.Tool{ok, soft, hard})
+	tools, err := Adapt([]coderuntime.Tool{ok, soft, hard})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,8 +103,8 @@ func TestInvokeRoutesSessionAndShapesResults(t *testing.T) {
 }
 
 func TestAdaptRejectsBrokenSchema(t *testing.T) {
-	bad := ct.Tool{Name: "x", Schema: map[string]any{"properties": make(chan int)}}
-	if _, err := Adapt([]ct.Tool{bad}); err == nil {
+	bad := coderuntime.Tool{Name: "x", Schema: map[string]any{"properties": make(chan int)}}
+	if _, err := Adapt([]coderuntime.Tool{bad}); err == nil {
 		t.Fatal("unmarshalable schema accepted")
 	}
 }

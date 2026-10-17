@@ -13,10 +13,7 @@ import (
 // anywhere else fails this test. Values are the allowed import path.
 var crushImportAllowlist = map[string]string{
 	"cmd/agentgo-tui/main.go":             "agentgo/third_party/crush/pkg/embedtui",
-	"internal/bridge/app_service.go":      "agentgo/third_party/crush/pkg/codetools",
 	"internal/bridge/codetools_plugin.go": "agentgo/third_party/crush/pkg/codetools",
-	"internal/bridge/crushproto_lsp.go":   "agentgo/third_party/crush/pkg/codetools",
-	"internal/codetools/adapter.go":       "agentgo/third_party/crush/pkg/codetools",
 }
 
 func TestCrushImportsAreFrozen(t *testing.T) {
@@ -29,6 +26,11 @@ func TestCrushImportsAreFrozen(t *testing.T) {
 					continue
 				}
 				seen[rel] = true
+				// The codetools adapter package is where Crush tools are wrapped
+				// behind coderuntime.Toolbox; only it may name the toolbox package.
+				if strings.HasPrefix(rel, "internal/codetools/") && imp == "agentgo/third_party/crush/pkg/codetools" {
+					continue
+				}
 				if want, ok := crushImportAllowlist[rel]; !ok || want != imp {
 					bad = append(bad, rel+" imports "+imp)
 				}

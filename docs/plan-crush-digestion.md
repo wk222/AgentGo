@@ -52,7 +52,7 @@
 - 给 codetools 建行为基线：现有工具的输入/输出快照测试（编辑、搜索、诊断各至少一条），作为 D2/D3 的对拍标准。
 - **验收**：基线测试全绿；指标脚本能复现 37 包 / 34,929 行 与 73 包 / 100,199 行。
 
-### D1 codetools 接口收口（1–2 天）
+### D1 codetools 接口收口（1–2 天）✅ 2026-10-17
 - 在 `internal/coderuntime` 定义 AgentGo 自己的 `Toolbox` 接口（Tools、LSPStates、LSPDiagnostics、StartLSP、事件监听），`bridge` 和 `core.ExpandMentions` 只依赖接口。
 - 现有 Crush 实现作为接口的第一个实现者（适配器），行为不变。
 - **验收**：`bridge` 中除适配器装配外不再出现 `ct.` 类型；测试不变全绿。删 0 行，但解耦完成。
@@ -109,3 +109,5 @@
 - 每阶段若评测退化或对拍不绿，停在该阶段，不叠加下一阶段。
 
 **D0 结果（2026-10-17）：** 已落地 `internal/arch/crush_freeze_test.go`（白名单只减不增，目前 5 个文件：tui 入口、bridge 3 处、codetools 适配器）、`scripts/crush-closure.py`（实测：磁盘 75 包 100,321 行；codetools 闭包 37 包 34,929 行；tui 闭包 73 包 100,199 行）、`internal/codetools/baseline_test.go`（view/edit/grep/write 真跑临时工作区 + 诊断非空断言，D2/D3 的原生实现必须过同一组断言）。
+
+**D1 结果（2026-10-17）：** `internal/coderuntime` 新增原生 `Toolbox` 接口（`Tool`/`ToolResult`/`LSPClientInfo`/`LSPEvent`）；`internal/codetools.Wrap` 把 Crush 工具箱包装成该接口，`Adapt`/`RegisterTraits` 改吃 `coderuntime.Tool`；`AppService` 只持有接口，bridge 里只剩插件装配（`codetools_plugin.go` 的 `ct.New`/`ct.Options`）还碰 Crush 类型。冻结白名单从 5 个文件缩到 2 个（tui 入口 + 插件装配），codetools 包内仅适配器文件可引用。闭包数字不变（37 包 / 34,929 行），符合 D1 只解耦不删码的预期。
