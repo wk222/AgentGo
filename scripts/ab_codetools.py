@@ -187,7 +187,7 @@ def run_once(exe, prompt, root, timeout):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--a", required=True, help="reference build (label A)")
+    ap.add_argument("--a", default="", help="reference build (label A); omit to just check build B")
     ap.add_argument("--b", required=True, help="build under test (label B)")
     ap.add_argument("--runs", type=int, default=2)
     ap.add_argument("--only", default="")
@@ -202,7 +202,7 @@ def main():
         if names and name not in names:
             continue
         for run in range(a.runs):
-            for label, exe in (("A", a.a), ("B", a.b)):
+            for label, exe in [x for x in (("A", a.a), ("B", a.b)) if x[1]]:
                 root = Path(a.tmp) / f"{name}-{label}-{run}"
                 shutil.rmtree(root, ignore_errors=True)
                 make_fixture(root)
@@ -223,10 +223,14 @@ def main():
         cells = []
         for label in "AB":
             rs = [r for r in row if r["build"] == label]
+            if not rs:
+                continue
             cells.append(f"{label}: {sum(r['ok'] for r in rs)}/{len(rs)} tools={sum(len(r['tools']) for r in rs)/len(rs):.1f} {sum(r['secs'] for r in rs)/len(rs):.0f}s")
         print(f"{name:12} " + "   ".join(cells))
     for label in "AB":
         rs = [r for r in results if r["build"] == label]
+        if not rs:
+            continue
         print(f"TOTAL {label}: {sum(r['ok'] for r in rs)}/{len(rs)}")
     if a.out:
         Path(a.out).write_text(json.dumps(results, ensure_ascii=False, indent=1), encoding="utf-8")
