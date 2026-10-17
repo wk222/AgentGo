@@ -119,3 +119,12 @@ powershell -File scripts/clean-gobuild.ps1
 - **不要**随意 `go clean -modcache`，会删掉模块缓存并触发全量 re-download。
 
 **Memory → Compose 异步子图**：见 `memory-eino.md`；当前 P2，收益主要在 Milvus/可观测性，聊天延迟瓶颈不在此（JOURNAL/REFLECT 已 goroutine 异步）。
+
+## 全新 clone 验证（2026-10-17）
+
+`git clone` 到空目录后 `go build ./...` 通过。为此做了两件事：
+
+1. Crush 源码并入 `third_party/crush`（见其 NOTICE.md），`go.mod` 不再有指向 `../crush` 的 `replace`。
+2. `.gitignore` 的 `*.exe` 曾吞掉被 `go:embed` 的 `internal/ideruntime/tools/rg.exe`（ripgrep 15.1.0，4 MB），现已加例外并入库；`**/*.md` 吞掉的是 Crush 的嵌入提示词模板，已对 `third_party/**` 加例外。
+
+新增被 `go:embed` 的二进制或 .md 时，先 `git check-ignore -v <文件>`，再到临时目录 clone 验证。
