@@ -17,12 +17,11 @@ import (
 var concretePlugins = []string{
 	"agentgo/internal/codetools",
 	"agentgo/internal/officedoc",
-	"agentgo/internal/crushproto",
 }
 
 // contractOnlyStdlib packages are contracts or the host itself; they may not
 // pull in anything of ours, so every plugin can depend on them freely.
-var contractOnlyStdlib = []string{"plugin", "engine", "crushproto", "shellcmd", "hostlink"}
+var contractOnlyStdlib = []string{"plugin", "engine", "shellcmd"}
 
 func repoRoot() string { return filepath.Join("..", "..") }
 
@@ -81,7 +80,7 @@ func TestConcretePluginsAreOnlyReachedThroughTheAssembly(t *testing.T) {
 			for _, plug := range concretePlugins {
 				if imp == plug || strings.HasPrefix(imp, plug+"/") {
 					// Developer tools that exercise one plugin on its own.
-					if !strings.HasPrefix(rel, "cmd/smoketest/") && !strings.HasPrefix(rel, "cmd/crushproto-probe/") {
+					if !strings.HasPrefix(rel, "cmd/smoketest/") {
 						bad = append(bad, rel+" imports "+imp)
 					}
 				}
@@ -114,10 +113,7 @@ func TestHostAndContractPackagesImportOnlyTheStdlib(t *testing.T) {
 // appServiceCoupled lists the plugin constructors that still need the
 // application facade, with the reason. It may only shrink: an entry that no
 // longer references AppService must be removed, and a new entry needs review.
-var appServiceCoupled = map[string]string{
-	"crushprotoPlugin": "the Crush protocol adapter drives sessions, runs, approvals, LSP and model views through the application (declared as the \"brain\" service)",
-	"hostlinkPlugin":   "the host endpoint serves that same Crush protocol adapter to attached terminals (declared as the \"brain\" service)",
-}
+var appServiceCoupled = map[string]string{}
 
 func mentionsIdent(n ast.Node, name string) (token.Pos, bool) {
 	var at token.Pos
@@ -195,7 +191,7 @@ func TestPluginConstructorsDoNotDependOnAppService(t *testing.T) {
 			t.Errorf("%q no longer references AppService; remove it from appServiceCoupled", name)
 		}
 	}
-	for _, want := range []string{"einoPlugin", "codingAgentPlugin", "crushprotoPlugin", "hostlinkPlugin", "codetoolsPlugin", "dataPlugins", "agentPlugins", "featurePlugins"} {
+	for _, want := range []string{"einoPlugin", "codingAgentPlugin", "codetoolsPlugin", "dataPlugins", "agentPlugins", "featurePlugins"} {
 		if !seen[want] {
 			t.Errorf("constructor %s was not found; the check is not looking at the right code", want)
 		}

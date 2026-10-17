@@ -123,8 +123,6 @@ func (s *AppService) initPlugins() {
 		s.unbindWorkspace = s.rt.AddWorkspaceBinder(s.rebindCodetools)
 	}
 	register(officedocPlugin(s.officedocEnv()))
-	register(crushprotoPlugin(s.rt))
-	register(hostlinkPlugin(s.rt))
 
 	if err := h.Start(); err != nil {
 		log.Printf("[plugin] start: %v", err)

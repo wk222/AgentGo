@@ -27,10 +27,8 @@ func openStandalone(cfg cli.Config) (cli.Backend, error) {
 	if cfg.API != "" {
 		config.LLMAPI.Set(cfg.API)
 	}
-	// A CLI process owns its runs; it is not something others attach to, and it
-	// must not fire the desktop app's scheduled tasks.
+	// A CLI process must not fire the desktop app's scheduled tasks.
 	config.DisableScheduler.SetDefault(true)
-	config.Hostlink.SetDefault(false)
 
 	applog.SetQuiet(!cfg.Verbose)
 	rt, err := bridge.NewRuntime()

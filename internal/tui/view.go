@@ -188,8 +188,13 @@ func renderTool(e *entry, w int) string {
 	if e.isErr {
 		mark, style = "✗", sErr
 	}
-	out := head + "\n  " + style.Render(mark) + " " + sDim.Render(oneLine(e.result, max(10, w-6)))
-	if lines, _, _, ok := diagnostics(e.result); ok && len(lines) > 0 {
+	summary := oneLine(e.result, max(10, w-6))
+	lines, errs, warns, ok := diagnostics(e.result)
+	if ok {
+		summary = fmt.Sprintf("%d error(s), %d warning(s)", errs, warns)
+	}
+	out := head + "\n  " + style.Render(mark) + " " + sDim.Render(summary)
+	if ok && len(lines) > 0 {
 		for i, l := range lines {
 			if i == diagMaxLines {
 				out += "\n    " + sDim.Render(fmt.Sprintf("… %d more", len(lines)-diagMaxLines))
