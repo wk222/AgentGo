@@ -148,6 +148,21 @@ func (b *bridgeBackend) Pending() []cli.Message {
 
 func (b *bridgeBackend) Tools() []string { return b.svc.ListRegisteredTools() }
 
+// History replays a saved conversation for the TUI (tui.Historian): the user
+// and assistant text, in order.
+func (b *bridgeBackend) History(sessionID string) ([]cli.Message, error) {
+	out := b.svc.GetSessionMessages(sessionID)
+	if e := str(out["error"]); e != "" {
+		return nil, fmt.Errorf("%s", e)
+	}
+	rows, _ := out["messages"].([]map[string]any)
+	var msgs []cli.Message
+	for _, r := range rows {
+		msgs = append(msgs, cli.Message{Role: str(r["role"]), Type: str(r["type"]), Content: str(r["content"])})
+	}
+	return msgs, nil
+}
+
 func (b *bridgeBackend) Close() {
 	b.svc.Close()
 	_ = b.rt.Close()

@@ -30,6 +30,18 @@ type IO struct {
 	InTTY      bool // stdin is an interactive terminal
 	Color      bool
 	Interrupts <-chan os.Signal // nil = none
+	// TUI runs the full-screen client and returns its exit code. When set, an
+	// interactive chat on a terminal uses it instead of the line REPL (unless
+	// -plain). It is a hook so that this package need not import the TUI.
+	TUI func(be Backend, o TUIOptions) int
+}
+
+// TUIOptions is what the full-screen client needs from the command line.
+type TUIOptions struct {
+	Workspace string
+	Session   string
+	Yolo      bool
+	Thinking  bool
 }
 
 // StdIO is the real process environment, with Ctrl+C wired up.
@@ -46,7 +58,8 @@ func StdIO() IO {
 const usage = `agentgo-cli - AgentGo in the terminal
 
 Usage:
-  agentgo-cli [flags]                    interactive chat
+  agentgo-cli [flags]                    interactive chat (full-screen on a terminal)
+  agentgo-cli tui [flags]                the full-screen chat explicitly
   agentgo-cli run [flags] "task"         run one task and exit (also: pipe the task on stdin)
   agentgo-cli sessions                   list saved conversations
   agentgo-cli plugins                    list plugins and their state
@@ -61,6 +74,7 @@ Flags (before the task):
   -continue            continue the most recent conversation
   -yolo                approve every tool call without asking
   -json                machine-readable output: one JSON event per line on stdout
+  -plain               line-mode chat instead of the full-screen one
   -thinking            show the model's reasoning
   -api responses       use the Responses API (streams reasoning summaries)
   -v                   show the runtime's log lines on stderr (always kept in agentgo.log)
@@ -79,6 +93,7 @@ type options struct {
 	yolo     bool
 	json     bool
 	thinking bool
+	plain    bool
 }
 
 func parseFlags(name string, args []string, errW io.Writer) (options, []string, error) {
@@ -92,6 +107,7 @@ func parseFlags(name string, args []string, errW io.Writer) (options, []string, 
 	fs.BoolVar(&o.yolo, "yolo", false, "")
 	fs.BoolVar(&o.json, "json", false, "")
 	fs.BoolVar(&o.thinking, "thinking", false, "")
+	fs.BoolVar(&o.plain, "plain", false, "")
 	fs.StringVar(&o.cfg.API, "api", "", "")
 	fs.BoolVar(&o.cfg.Verbose, "v", false, "")
 	if err := fs.Parse(args); err != nil {
@@ -118,7 +134,7 @@ func Main(args []string, env IO, open OpenFunc) int {
 	cmd := "chat"
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		switch args[0] {
-		case "chat", "run", "sessions", "plugins", "tools", "approvals", "approve", "deny":
+		case "chat", "tui", "run", "sessions", "plugins", "tools", "approvals", "approve", "deny":
 			cmd, args = args[0], args[1:]
 		default:
 			cmd = "run" // agentgo-cli "fix the bug"
@@ -162,7 +178,7 @@ func Main(args []string, env IO, open OpenFunc) int {
 
 	// Only commands that work in a directory pin one; the others use whatever
 	// workspace AgentGo last had.
-	if (cmd == "run" || cmd == "chat") && strings.TrimSpace(o.cfg.Workspace) == "" {
+	if (cmd == "run" || cmd == "chat" || cmd == "tui") && strings.TrimSpace(o.cfg.Workspace) == "" {
 		o.cfg.Workspace, _ = os.Getwd()
 	}
 
@@ -202,6 +218,13 @@ func Main(args []string, env IO, open OpenFunc) int {
 	}
 	if cmd == "run" {
 		return runOnce(chat, prompt, env)
+	}
+	if env.TUI != nil && env.InTTY && !o.plain && !o.json {
+		return env.TUI(be, TUIOptions{Workspace: o.cfg.Workspace, Session: chat.Session, Yolo: o.yolo, Thinking: o.thinking})
+	}
+	if cmd == "tui" {
+		fmt.Fprintln(env.Err, "tui: needs an interactive terminal (use `agentgo-cli run` for scripts)")
+		return ExitUsage
 	}
 	return repl(chat, in, env, o)
 }
