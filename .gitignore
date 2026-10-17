@@ -80,3 +80,6 @@ config.local.json
 !/third_party/**
 !/third_party/**/*.md
 !/third_party/**/.env.sample
+
+# ripgrep binary embedded by internal/ideruntime (go:embed); without it a fresh clone does not build
+!/internal/ideruntime/tools/rg.exe
