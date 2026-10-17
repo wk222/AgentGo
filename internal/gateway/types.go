@@ -27,12 +27,15 @@ type ChatResult struct {
 // UsageStats is what one chat run consumed. It rides on the final "done" event so
 // clients (the evaluation harness, scripts) get exact per-run numbers.
 type UsageStats struct {
-	ModelCalls       int `json:"model_calls"`
-	PromptTokens     int `json:"prompt_tokens"`
-	CachedTokens     int `json:"cached_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
-	ReasoningTokens  int `json:"reasoning_tokens"`
-	ToolCalls        int `json:"tool_calls"`
+	ModelCalls       int   `json:"model_calls"`
+	PromptTokens     int   `json:"prompt_tokens"`
+	CachedTokens     int   `json:"cached_tokens"`
+	CompletionTokens int   `json:"completion_tokens"`
+	ReasoningTokens  int   `json:"reasoning_tokens"`
+	ToolCalls        int   `json:"tool_calls"`
+	Spills           int   `json:"spills,omitempty"`
+	SpilledBytes     int64 `json:"spilled_bytes,omitempty"`
+	SavedBytes       int64 `json:"saved_bytes,omitempty"`
 }
 
 // Backend is implemented by bridge.Runtime (no import cycle).

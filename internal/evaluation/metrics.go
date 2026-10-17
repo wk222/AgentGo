@@ -18,6 +18,10 @@ type Metrics struct {
 	CompletionTokens int `json:"completion_tokens"`
 	ReasoningTokens  int `json:"reasoning_tokens"`
 	ToolCalls        int `json:"tool_calls"`
+	// Tool output moved out of the context (see agent.SpillMiddleware).
+	Spills       int   `json:"spills,omitempty"`
+	SpilledBytes int64 `json:"spilled_bytes,omitempty"`
+	SavedBytes   int64 `json:"saved_bytes,omitempty"`
 }
 
 // Add accumulates o into m.
@@ -28,6 +32,9 @@ func (m *Metrics) Add(o Metrics) {
 	m.CompletionTokens += o.CompletionTokens
 	m.ReasoningTokens += o.ReasoningTokens
 	m.ToolCalls += o.ToolCalls
+	m.Spills += o.Spills
+	m.SpilledBytes += o.SpilledBytes
+	m.SavedBytes += o.SavedBytes
 }
 
 // CacheHitRate is cached / prompt tokens; 0 when no prompt was sent.

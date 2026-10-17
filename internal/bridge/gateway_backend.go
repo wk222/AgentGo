@@ -96,6 +96,7 @@ func (g *RuntimeGateway) StreamChat(ctx context.Context, req gateway.ChatRequest
 	return &gateway.ChatResult{Content: content, Usage: &gateway.UsageStats{
 		ModelCalls: u.ModelCalls, PromptTokens: u.PromptTokens, CachedTokens: u.CachedTokens,
 		CompletionTokens: u.CompletionTokens, ReasoningTokens: u.ReasoningTokens, ToolCalls: u.ToolCalls,
+		Spills: u.Spills, SpilledBytes: u.SpilledBytes, SavedBytes: u.SavedBytes,
 	}}, nil
 }
 

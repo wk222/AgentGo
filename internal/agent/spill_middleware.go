@@ -80,20 +80,51 @@ func (m *SpillMiddleware) BeforeModelRewriteState(ctx context.Context, state *ad
 		if strings.Contains(msg.Content, "[Offloaded to spill store: spill_") {
 			continue
 		}
+		// A preview that is not shorter than the output saves nothing, and
+		// writing the file anyway would leave a fresh copy on disk on every
+		// model call (the message would still look un-offloaded next time).
+		if !spillWouldShrink(msg.Content) {
+			continue
+		}
 
 		toolCallID := msg.ToolCallID
 		toolName := msg.Name
-		rawBytes := []byte(msg.Content)
+		raw := msg.Content
 
-		record, err := m.store.Save(ctx, sessionID, toolCallID, toolName, rawBytes)
+		record, err := m.store.Save(ctx, sessionID, toolCallID, toolName, []byte(raw))
 		if err != nil {
 			continue
 		}
 
-		msg.Content = formatSpillPreview(msg.Content, record)
+		msg.Content = formatSpillPreview(raw, record)
+		runMeterFrom(ctx).addSpill(len(raw), len(msg.Content))
 	}
 
 	return ctx, state, nil
+}
+
+// minSpillSaving is the least a spill must spare the model; below it the
+// banner and fetch hint cost about as much as they remove.
+const minSpillSaving = 512
+
+// spillWouldShrink reports whether the output is replaced by a preview that
+// saves at least minSpillSaving bytes. It builds the real preview (with a
+// placeholder id of the real length) so the answer cannot disagree with what is
+// sent.
+//
+// Outputs of at most head+tail lines are never previewed: most file reads come
+// back as ONE physical line of JSON, and a line-based preview of that either
+// does nothing or cuts the file the model asked for in the middle. (Measured:
+// cutting such reads to a byte preview tripled tool calls, because the model
+// then pages through fetch_spill_content, whose offsets are lines.)
+func spillWouldShrink(raw string) bool {
+	if strings.Count(raw, "\n")+1 <= previewHeadLines+previewTailLines {
+		return false
+	}
+	probe := formatSpillPreview(raw, &spill.SpillRecord{
+		ID: "spill_000000000000", TotalLines: strings.Count(raw, "\n") + 1, TotalBytes: int64(len(raw)),
+	})
+	return len(raw)-len(probe) >= minSpillSaving
 }
 
 func formatSpillPreview(raw string, record *spill.SpillRecord) string {

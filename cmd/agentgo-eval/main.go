@@ -209,14 +209,22 @@ func printReport(r *evaluation.EvalResult) {
 				note = "  <- " + d.ErrorMsg
 			}
 		}
-		fmt.Printf("  %s  %-24s %5.1fs  prompt=%-6d cached=%-6d out=%-5d tools=%d%s\n",
-			mark, c.CaseID, dur.Seconds(), m.PromptTokens, m.CachedTokens, m.CompletionTokens, m.ToolCalls, note)
+		spilled := ""
+		if m.Spills > 0 {
+			spilled = fmt.Sprintf(" spilled=%d(saved %dB)", m.Spills, m.SavedBytes)
+		}
+		fmt.Printf("  %s  %-24s %5.1fs  prompt=%-6d cached=%-6d out=%-5d tools=%d%s%s\n",
+			mark, c.CaseID, dur.Seconds(), m.PromptTokens, m.CachedTokens, m.CompletionTokens, m.ToolCalls, spilled, note)
 	}
 	fmt.Printf("\npassed %d/%d cases (%.0f%%), %d runs, %.1fs\n",
 		countPassed(r), len(r.Cases), r.PassingRate*100, r.TotalRuns, r.Duration.Seconds())
 	fmt.Printf("tokens: prompt=%d cached=%d (hit %.0f%%) completion=%d reasoning=%d, tool calls=%d, model calls=%d\n",
 		r.Totals.PromptTokens, r.Totals.CachedTokens, r.Totals.CacheHitRate()*100,
 		r.Totals.CompletionTokens, r.Totals.ReasoningTokens, r.Totals.ToolCalls, r.Totals.ModelCalls)
+	if r.Totals.Spills > 0 {
+		fmt.Printf("spill: %d tool outputs moved out of the context, %d B spilled, %d B saved\n",
+			r.Totals.Spills, r.Totals.SpilledBytes, r.Totals.SavedBytes)
+	}
 }
 
 func countPassed(r *evaluation.EvalResult) int {
