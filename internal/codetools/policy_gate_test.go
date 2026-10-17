@@ -5,8 +5,7 @@ import (
 	"sort"
 	"testing"
 
-	ct "agentgo/third_party/crush/pkg/codetools"
-
+	"agentgo/internal/coderuntime"
 	"agentgo/internal/governance"
 )
 
@@ -18,15 +17,11 @@ import (
 
 // newToolbox returns a toolbox whose traits are registered the way the plugin
 // does it, and withdrawn again when the test ends.
-func newToolbox(t *testing.T) *ct.Toolbox {
+func newToolbox(t *testing.T) []coderuntime.Tool {
 	t.Helper()
-	tb, err := ct.New(ct.Options{WorkDir: t.TempDir(), DataDir: t.TempDir()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(tb.Close)
-	t.Cleanup(RegisterTraits(Wrap(tb).Tools()))
-	return tb
+	box := nativeBox(t, t.TempDir())
+	t.Cleanup(RegisterTraits(box.Tools()))
+	return box.Tools()
 }
 
 // ranWithoutApproval reports whether the call went straight through.
@@ -50,7 +45,7 @@ func ranWithoutApproval(t *testing.T, mode, tool string) bool {
 func TestMutatingCodeToolsNeedApprovalUnderDefaultPolicies(t *testing.T) {
 	tb := newToolbox(t)
 	for _, mode := range []string{"balanced", "strict"} {
-		for _, tool := range tb.Tools {
+		for _, tool := range tb {
 			if !IsMutating(tool.Name) {
 				continue
 			}
@@ -64,7 +59,7 @@ func TestMutatingCodeToolsNeedApprovalUnderDefaultPolicies(t *testing.T) {
 
 func TestReadOnlyCodeToolsAreNotGated(t *testing.T) {
 	tb := newToolbox(t)
-	for _, tool := range tb.Tools {
+	for _, tool := range tb {
 		if IsMutating(tool.Name) {
 			continue
 		}
@@ -80,7 +75,7 @@ func TestReadOnlyCodeToolsAreNotGated(t *testing.T) {
 func TestCodeToolSetIsKnown(t *testing.T) {
 	tb := newToolbox(t)
 	var got []string
-	for _, tool := range tb.Tools {
+	for _, tool := range tb {
 		got = append(got, tool.Name)
 	}
 	sort.Strings(got)

@@ -8,37 +8,50 @@ import (
 	"strings"
 	"testing"
 
-	ct "agentgo/third_party/crush/pkg/codetools"
 	einotool "github.com/cloudwego/eino/components/tool"
+
+	"agentgo/internal/codelsp"
+	"agentgo/internal/coderuntime"
 )
 
-// Behavior baseline for the Crush-backed tools (plan-crush-digestion D0). The
-// native replacements in D2/D3 must pass these same assertions, so they pin
-// observable behavior (what the model sees and what lands on disk), not the
-// Crush implementation.
+// Behavior baseline for the code tools (plan-crush-digestion D0): what the
+// model sees and what lands on disk. The native tools must satisfy it; with
+// -tags crushparity the vendored Crush tools run the same assertions.
 
-// eachImpl runs fn against the Crush-backed tools and against the Crush toolbox
-// with the native file tools overlaid; both must satisfy the same baseline.
+// crushBoxFactory builds the Crush-backed toolbox; only set under the
+// crushparity build tag (crush_parity_test.go).
+var crushBoxFactory func(t *testing.T, dir string) coderuntime.Toolbox
+
+// nativeBox assembles the production toolbox the way the plugin does. Rg off:
+// the Go walker is deterministic.
+func nativeBox(t *testing.T, dir string) coderuntime.Toolbox {
+	t.Helper()
+	search := SearchOptions{WorkDir: dir, Rg: func() string { return "" }}
+	lsp, err := codelsp.New(codelsp.Options{WorkDir: dir, Search: SymbolSearch(search)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(lsp.Close)
+	return Overlay(lsp, append(NativeFS(lsp, dir, nil), NativeSearch(search)...))
+}
+
+// eachImpl runs fn against the native tools and, when built with the
+// crushparity tag, against the Crush ones too.
 func eachImpl(t *testing.T, fn func(t *testing.T, native bool)) {
-	t.Run("crush", func(t *testing.T) { fn(t, false) })
+	if crushBoxFactory != nil {
+		t.Run("crush", func(t *testing.T) { fn(t, false) })
+	}
 	t.Run("native", func(t *testing.T) { fn(t, true) })
 }
 
 func baselineTools(t *testing.T, native bool) (dir string, tools map[string]einotool.BaseTool) {
 	t.Helper()
 	dir = t.TempDir()
-	tb, err := ct.New(ct.Options{WorkDir: dir, DataDir: t.TempDir()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(tb.Close)
-	box := Wrap(tb)
+	var box coderuntime.Toolbox
 	if native {
-		native := NativeFS(box, dir, nil)
-		// Rg off: the Go walker is deterministic, and it is what the Crush
-		// tools use under `go test` too.
-		native = append(native, NativeSearch(SearchOptions{WorkDir: dir, Rg: func() string { return "" }})...)
-		box = Overlay(box, native)
+		box = nativeBox(t, dir)
+	} else {
+		box = crushBoxFactory(t, dir)
 	}
 	adapted, err := Adapt(box.Tools())
 	if err != nil {

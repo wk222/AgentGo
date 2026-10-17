@@ -106,12 +106,11 @@ var (
 // --- plugins / background services ----------------------------------------
 
 var (
-	PluginsDisable  = newStr("AGENTGO_PLUGINS_DISABLE", "", GroupPlugins, "comma-separated plugin names to switch off")
-	CodeTools       = newBool("AGENTGO_CODETOOLS", true, GroupPlugins, "code-aware tools plugin")
-	CodeToolsAppr   = newBool("AGENTGO_CODETOOLS_APPROVE", true, GroupPlugins, "0 denies every mutating code tool (read-only)")
-	CodeToolsNative = newBool("AGENTGO_CODETOOLS_NATIVE", true, GroupPlugins, "0 falls back to the Crush-backed view/write/edit/multiedit")
-	OfficeDoc       = newBool("AGENTGO_OFFICEDOC", true, GroupPlugins, "Word/Excel generation plugin")
-	LegacyDynExec   = newBool("AGENTGO_LEGACY_DYNAMIC_EXEC", false, GroupPlugins, "use the legacy dynamic tool executor")
+	PluginsDisable = newStr("AGENTGO_PLUGINS_DISABLE", "", GroupPlugins, "comma-separated plugin names to switch off")
+	CodeTools      = newBool("AGENTGO_CODETOOLS", true, GroupPlugins, "code-aware tools plugin")
+	CodeToolsAppr  = newBool("AGENTGO_CODETOOLS_APPROVE", true, GroupPlugins, "0 denies every mutating code tool (read-only)")
+	OfficeDoc      = newBool("AGENTGO_OFFICEDOC", true, GroupPlugins, "Word/Excel generation plugin")
+	LegacyDynExec  = newBool("AGENTGO_LEGACY_DYNAMIC_EXEC", false, GroupPlugins, "use the legacy dynamic tool executor")
 
 	DisableScheduler = newBool("AGENTGO_DISABLE_SCHEDULER", false, GroupPlugins, "do not start the cron scheduler (headless hosts)")
 	DisableTriggers  = newBool("AGENTGO_DISABLE_TRIGGERS", false, GroupPlugins, "do not start trigger watchers")

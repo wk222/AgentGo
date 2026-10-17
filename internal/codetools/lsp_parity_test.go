@@ -11,12 +11,11 @@ import (
 
 	"agentgo/internal/codelsp"
 	"agentgo/internal/coderuntime"
-	ct "agentgo/third_party/crush/pkg/codetools"
 )
 
-// Parity (plan-crush-digestion D3): the native language-server tools must give
-// the model what the Crush ones did. It needs a real gopls, so it skips when
-// there is none.
+// The native language-server tools against a real gopls (plan-crush-digestion
+// D3); skipped when there is none. The comparison with Crush's tools lives in
+// crush_parity_test.go behind the crushparity build tag.
 
 func needGopls(t *testing.T) {
 	t.Helper()
@@ -100,60 +99,37 @@ func lspTranscript(t *testing.T, box coderuntime.Toolbox, dir string) []string {
 	return out
 }
 
-func waitGoplsReady(t *testing.T, box coderuntime.Toolbox, file string) {
+// lspMarkers are what a working gopls session must have produced somewhere in
+// the transcript; a transcript of errors proves nothing.
+var lspMarkers = []string{"function add", "error:", "found 1 definition", "reference(s)", "caller(s)", "callee(s)"}
+
+func newNativeLSP(t *testing.T, dir string) *codelsp.Toolbox {
 	t.Helper()
-	deadline := time.Now().Add(90 * time.Second)
-	for time.Now().Before(deadline) {
-		box.StartLSP(context.Background(), file)
-		if st, ok := box.LSPStates()["gopls"]; ok && st.State == int(codelsp.StateReady) {
-			return
-		}
-		time.Sleep(300 * time.Millisecond)
-	}
-	t.Fatal("gopls never became ready")
-}
-
-func TestNativeLSPParityWithCrush(t *testing.T) {
-	needGopls(t)
-
-	crushDir := t.TempDir()
-	seedGoModule(t, crushDir)
-	tb, err := ct.New(ct.Options{WorkDir: crushDir, DataDir: t.TempDir()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tb.Close()
-	// Two Crush quirks the baseline has to be shielded from; the native side
-	// gets neither help. Its symbol tools grep from the process's cwd, not the
-	// workspace; and a call that arrives while a server is still starting (the
-	// toolbox primes servers in the background) queries it before initialize.
-	t.Chdir(crushDir)
-	crushBox := Wrap(tb)
-	waitGoplsReady(t, crushBox, filepath.Join(crushDir, "a.go"))
-	want := lspTranscript(t, crushBox, crushDir)
-
-	nativeDir := t.TempDir()
-	seedGoModule(t, nativeDir)
 	nb, err := codelsp.New(codelsp.Options{
-		WorkDir: nativeDir,
-		Search:  SymbolSearch(SearchOptions{WorkDir: nativeDir, Rg: func() string { return "" }}),
+		WorkDir: dir,
+		Search:  SymbolSearch(SearchOptions{WorkDir: dir, Rg: func() string { return "" }}),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer nb.Close()
-	got := lspTranscript(t, nb, nativeDir)
+	t.Cleanup(nb.Close)
+	return nb
+}
 
-	// gopls must really have answered: a transcript of errors proves nothing.
-	all := strings.Join(want, "\n")
-	for _, marker := range []string{"function add", "error:", "found 1 definition", "reference(s)", "caller(s)", "callee(s)"} {
-		if !strings.Contains(all, marker) {
-			t.Errorf("crush transcript never produced %q:\n%s", marker, all)
+// No warm-up on purpose: the first call races the toolbox's background priming
+// and must still get a real answer (Crush's tools failed here).
+func TestNativeLSPToolsAgainstGopls(t *testing.T) {
+	needGopls(t)
+	dir := t.TempDir()
+	seedGoModule(t, dir)
+	got := lspTranscript(t, newNativeLSP(t, dir), dir)
+	all := strings.Join(got, "\n")
+	for _, m := range lspMarkers {
+		if !strings.Contains(all, m) {
+			t.Errorf("native transcript never produced %q:\n%s", m, all)
 		}
 	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("step %d differs\n--- crush ---\n%s\n--- native ---\n%s", i, want[i], got[i])
-		}
+	if !strings.Contains(got[6], "not found") || !strings.Contains(got[7], "missing.go") {
+		t.Errorf("error paths changed:\n%q\n%q", got[6], got[7])
 	}
 }
