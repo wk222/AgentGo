@@ -158,3 +158,5 @@
 结论：大体一致，原生不差于 Crush。唯一差异是 LSP 诊断：Crush 在服务器"启动中"时放行调用，首个 `lsp_*` 撞上未初始化客户端而返回空（即 D3 记录的启动竞态，真模型下稳定复现），原生用启动门修掉。另一个已知差异：Crush 的 grep 从进程 cwd 起搜，A/B 脚本为公平把两边的 cwd 都设为工作区。工具层面另有 `-tags crushparity` 对拍（FS 28 步、搜索、LSP 8 步）在删除前最后一次全绿。
 删除：`third_party/crush`（75 包 / 100,331 行）、`scripts/vendor-crush.py`、`scripts/crush-closure.py`、`internal/codetools/{wrap.go,crush_parity_test.go}`、`crushparity` 构建标签；`go mod tidy` 同步去掉约 40 个只被 Crush 用的直接依赖（go.mod −124/go.sum −233 行）。
 为不丢掉对拍价值，删除前把 Crush 对 FS/搜索/LSP 场景的真实输出录成 `internal/codetools/testdata/crush_golden.json`（含 gopls 版本），原生测试 `TestNative*MatchesCrushRecording`/`TestNativeLSPToolsAgainstGopls` 逐字比对（LSP 仅在同版本 gopls 下比）。归属与许可证保留在 `licenses/crush/`（`NOTICE.md` + `LICENSE.md`，被派生文件的头注释指向它）；架构测试改为 `TestCrushIsNotImported`，禁止再次引入 Crush。
+
+**D7 评测全量（删除后，同一模型 gpt-6-luna，`--runs 3`，对 `docs/eval/baseline.json`）：** 19/19 用例全过（57 次运行，311 秒），prompt token 803,144（基线 786,759，+2%），工具调用 106（基线 103）；缓存命中 83%（基线 94%，仅警告级，未定位原因，见下一步）。原始结果未入库（`docs/eval/baseline.json` 不更新：行为未有意改变）。
