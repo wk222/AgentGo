@@ -17,6 +17,7 @@ type fakeBE struct {
 	mu        sync.Mutex
 	run       func(session, input string, sink engine.EventSink) engine.RunResult
 	approve   func(id string, ok bool) cli.Result
+	stream    func(sink engine.EventSink) cli.Result // ApproveStream
 	answer    func(id, text string) cli.Result
 	decisions []string
 	answers   []string
@@ -34,6 +35,17 @@ func (f *fakeBE) Approve(id string, ok bool) cli.Result {
 		return f.approve(id, ok)
 	}
 	return cli.Result{}
+}
+
+// ApproveStream makes the fake a Streamer; without f.stream it behaves as Approve.
+func (f *fakeBE) ApproveStream(id string, ok bool, sink engine.EventSink) cli.Result {
+	if f.stream == nil {
+		return f.Approve(id, ok)
+	}
+	f.mu.Lock()
+	f.decisions = append(f.decisions, id+":"+map[bool]string{true: "yes", false: "no"}[ok])
+	f.mu.Unlock()
+	return f.stream(sink)
 }
 func (f *fakeBE) Answer(id, text string) cli.Result {
 	f.mu.Lock()
@@ -415,5 +427,75 @@ func TestPreviewShapes(t *testing.T) {
 	long := `{"file_path":"n.go","content":"` + strings.Repeat("x\\n", 100) + `"}`
 	if got := preview("write", long); !strings.Contains(got, "more lines") {
 		t.Errorf("long preview not capped: %d lines", strings.Count(got, "\n"))
+	}
+}
+
+func TestMessageTypedWhileBusyIsQueuedAndSentAfterwards(t *testing.T) {
+	var inputs []string
+	be := &fakeBE{run: func(_, in string, sink engine.EventSink) engine.RunResult {
+		inputs = append(inputs, in)
+		return engine.RunResult{}
+	}}
+	h := newHarness(t, be, Options{})
+	h.m.session = "s1"
+	h.m.mode = modeBusy // a turn is running
+	h.say("second")
+	if len(h.m.queued) != 1 || len(inputs) != 0 {
+		t.Fatalf("queued=%v inputs=%v", h.m.queued, inputs)
+	}
+	h.mustView("queued")
+	h.say("/yolo") // commands must not slip in mid-turn
+	if h.m.yolo {
+		t.Fatal("a slash command ran while busy")
+	}
+
+	h.send(runDoneMsg{session: "s1", res: engine.RunResult{}}) // the turn ends
+	if len(inputs) != 1 || inputs[0] != "second" {
+		t.Fatalf("queued message not sent: %v", inputs)
+	}
+
+	h.m.mode = modeBusy
+	h.say("third")
+	h.send(runDoneMsg{session: "s1", res: engine.RunResult{Reason: "interrupted"}})
+	if len(h.m.queued) != 0 || len(inputs) != 1 {
+		t.Fatalf("a cancelled turn must drop the queue: queued=%v inputs=%v", h.m.queued, inputs)
+	}
+}
+
+func TestApprovedRunStreamsItsToolAndReplyWithoutDuplicating(t *testing.T) {
+	be := &fakeBE{
+		run: func(_, _ string, sink engine.EventSink) engine.RunResult {
+			sink.Emit(ev(engine.EventToken, map[string]any{"delta": "let me edit"}))
+			return engine.RunResult{Pending: true, Messages: []engine.Message{pendingApproval("ap1", "code_edit", `{"file_path":"a.go"}`)}}
+		},
+		stream: func(sink engine.EventSink) cli.Result {
+			sink.Emit(ev(engine.EventToolCall, map[string]any{"id": "c1", "name": "code_edit", "arguments": `{"file_path":"a.go"}`}))
+			sink.Emit(ev(engine.EventToolResult, map[string]any{"id": "c1", "name": "code_edit", "output": "ok"}))
+			sink.Emit(ev(engine.EventFileChange, map[string]any{"path": "a.go", "unified_diff": "--- a/a.go\n+++ b/a.go\n@@ -1 +1 @@\n-old\n+new\n"}))
+			sink.Emit(ev(engine.EventToken, map[string]any{"delta": "all done"}))
+			return cli.Result{Messages: []cli.Message{{Role: "assistant", Type: "text", Content: "all done"}}}
+		},
+	}
+	h := newHarness(t, be, Options{})
+	h.say("edit it")
+	h.press('y')
+
+	v := ansi.ReplaceAllString(h.view(), "")
+	for _, want := range []string{"code_edit", "+new", "all done"} {
+		if !strings.Contains(v, want) {
+			t.Fatalf("view lacks %q after the approved run:\n%s", want, v)
+		}
+	}
+	if n := strings.Count(v, "all done"); n != 1 {
+		t.Fatalf("reply shown %d times, want once:\n%s", n, v)
+	}
+}
+
+func TestClosingAStreamedReplyRendersMarkdown(t *testing.T) {
+	be := &fakeBE{run: answerRun("use **bold** here")}
+	h := newHarness(t, be, Options{})
+	h.say("hi")
+	if v := ansi.ReplaceAllString(h.view(), ""); strings.Contains(v, "**bold**") {
+		t.Fatalf("markdown markers still visible after the turn ended:\n%s", v)
 	}
 }

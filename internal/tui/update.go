@@ -72,10 +72,10 @@ func (m *Model) onRunDone(msg runDoneMsg) tea.Cmd {
 	switch {
 	case res.Error != "":
 		m.tl.fail(res.Error)
-		m.queue = nil
+		m.queue, m.queued = nil, nil
 	case res.Reason == "interrupted":
 		m.tl.notice("cancelled")
-		m.queue = nil
+		m.queue, m.queued = nil, nil
 	default:
 		for _, em := range res.Messages {
 			cm := cli.Message{Role: em.Role, Type: em.Type, Content: em.Content, ApprovalID: em.ApprovalID,
@@ -101,7 +101,7 @@ func (m *Model) onResolved(res cli.Result) tea.Cmd {
 		switch {
 		case cm.Pending():
 			m.queue = append(m.queue, cm)
-		case cm.Role == "assistant":
+		case !m.tl.streamed && cm.Role == "assistant" && (cm.Type == "" || cm.Type == "text"):
 			m.tl.assistantText(cm.Content)
 		}
 	}
@@ -113,6 +113,11 @@ func (m *Model) onResolved(res cli.Result) tea.Cmd {
 func (m *Model) advance() tea.Cmd {
 	if len(m.queue) == 0 {
 		m.mode = modeIdle
+		if len(m.queued) > 0 { // typed while the turn ran
+			next := m.queued[0]
+			m.queued = m.queued[1:]
+			return m.startRun(next)
+		}
 		return nil
 	}
 	p := m.queue[0]
@@ -136,8 +141,14 @@ func (m *Model) decide(approved bool, note string) tea.Cmd {
 		m.tl.notice(note + " " + p.ToolName)
 	}
 	m.mode = modeBusy
-	be, id := m.be, p.ApprovalID
-	return tea.Batch(tick(), func() tea.Msg { return resolvedMsg{be.Approve(id, approved)} })
+	m.tl.streamed = false // the continued run streams (or returns) its own text
+	be, sk, id := m.be, m.sink, p.ApprovalID
+	return tea.Batch(tick(), func() tea.Msg {
+		if st, ok := be.(Streamer); ok {
+			return resolvedMsg{st.ApproveStream(id, approved, sk)}
+		}
+		return resolvedMsg{be.Approve(id, approved)}
+	})
 }
 
 // answer replies to the question at queue[0].
@@ -296,7 +307,17 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 
 func (m *Model) submit() tea.Cmd {
 	text := strings.TrimSpace(m.in.Value())
-	if text == "" || m.mode == modeBusy {
+	if text == "" {
+		return nil
+	}
+	if m.mode == modeBusy {
+		if strings.HasPrefix(text, "/") {
+			m.tl.notice("commands wait for the turn to end (Esc cancels it)")
+			return nil
+		}
+		m.in.Reset()
+		m.queued = append(m.queued, text)
+		m.tl.notice("queued, sent when the turn ends: " + oneLine(text, 60))
 		return nil
 	}
 	m.in.Reset()
