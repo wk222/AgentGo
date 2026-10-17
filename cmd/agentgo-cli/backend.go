@@ -97,7 +97,12 @@ func (b *bridgeBackend) ApproveStream(approvalID string, approved bool, sink eng
 }
 
 func (b *bridgeBackend) Answer(questionID, text string) cli.Result {
-	out := b.svc.AnswerQuestion(questionID, text)
+	return b.AnswerStream(questionID, text, nil)
+}
+
+// AnswerStream is Answer with the continued run's events delivered to sink.
+func (b *bridgeBackend) AnswerStream(questionID, text string, sink engine.EventSink) cli.Result {
+	out := b.svc.AnswerQuestionTap(questionID, text, sink)
 	var r cli.Result
 	if ok, _ := out["success"].(bool); !ok {
 		r.Error = str(out["error"])

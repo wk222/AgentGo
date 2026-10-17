@@ -38,6 +38,7 @@ type Historian interface {
 // Without it the continued run shows up only as its final messages.
 type Streamer interface {
 	ApproveStream(approvalID string, approved bool, sink engine.EventSink) cli.Result
+	AnswerStream(questionID, text string, sink engine.EventSink) cli.Result
 }
 
 type mode int

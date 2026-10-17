@@ -14,16 +14,18 @@ import (
 
 // fakeBE is a scripted cli.Backend (and Historian).
 type fakeBE struct {
-	mu        sync.Mutex
-	run       func(session, input string, sink engine.EventSink) engine.RunResult
-	approve   func(id string, ok bool) cli.Result
-	stream    func(sink engine.EventSink) cli.Result // ApproveStream
-	answer    func(id, text string) cli.Result
-	decisions []string
-	answers   []string
-	cancelled []string
-	sessions  []cli.SessionInfo
-	history   map[string][]cli.Message
+	mu      sync.Mutex
+	run     func(session, input string, sink engine.EventSink) engine.RunResult
+	approve func(id string, ok bool) cli.Result
+	stream  func(sink engine.EventSink) cli.Result // ApproveStream
+
+	streamAnswer func(sink engine.EventSink) cli.Result // AnswerStream
+	answer       func(id, text string) cli.Result
+	decisions    []string
+	answers      []string
+	cancelled    []string
+	sessions     []cli.SessionInfo
+	history      map[string][]cli.Message
 }
 
 func (f *fakeBE) Run(s, in string, sink engine.EventSink) engine.RunResult { return f.run(s, in, sink) }
@@ -46,6 +48,17 @@ func (f *fakeBE) ApproveStream(id string, ok bool, sink engine.EventSink) cli.Re
 	f.decisions = append(f.decisions, id+":"+map[bool]string{true: "yes", false: "no"}[ok])
 	f.mu.Unlock()
 	return f.stream(sink)
+}
+
+// AnswerStream: same idea for questions, through f.streamAnswer.
+func (f *fakeBE) AnswerStream(id, text string, sink engine.EventSink) cli.Result {
+	if f.streamAnswer == nil {
+		return f.Answer(id, text)
+	}
+	f.mu.Lock()
+	f.answers = append(f.answers, id+":"+text)
+	f.mu.Unlock()
+	return f.streamAnswer(sink)
 }
 func (f *fakeBE) Answer(id, text string) cli.Result {
 	f.mu.Lock()
@@ -497,5 +510,29 @@ func TestClosingAStreamedReplyRendersMarkdown(t *testing.T) {
 	h.say("hi")
 	if v := ansi.ReplaceAllString(h.view(), ""); strings.Contains(v, "**bold**") {
 		t.Fatalf("markdown markers still visible after the turn ended:\n%s", v)
+	}
+}
+
+func TestAnsweredQuestionStreamsTheContinuedRun(t *testing.T) {
+	be := &fakeBE{
+		run: func(string, string, engine.EventSink) engine.RunResult {
+			return engine.RunResult{Pending: true, Messages: []engine.Message{{Role: "assistant", Type: "question", Status: "pending", ApprovalID: "q1", Content: "Which file?"}}}
+		},
+		streamAnswer: func(sink engine.EventSink) cli.Result {
+			sink.Emit(ev(engine.EventToolCall, map[string]any{"id": "c1", "name": "code_view", "arguments": `{"file_path":"b.go"}`}))
+			sink.Emit(ev(engine.EventToolResult, map[string]any{"id": "c1", "name": "code_view", "output": "ok"}))
+			sink.Emit(ev(engine.EventToken, map[string]any{"delta": "read b.go"}))
+			return cli.Result{Messages: []cli.Message{{Role: "assistant", Type: "text", Content: "read b.go"}}}
+		},
+	}
+	h := newHarness(t, be, Options{})
+	h.say("help")
+	h.say("b.go")
+	v := ansi.ReplaceAllString(h.view(), "")
+	if !strings.Contains(v, "code_view") {
+		t.Fatalf("the tool the answer unblocked is not shown:\n%s", v)
+	}
+	if n := strings.Count(v, "read b.go"); n != 1 {
+		t.Fatalf("reply shown %d times, want once:\n%s", n, v)
 	}
 }
