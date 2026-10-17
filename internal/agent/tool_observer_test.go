@@ -9,6 +9,7 @@ import (
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/components/tool"
+	"github.com/cloudwego/eino/compose"
 )
 
 type recObs struct{ lines []string }
@@ -98,7 +99,8 @@ func TestToolWithoutObserverIsUnaffected(t *testing.T) {
 func TestToolObserverReportsInterruptAsPauseNotFailure(t *testing.T) {
 	obs := &recObs{}
 	ctx := WithToolObserver(context.Background(), obs)
-	sig := errors.New("[LocalFunc] failed to invoke tool, toolName=ask_user, err=interrupt signal: ID=abc, address:[...]")
+	// The real thing: tool.Interrupt's signal, wrapped with %w as the tool adapters do.
+	sig := fmt.Errorf("[LocalFunc] failed to invoke tool, toolName=ask_user, err=%w", compose.Interrupt(ctx, "q"))
 	_, err := wrapAndRun(t, ctx, func(context.Context, string, ...tool.Option) (string, error) { return "", sig })
 	if err == nil {
 		t.Fatal("the interrupt must still propagate so the run pauses")

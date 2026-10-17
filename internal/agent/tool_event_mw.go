@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"strconv"
-	"strings"
 	"sync/atomic"
 
 	"github.com/cloudwego/eino/adk"
@@ -74,11 +73,8 @@ func (m *ToolCallEventMiddleware) WrapInvokableToolCall(
 }
 
 // isPauseSignal reports whether err is Eino's interrupt signal, which a tool
-// returns to pause the run for human input. The concrete type is internal to
-// Eino, so it is recognised by its stable message prefix.
+// returns (wrapped with %w by the tool adapters) to pause the run for human input.
 func isPauseSignal(err error) bool {
-	if _, ok := compose.IsInterruptRerunError(err); ok {
-		return true
-	}
-	return err != nil && strings.Contains(err.Error(), "interrupt signal: ID=")
+	_, ok := compose.IsInterruptRerunError(err)
+	return ok
 }
