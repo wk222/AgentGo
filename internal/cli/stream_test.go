@@ -60,3 +60,34 @@ func TestResumedRunEventsAppearInJSONMode(t *testing.T) {
 		t.Fatalf("the reply was streamed as tokens; the final message must not repeat it:\n%s", out)
 	}
 }
+
+func TestApprovalsListQuestionsAndApproveAllSkipsThem(t *testing.T) {
+	h := newHarness()
+	h.be.pending = []Message{
+		{Role: "assistant", Type: "question", ApprovalID: "q1", ToolName: "ask_user", Arguments: "session s1", Content: "red or blue?", Status: "pending"},
+		{Role: "assistant", Type: "approval", ApprovalID: "ap1", ToolName: "create_docx", Arguments: `{}`, Status: "pending"},
+	}
+	if code := h.run(t, []string{"approvals"}, "", false); code != ExitOK {
+		t.Fatalf("exit %d", code)
+	}
+	out := h.out.String()
+	if !strings.Contains(out, "q1\tquestion\tred or blue?") || !strings.Contains(out, "ap1\tcreate_docx") {
+		t.Fatalf("approvals output:\n%s", out)
+	}
+
+	h = newHarness()
+	h.be.pending = []Message{
+		{Role: "assistant", Type: "question", ApprovalID: "q1", ToolName: "ask_user", Content: "red or blue?", Status: "pending"},
+		{Role: "assistant", Type: "approval", ApprovalID: "ap1", ToolName: "create_docx", Status: "pending"},
+	}
+	h.be.approves = []Result{{Messages: []Message{{Role: "assistant", Type: "text", Content: "done"}}}}
+	if code := h.run(t, []string{"approve", "all"}, "", false); code != ExitOK {
+		t.Fatalf("exit %d, stderr=%s", code, h.err.String())
+	}
+	if _, asked := h.be.approvedIDs["q1"]; asked || !h.be.approvedIDs["ap1"] {
+		t.Fatalf("approve all must settle the approval and leave the question: %v", h.be.approvedIDs)
+	}
+	if !strings.Contains(h.err.String(), "skipping question q1") {
+		t.Fatalf("no note about the skipped question:\n%s", h.err.String())
+	}
+}

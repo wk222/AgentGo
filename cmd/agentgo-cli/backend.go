@@ -76,6 +76,20 @@ func (b *bridgeBackend) Approve(approvalID string, approved bool) cli.Result {
 // ApproveStream is Approve with the continued run's events delivered to sink
 // (tui.Streamer), so the screen shows the tool the approval unblocked.
 func (b *bridgeBackend) ApproveStream(approvalID string, approved bool, sink engine.EventSink) cli.Result {
+	for _, q := range b.svc.ListPendingQuestions() {
+		if q.ID != approvalID {
+			continue
+		}
+		// A question is not approved or denied: it is answered (in a chat on its
+		// session) or dropped.
+		if approved {
+			return cli.Result{Error: "this is a question, not an approval; answer it in the chat: agentgo-cli -session " + q.SessionID}
+		}
+		if !b.svc.DiscardPendingQuestion(approvalID) {
+			return cli.Result{Error: "the question was already settled"}
+		}
+		return cli.Result{}
+	}
 	out := b.svc.ResolveApprovalTap(approvalID, approved, "cli", sink)
 	var r cli.Result
 	if ok, _ := out["success"].(bool); !ok {
@@ -151,6 +165,11 @@ func (b *bridgeBackend) Pending() []cli.Message {
 	for _, a := range b.svc.ListPendingApprovals() {
 		out = append(out, cli.Message{Role: "assistant", Type: "approval", ApprovalID: a.ID,
 			ToolName: a.ToolName, Arguments: a.Arguments, Content: a.Summary, Status: "pending"})
+	}
+	// Unanswered ask_user pauses block a workspace switch just like approvals.
+	for _, q := range b.svc.ListPendingQuestions() {
+		out = append(out, cli.Message{Role: "assistant", Type: "question", ApprovalID: q.ID,
+			ToolName: "ask_user", Arguments: "session " + q.SessionID, Content: q.Prompt, Status: "pending"})
 	}
 	return out
 }
