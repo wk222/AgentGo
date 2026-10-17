@@ -15,12 +15,7 @@ import (
 )
 
 // Behavior baseline for the code tools (plan-crush-digestion D0): what the
-// model sees and what lands on disk. The native tools must satisfy it; with
-// -tags crushparity the vendored Crush tools run the same assertions.
-
-// crushBoxFactory builds the Crush-backed toolbox; only set under the
-// crushparity build tag (crush_parity_test.go).
-var crushBoxFactory func(t *testing.T, dir string) coderuntime.Toolbox
+// model sees and what lands on disk. The native tools must satisfy it.
 
 // nativeBox assembles the production toolbox the way the plugin does. Rg off:
 // the Go walker is deterministic.
@@ -35,25 +30,16 @@ func nativeBox(t *testing.T, dir string) coderuntime.Toolbox {
 	return Overlay(lsp, append(NativeFS(lsp, dir, nil), NativeSearch(search)...))
 }
 
-// eachImpl runs fn against the native tools and, when built with the
-// crushparity tag, against the Crush ones too.
+// eachImpl runs fn against the native tools (the only implementation left; the
+// parameter stays so the scenarios read the same as when Crush was compared).
 func eachImpl(t *testing.T, fn func(t *testing.T, native bool)) {
-	if crushBoxFactory != nil {
-		t.Run("crush", func(t *testing.T) { fn(t, false) })
-	}
 	t.Run("native", func(t *testing.T) { fn(t, true) })
 }
 
 func baselineTools(t *testing.T, native bool) (dir string, tools map[string]einotool.BaseTool) {
 	t.Helper()
 	dir = t.TempDir()
-	var box coderuntime.Toolbox
-	if native {
-		box = nativeBox(t, dir)
-	} else {
-		box = crushBoxFactory(t, dir)
-	}
-	adapted, err := Adapt(box.Tools())
+	adapted, err := Adapt(nativeBox(t, dir).Tools())
 	if err != nil {
 		t.Fatal(err)
 	}
