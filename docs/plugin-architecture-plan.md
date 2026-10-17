@@ -105,9 +105,9 @@ M4(GUI)基于 P3 之后再做;原 `crush-integration-plan.md` 的 Phase 4/5 顺�
 ## 5.1 codetools 落地经验(2026-10-03,铁律:踩过的坑别再踩)
 
 **依赖合并**
-- agentgo 现需 `go 1.27.0`(随 Crush);`replace github.com/charmbracelet/crush => ../crush`;
+- agentgo 现需 `go 1.27.0`(随 Crush);**2026-10-17 起 Crush 源码已内置到 `third_party/crush`(见其 NOTICE.md),不再有 `replace ... => ../crush`**;
   `replace go.opentelemetry.io/contrib/.../otelgrpc => @v0.59.0`,因为 milvus→etcd/server v3.5.10 用了新版已删除的 otelgrpc 拦截器。
-  `agentgo-crush` 必须带同样两条 replace 和 go 1.27.0;**agentgo 依赖变动后要在 agentgo-crush 里 `go mod tidy`**,否则 `agentgo-mcp` 构建报 "updates to go.mod needed"。
+  `agentgo-crush` 只需 `replace agentgo => ../agentgo`、otelgrpc 那条 replace 和 go 1.27.0(crush 的 replace/require 已删);**agentgo 依赖变动后要在 agentgo-crush 里 `go mod tidy`**,否则 `agentgo-mcp` 构建报 "updates to go.mod needed"。
 - sonic 在 go1.27 退化为 encoding/json(仅性能提示)。
 
 **"工具注册了 ≠ agent 看得见"——三层才算通**

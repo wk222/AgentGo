@@ -218,3 +218,10 @@ OpenSumi 前端体验差的主因是重(webpack + DI + 大量 RPC 桥)。借鉴�
 1. 确认 §6 三个决策点。
 2. 开 M0:补回归 smoke + `docs/crush-audit.md`。
 3. 同步开 M1:`agentgo-tui.ps1` + 扩展 MCP 工具;它不依赖任何决策,马上可用。
+
+## 2026-10-17 更新：Crush 源码并入 AgentGo
+
+- 原来 `go.mod` 里 `replace github.com/charmbracelet/crush => ../crush`，而 fork 里的 `pkg/codetools`、`pkg/embedtui` 一直是**未跟踪文件**（`?? pkg/`），`internal/client/client.go` 也有未提交修改——也就是说只有这一台机器能编译 AgentGo。
+- 现在这 73 个包（约 10 万行，含 LSP、代码工具、会话/db、MCP、oauth 和终端 UI）复制到 `third_party/crush/`，导入路径改写为 `agentgo/third_party/crush/...`，`go.mod` 不再依赖外部 crush 模块；全新 `git clone` 即可 `go build ./...`。
+- 来源、许可（FSL-1.1-MIT，有“竞争性使用”限制）、刷新办法见 `third_party/crush/NOTICE.md` 与 `scripts/vendor-crush.py`。
+- 这一步只是**把依赖变成自己的代码**，没有改变架构：`crushproto`（协议适配）和 `cmd/agentgo-tui`（原版 Crush TUI 当终端身体）都还在。后续要不要继续“原生化”（去掉用不到的 oauth/mcp/db、让 TUI 直接走进程内 `core` 而不是 HTTP 协议），是下一个独立决定。

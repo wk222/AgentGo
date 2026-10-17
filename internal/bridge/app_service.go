@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	ct "github.com/charmbracelet/crush/pkg/codetools"
+	ct "agentgo/third_party/crush/pkg/codetools"
 	"github.com/wailsapp/wails/v3/pkg/application"
 
 	"agentgo/internal/config"

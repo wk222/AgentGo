@@ -198,3 +198,5 @@ elay） | Runtime 字段 | 进 core.ApprovalFlow，只依赖 governance、Pendin
 **进展（同日，续二）：** 工作流执行（RunContext 构建、工具治理桥、Execute / Resume、运行记录）下沉为 `core.WorkflowRuntime`。依赖是具体指针字段（Store / Tools / Approvals / Runner / Bus / Sched / Checkpoints）加两个函数字段（`ChatOnce`、`OnEvent`），宿主每次调用现取一份快照，所以测试里替换 runner、工具表、store 仍然立即生效。顺手把原来会空指针的路径改成明确错误（未接 store 时 `Execute`/`Resume` 返回 `workflow store unavailable`；没有 API key 且没有 runner 时走 `ChatOnce`）。
 
 **到此为止的判断：** 剩下的 `bridge` 代码基本是三类消费层职责——（1）Wails/桌面 IPC 与 DTO；（2）协议适配（Crush TUI、ACP、网关、IDE 面板）；（3）运行时装配（`runtime_boot` / `runtime_plugins_*`）。它们就该留在消费层，所以 **5000 行这个数字目标放弃，改为"`bridge` 里不再有可被其他入口复用的业务逻辑"**，之后新增的业务逻辑一律先进 `core`。`LLMConfig` / `ChatOnce` / `TestLLMConnection`（`llm.go`）仍在 bridge，因为 `LLMConfig` 类型被 IPC 广泛引用，迁移需要先把类型挪走，是下一个可选项。
+
+**Crush 并入（2026-10-17）：** 把 `../crush`（fork，`pkg/` 未跟踪）依赖改为仓库内 `third_party/crush`（73 个包，导入路径改写），`go.mod` 不再有指向本机目录的 `replace`，全新 clone 可构建；`agentgo-crush` 同步去掉 crush 的 replace/require。详见 `docs/crush-integration-plan.md` 末节与 `third_party/crush/NOTICE.md`。`.gitignore` 里 `**/*.md` 会吞掉被 `go:embed` 的提示词模板，已加 `!/third_party/**` 例外。
