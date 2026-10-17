@@ -4,7 +4,7 @@ package coderuntime
 //
 // The matching strategy (exact match first, then a whitespace-normalised
 // whole-line fallback with indentation adaptation, then a diagnostic hint) is
-// derived from Crush's edit tool (third_party/crush, FSL-1.1-MIT), reduced to
+// derived from Crush's edit tool (licenses/crush/NOTICE.md, FSL-1.1-MIT), reduced to
 // pure string functions with no session, permission or history coupling.
 
 import (

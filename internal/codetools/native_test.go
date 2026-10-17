@@ -251,8 +251,8 @@ func runParity(t *testing.T, native bool, seed func(*testing.T, string), scenari
 	return transcript, disk
 }
 
-func TestNativeFSParityWithCrush(t *testing.T) {
-	assertParity(t, seedParity, parityScenario(), []string{
+func TestNativeFSMatchesCrushRecording(t *testing.T) {
+	assertParity(t, loadGolden(t).FS, seedParity, parityScenario(), []string{
 		"you must read the file before editing", "has been modified since it was last read",
 		"Content replaced in file", "Content deleted from file", "File created:",
 		"appears multiple times", "old_string not found", "whitespace-equivalent",
@@ -261,8 +261,8 @@ func TestNativeFSParityWithCrush(t *testing.T) {
 	})
 }
 
-func TestNativeSearchParityWithCrush(t *testing.T) {
-	assertParity(t, seedSearch, searchScenario(), []string{
+func TestNativeSearchMatchesCrushRecording(t *testing.T) {
+	assertParity(t, loadGolden(t).Search, seedSearch, searchScenario(), []string{
 		"Found ", "Line 2, Char ", "No files found", "invalid regex", "path does not exist",
 		"<D>/tree/pkg/util.go", "- <D>/tree/",
 	})
@@ -329,17 +329,21 @@ func TestNativeSearchRgMatchesWalker(t *testing.T) {
 	}
 }
 
-// assertParity runs scenario against the Crush tools and the native ones and
-// requires identical model-visible output and identical files on disk. markers
-// are strings the Crush transcript must contain, so the scenario cannot pass
-// by only producing errors.
-func assertParity(t *testing.T, seed func(*testing.T, string), scenario []step, markers []string) {
+// assertParity runs scenario on the native tools and requires the recorded
+// Crush answers (golden_test.go): identical model-visible output and identical
+// files on disk. markers are strings the recording must contain, so the
+// scenario cannot pass by only producing errors.
+func assertParity(t *testing.T, want goldenRun, seed func(*testing.T, string), scenario []step, markers []string) {
 	t.Helper()
-	if crushBoxFactory == nil {
-		t.Skip("Crush reference not linked; run with -tags crushparity")
-	}
-	wantT, wantD := runParity(t, false, seed, scenario)
+	wantT, wantD := want.Transcript, want.Disk
 	gotT, gotD := runParity(t, true, seed, scenario)
+	slashes := func(ss []string) {
+		for i := range ss {
+			ss[i] = strings.ReplaceAll(ss[i], `\`, "/") // recorded on Windows
+		}
+	}
+	slashes(wantT)
+	slashes(gotT)
 
 	all := strings.Join(wantT, "\n")
 	for _, marker := range markers {

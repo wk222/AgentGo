@@ -139,3 +139,22 @@
 
 **D6 结果（2026-10-17）：** 用户决策：解冻 `tui`/`cli`，新写 BubbleTea 全屏 TUI（不是增强行模式）。落地 `internal/tui`（时间线 + 流式 + glamour Markdown、审批浮层含 edit/multiedit/write 变更预览、提问、file_change diff、LSP 诊断着色与状态栏计数、会话选择器与历史重放、`/` 命令、取消/退出/缩放），`agentgo-cli` 在终端下默认进入，`-plain` 保留行模式。功能对齐清单全部打勾（见 `docs/plan-native-tui.md` §5/§8）。同时删除 Crush 侧入口与协议代码。**闭包实测：`./internal/...`、`./cmd/...` 对 `third_party/crush` 依赖 = 0；`cmd/agentgo-cli` 闭包 = 0。** 冻结白名单已清空。
 剩 D7：`third_party/crush`（75 包 / 100,331 行）现在只被 `-tags crushparity` 的对拍测试引用，删除它即失去 Crush 参照基线（用户此前选择保留在 tag 之后），所以 D7 的整目录删除 + `go mod tidy` + 全新 clone 构建验证等用户确认再做。
+**D7 结果（2026-10-17）：删除前先实测，再清场。**
+实测（真模型 gpt-6-luna，同一份 Go 小工程夹具，9 个任务 × 3 次 × 2 套构建；A = 纯 Crush 版 `d647700` 的 `agentgo-cli`，B = 当前原生版；脚本 `scripts/ab_codetools.py`，每次运行用全新夹具副本、`-yolo`，按文件/答案自动判分）：
+
+| 任务 | A（Crush） | B（原生） |
+|---|---|---|
+| 找函数定义（grep） | 3/3 | 3/3 |
+| 改常量（view+edit） | 3/3 | 3/3 |
+| 修 bug 并跑测试 | 3/3，均 5.7 次工具/29s | 3/3，均 3.3 次/20s |
+| LSP 诊断 | **1/3**（两次答"无诊断"） | **3/3** |
+| LSP 引用 | 3/3 | 3/3 |
+| 读指定行 | 3/3 | 3/3 |
+| 新建文件并编译 | 3/3 | 3/3 |
+| 重命名并改调用方 | 3/3 | 3/3 |
+| glob 列文件 | 3/3 | 3/3 |
+| **合计** | **25/27** | **27/27** |
+
+结论：大体一致，原生不差于 Crush。唯一差异是 LSP 诊断：Crush 在服务器"启动中"时放行调用，首个 `lsp_*` 撞上未初始化客户端而返回空（即 D3 记录的启动竞态，真模型下稳定复现），原生用启动门修掉。另一个已知差异：Crush 的 grep 从进程 cwd 起搜，A/B 脚本为公平把两边的 cwd 都设为工作区。工具层面另有 `-tags crushparity` 对拍（FS 28 步、搜索、LSP 8 步）在删除前最后一次全绿。
+删除：`third_party/crush`（75 包 / 100,331 行）、`scripts/vendor-crush.py`、`scripts/crush-closure.py`、`internal/codetools/{wrap.go,crush_parity_test.go}`、`crushparity` 构建标签；`go mod tidy` 同步去掉约 40 个只被 Crush 用的直接依赖（go.mod −124/go.sum −233 行）。
+为不丢掉对拍价值，删除前把 Crush 对 FS/搜索/LSP 场景的真实输出录成 `internal/codetools/testdata/crush_golden.json`（含 gopls 版本），原生测试 `TestNative*MatchesCrushRecording`/`TestNativeLSPToolsAgainstGopls` 逐字比对（LSP 仅在同版本 gopls 下比）。归属与许可证保留在 `licenses/crush/`（`NOTICE.md` + `LICENSE.md`，被派生文件的头注释指向它）；架构测试改为 `TestCrushIsNotImported`，禁止再次引入 Crush。

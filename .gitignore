@@ -76,10 +76,5 @@ config.local.json
 # Eino 上游参考副本不参与构建（构建用模块缓存里的版本）；本地联调见 docs/build-reproducible.md 的 go.work
 /eino-ext/
 
-# Vendored source that is compiled into the binary (embedded prompt templates are .md); see third_party/crush/NOTICE.md
-!/third_party/**
-!/third_party/**/*.md
-!/third_party/**/.env.sample
-
 # ripgrep binary embedded by internal/ideruntime (go:embed); without it a fresh clone does not build
 !/internal/ideruntime/tools/rg.exe

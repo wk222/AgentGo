@@ -1,0 +1,90 @@
+{
+ "gopls_version": "golang.org/x/tools/gopls v0.23.0",
+ "fs": {
+  "transcript": [
+   "ERROR: you must read the file before editing it. Use the View tool first",
+   "ERROR: File \u003cD\u003e\\a.go has been modified since it was last read.\nLast modification: \u003ctime\u003e\nLast read: \u003ctime\u003e\n\nPlease read the file again before modifying it.",
+   "\u003cfile\u003e\n     1|alpha\n     2|dup\n     3|line three\n     4|dup\n     5|\n\u003c/file\u003e\n",
+   "\u003cresult\u003e\nContent replaced in file: \u003cD\u003e\\a.go\n\u003c/result\u003e\n",
+   "ERROR: old_string appears multiple times in the file. Please provide more context to ensure a unique match, or set replace_all to true",
+   "\u003cresult\u003e\nContent replaced in file: \u003cD\u003e\\a.go\n\u003c/result\u003e\n",
+   "ERROR: old_string not found in file. Make sure it matches exactly, including whitespace and line breaks",
+   "ERROR: new content is the same as old content. No changes made.",
+   "\u003cfile\u003e\n     1|func f() {\n     2|\tif x {\n     3|\t\treturn 1\n     4|\t}\n     5|}\n     6|\n\u003c/file\u003e\n",
+   "\u003cresult\u003e\nContent replaced in file: \u003cD\u003e\\ws.go\nNote: old_string did not match exactly. The edit was applied to whitespace-equivalent text in the file and new_string was re-indented to match the file's style. Verify the result.\n\u003c/result\u003e\n",
+   "ERROR: old_string not found in file. Make sure it matches exactly, including whitespace and line breaks",
+   "\u003cfile\u003e\n     1|\tx := 1\n     2|\ty := 2\n     3|\tx := 1\n     4|\n\u003c/file\u003e\n",
+   "ERROR: old_string not found in file. Make sure it matches exactly, including whitespace and line breaks\n\nA whitespace-normalized match was found, so the text exists but with different whitespace (tabs vs spaces, or different indentation).\nActual file content (lines 1-1):\n     1|→x := 1\nUse the exact whitespace shown above (→ = tab, · = space).",
+   "\u003cresult\u003e\nContent deleted from file: \u003cD\u003e\\a.go\n\u003c/result\u003e\n",
+   "ERROR: file already exists: \u003cD\u003e\\a.go",
+   "\u003cresult\u003e\nFile created: \u003cD\u003e\\new\\dir\\c.txt\n\u003c/result\u003e\n",
+   "\u003cfile\u003e\n     1|ALPHA\n     2|DUP\n     3|DUP\n     4|\n\u003c/file\u003e\n",
+   "\u003cfile\u003e\n     6|row\n     7|row\n     8|row\n\n(File has more lines. Use 'offset' parameter to read beyond line 8)\n\u003c/file\u003e\n",
+   "\u003cfile\u003e\n\n\u003c/file\u003e\n",
+   "ERROR: File not found: \u003cD\u003e\\missing.txt",
+   "ERROR: Path is a directory, not a file: \u003cD\u003e\\a",
+   "\u003cfile\u003e\n     1|one\n     2|two\n     3|three\n     4|\n\u003c/file\u003e\n",
+   "\u003cresult\u003e\nApplied 2 of 3 edits to file: \u003cD\u003e\\m.txt (1 edit(s) failed)\n\u003c/result\u003e\n",
+   "ERROR: no changes made - all 1 edit(s) failed",
+   "\u003cresult\u003e\nFile created with 2 edits: \u003cD\u003e\\fresh.txt\n\u003c/result\u003e\n",
+   "\u003cfile\u003e\n     1|original\n     2|\n\u003c/file\u003e\n",
+   "\u003cresult\u003e\nFile successfully written: \u003cD\u003e\\w.txt\n\u003c/result\u003e",
+   "ERROR: File \u003cD\u003e\\w.txt already contains the exact content. No changes made.",
+   "\u003cfile\u003e\n     1|first\n     2|second\n     3|third\n     4|\n\u003c/file\u003e\n",
+   "\u003cresult\u003e\nContent replaced in file: \u003cD\u003e\\crlf.txt\n\u003c/result\u003e\n"
+  ],
+  "disk": {
+   "a.go": "ALPHA\nDUP\nDUP\n",
+   "crlf.txt": "first\r\nSECOND\r\nthird\r\n",
+   "fresh.txt": "grown\n",
+   "long.txt": "row\nrow\nrow\nrow\nrow\nrow\nrow\nrow\nrow\nrow\nrow\nrow\nrow\nrow\nrow\nrow\nrow\nrow\nrow\nrow\n",
+   "m.txt": "1\ntwo\n3\n",
+   "new/dir/c.txt": "created\n",
+   "w.txt": "changed\n",
+   "ws.go": "func f() {\n\tif x {\n\t\treturn 2\n\t}\n}\n",
+   "ws2.go": "\tx := 1\n\ty := 2\n\tx := 1\n"
+  }
+ },
+ "search": {
+  "transcript": [
+   "Found 4 matches\n\u003cD\u003e/tree/pkg/util.go:\n  Line 2, Char 4: // needle again\n\n\u003cD\u003e/tree/notes.txt:\n  Line 1, Char 7: plain needle\n\n\u003cD\u003e/tree/main.go:\n  Line 2, Char 4: // needle here\n\n\u003cD\u003e/tree/docs/readme.md:\n  Line 2, Char 1: needle in docs\n",
+   "Found 2 matches\n\u003cD\u003e/tree/pkg/util.go:\n  Line 2, Char 4: // needle again\n\n\u003cD\u003e/tree/main.go:\n  Line 2, Char 4: // needle here\n",
+   "Found 2 matches\n\u003cD\u003e/tree/notes.txt:\n  Line 1, Char 7: plain needle\n\n\u003cD\u003e/tree/docs/readme.md:\n  Line 2, Char 1: needle in docs\n",
+   "Found 1 matches\n\u003cD\u003e/tree/pkg/util.go:\n  Line 3, Char 4: // a.b(c) literal\n",
+   "No files found",
+   "ERROR: error searching files: invalid regex pattern: error parsing regexp: missing closing ): `(unclosed`",
+   "No files found",
+   "No files found",
+   "\u003cD\u003e/tree/pkg/util.go\n\u003cD\u003e/tree/pkg/deep/x.go\n\u003cD\u003e/tree/main.go",
+   "\u003cD\u003e/tree/pkg/util.go",
+   "No files found",
+   "\n\n      - x.go\n    - deep/\n    - readme.md\n    - util.go\n  - .gitignore\n  - .hidden.txt\n  - blob.bin\n  - docs/\n  - main.go\n  - notes.txt\n  - pkg/\n- \u003cD\u003e/tree/",
+   "\n\n  - .gitignore\n  - .hidden.txt\n  - blob.bin\n  - docs/\n  - main.go\n  - notes.txt\n  - pkg/\n- \u003cD\u003e/tree/",
+   "\n\n      - x.go\n    - deep/\n    - util.go\n  - .gitignore\n  - .hidden.txt\n  - blob.bin\n  - docs/\n  - main.go\n  - notes.txt\n  - pkg/\n- \u003cD\u003e/tree/",
+   "ERROR: path does not exist: \u003cD\u003e/tree/missing"
+  ],
+  "disk": {
+   "tree/.gitignore": "skip/\n",
+   "tree/.hidden.txt": "hidden-only\n",
+   "tree/blob.bin": "needle\u0000\u0001\u0002binary",
+   "tree/docs/readme.md": "# docs\nneedle in docs\n",
+   "tree/main.go": "package main\n// needle here\nfunc a_b() {}\n",
+   "tree/notes.txt": "plain needle\n",
+   "tree/pkg/deep/x.go": "package deep\n",
+   "tree/pkg/util.go": "package pkg\n// needle again\n// a.b(c) literal\n",
+   "tree/skip/ignored.txt": "ignored-by-gitignore\n"
+  }
+ },
+ "lsp": {
+  "transcript": [
+   "function add (line 4)\nstruct greeter (line 6)\n  field name (line 6)\nmethod (greeter).hello (line 8)\n",
+   "\n\u003cfile_diagnostics\u003e\nerror: \u003cd\u003e\\b.go:7:25 [gopls compiler][incompatibleassign] cannot use \"x\" (untyped string constant) as int value in return statement\n\u003c/file_diagnostics\u003e\n\n\u003cdiagnostic_summary\u003e\ncurrent file: 1 errors, 0 warnings\nproject: 0 errors, 0 warnings\n\u003c/diagnostic_summary\u003e\n",
+   "found 1 definition(s):\n\n\u003cd\u003e\\a.go:4\n     1 | package m\n     2 | \n     3 | // add adds two numbers.\n\u003e    4 | func add(a, b int) int { return a + b }\n     5 | \n     6 | type greeter struct{ name string }\n     7 | \n\n",
+   "found 3 reference(s) in 2 file(s):\n\n\u003cd\u003e\\a.go (1 reference(s)):\n  line 4, column 6\n\n\u003cd\u003e\\b.go (2 reference(s)):\n  line 3, column 25\n  line 5, column 27\n\n",
+   "call hierarchy for 'add':\n\n2 caller(s):\n\n  \u003cd\u003e\\b.go:3 — use\n  \u003cd\u003e\\b.go:5 — again\n",
+   "call hierarchy for 'use':\n\n1 callee(s):\n\n  \u003cd\u003e\\a.go:4 — add\n",
+   "symbol 'nosuchthinganywhere' not found",
+   "failed to get document symbols: error reading file: open \u003cd\u003e\\missing.go: the system cannot find the file specified."
+  ]
+ }
+}

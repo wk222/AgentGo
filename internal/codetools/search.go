@@ -1,7 +1,7 @@
 package codetools
 
 // Native grep / glob / ls. Output formats, limits and the ripgrep-first,
-// pure-Go-fallback strategy are derived from Crush's tools (third_party/crush,
+// pure-Go-fallback strategy are derived from Crush's tools (licenses/crush/NOTICE.md,
 // FSL-1.1-MIT); the walking and ignore logic is our own (search_walk.go,
 // search_ignore.go), with no Crush package behind it.
 

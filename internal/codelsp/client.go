@@ -3,7 +3,7 @@
 // the lsp_* tools. It is built straight on the powernap LSP transport and
 // protocol types (github.com/charmbracelet/x/powernap, a standalone library),
 // not on Crush; the selection rules and tool output formats are derived from
-// Crush's lsp package and agent tools (third_party/crush, FSL-1.1-MIT).
+// Crush's lsp package and agent tools (licenses/crush/NOTICE.md, FSL-1.1-MIT).
 package codelsp
 
 import (

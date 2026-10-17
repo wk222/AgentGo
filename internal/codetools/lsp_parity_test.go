@@ -132,4 +132,21 @@ func TestNativeLSPToolsAgainstGopls(t *testing.T) {
 	if !strings.Contains(got[6], "not found") || !strings.Contains(got[7], "missing.go") {
 		t.Errorf("error paths changed:\n%q\n%q", got[6], got[7])
 	}
+
+	// What Crush's tools answered for the same session (golden_test.go). Only
+	// against the gopls it was recorded with: its wording moves between releases.
+	want := loadGolden(t)
+	if v := goplsVersion(); v != want.GoplsVersion {
+		t.Logf("gopls %q differs from the recording's %q; skipping the Crush comparison", v, want.GoplsVersion)
+		return
+	}
+	slash := func(s string) string { return strings.ReplaceAll(s, `\`, "/") }
+	if len(got) != len(want.LSP.Transcript) {
+		t.Fatalf("transcript length %d != recorded %d", len(got), len(want.LSP.Transcript))
+	}
+	for i := range got {
+		if slash(got[i]) != slash(want.LSP.Transcript[i]) {
+			t.Errorf("step %d differs from Crush\n--- crush ---\n%s\n--- native ---\n%s", i, want.LSP.Transcript[i], got[i])
+		}
+	}
 }

@@ -2,7 +2,7 @@ package codetools
 
 // Ignore rules shared by the native grep / glob / ls tools. The rule set
 // (always-ignored directory names, common build/lock patterns, hierarchical
-// .gitignore files) is derived from Crush's fsext package (third_party/crush,
+// .gitignore files) is derived from Crush's fsext package (licenses/crush/NOTICE.md,
 // FSL-1.1-MIT) without its global-excludes and Crush-config lookups.
 
 import (
