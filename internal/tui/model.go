@@ -98,7 +98,12 @@ func New(be cli.Backend, opts Options) *Model {
 	st := textarea.DefaultStyles(true)
 	st.Cursor.Blink = false // a steady cursor: no idle redraws, no timer commands
 	in.SetStyles(st)
-	in.Prompt = "› "
+	in.SetPromptFunc(2, func(p textarea.PromptInfo) string {
+		if p.LineNumber == 0 {
+			return "› "
+		}
+		return "  "
+	})
 	in.Placeholder = "Message AgentGo… (Enter sends, Alt+Enter newline, /help)"
 	in.ShowLineNumbers = false
 	in.CharLimit = 0

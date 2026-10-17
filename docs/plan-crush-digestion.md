@@ -132,3 +132,8 @@
 - **闭包实测（`scripts/crush-closure.py`）：codetools 闭包 37 包 / 34.9k 行 → 0；`./internal/...` 对 Crush 的依赖 → 0**。仅剩 TUI 入口 72 包 / 99.7k 行（D6 处理）。
 - `crush.json` 的 `lsp` 段不再被读取，迁移到 `<DataDir>/codetools/lsp.json`（见 D3）。
 下一步 D5（裁剪决策，只决策不写码）→ D6（原生终端，需用户改判"冻结 tui/cli"）。
+
+**D5 结果（2026-10-17）：** 裁剪决策已定（详见 `docs/plan-native-tui.md` §1）：`oauth/*`、`hooks`、`commands`、`update`、`herdr` 全部丢弃；`crushproto` 服务端 + `hostlink` + `crushproto-probe` + `agentgo-headless` 按用户决策丢弃（附着桌面宿主功能不再提供，会话仍共享 SQLite）。
+
+**D6 结果（2026-10-17）：** 用户决策：解冻 `tui`/`cli`，新写 BubbleTea 全屏 TUI（不是增强行模式）。落地 `internal/tui`（时间线 + 流式 + glamour Markdown、审批浮层含 edit/multiedit/write 变更预览、提问、file_change diff、LSP 诊断着色与状态栏计数、会话选择器与历史重放、`/` 命令、取消/退出/缩放），`agentgo-cli` 在终端下默认进入，`-plain` 保留行模式。功能对齐清单全部打勾（见 `docs/plan-native-tui.md` §5/§8）。同时删除 Crush 侧入口与协议代码。**闭包实测：`./internal/...`、`./cmd/...` 对 `third_party/crush` 依赖 = 0；`cmd/agentgo-cli` 闭包 = 0。** 冻结白名单已清空。
+剩 D7：`third_party/crush`（75 包 / 100,331 行）现在只被 `-tags crushparity` 的对拍测试引用，删除它即失去 Crush 参照基线（用户此前选择保留在 tag 之后），所以 D7 的整目录删除 + `go mod tidy` + 全新 clone 构建验证等用户确认再做。

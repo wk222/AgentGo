@@ -11,9 +11,7 @@ import (
 // vendored Crush code (docs/plan-crush-digestion.md, phase D0). It may only
 // shrink: digestion removes entries, and a new import of third_party/crush
 // anywhere else fails this test. Values are the allowed import path.
-var crushImportAllowlist = map[string]string{
-	"cmd/agentgo-tui/main.go": "agentgo/third_party/crush/pkg/embedtui",
-}
+var crushImportAllowlist = map[string]string{}
 
 func TestCrushImportsAreFrozen(t *testing.T) {
 	seen := map[string]bool{}

@@ -66,15 +66,15 @@ type entry struct {
 
 ## 5. 功能对齐清单（打勾即对齐）
 
-- [ ] 流式输出（含 reasoning 开关）
-- [ ] 审批交互（y/n/a）+ 变更预览 diff
-- [ ] 提问回答（question）
-- [ ] 文件变更 diff 展示（`file_change` 事件）
-- [ ] LSP 诊断提示（工具结果里的 `<file_diagnostics>` 块高亮；状态栏显示 LSP 服务器数/错误数）
-- [ ] 会话切换（浮层）与历史载入
-- [ ] `/` 命令
-- [ ] 状态栏：会话、工作区、运行态/spinner、yolo
-- [ ] 取消、退出、窗口缩放
+- [x] 流式输出（含 reasoning 开关）
+- [x] 审批交互（y/n/a）+ 变更预览 diff
+- [x] 提问回答（question）
+- [x] 文件变更 diff 展示（`file_change` 事件）
+- [x] LSP 诊断提示（工具结果里的 `<file_diagnostics>` 块高亮；状态栏显示 LSP 服务器数/错误数）
+- [x] 会话切换（浮层）与历史载入
+- [x] `/` 命令
+- [x] 状态栏：会话、工作区、运行态/spinner、yolo
+- [x] 取消、退出、窗口缩放
 
 ## 6. 测试策略
 
@@ -86,3 +86,10 @@ type entry struct {
 ## 7. 执行顺序
 
 T1 `internal/tui` 骨架 + 模型 + 测试 → T2 接入 `agentgo-cli`（TTY 默认进 TUI，`-plain`）并删旧 `internal/tui` → T3 删 Crush 侧（`cmd/agentgo-tui`、`crushproto-probe`、`internal/crushproto`、`bridge` 的 crushproto/hostlink 装配、`internal/hostlink`、脚本、冻结测试）→ D7 删 `third_party/crush`、`go mod tidy`、全新 clone 构建验证。每步测试全绿再进下一步。
+
+## 8. 结果（2026-10-17）
+
+- T1/T2：`internal/tui`（entries/update/view/approve/slash/sink/style；tui_test + e2e_test 真跑 tea.Program）；`agentgo-cli` 在 TTY 下默认进 TUI，`-plain`/`-json`/管道/`run` 走行模式，`agentgo-cli tui` 显式进入（非 TTY 报用法错误）。`bridgeBackend.History` 供 /resume 重放历史。
+- T3：删除 `cmd/agentgo-tui`、`cmd/crushproto-probe`、`cmd/agentgo-headless`（只服务 Crush 协议）、`internal/crushproto`、`internal/hostlink`、bridge 的 crushproto/hostlink 插件与测试、相关 flag（`AGENTGO_CRUSHPROTO_*`、`AGENTGO_HOSTLINK*`）、能力项 `protocol.crush`/`host.attach`；`crushproto_history.go` 里的会话转写服务是通用的，改名 `transcript_svc.go` 保留。
+- 冻结白名单清空：`./internal/...` 与 `./cmd/...` 对 `third_party/crush` 的依赖 = 0；`third_party/crush` 仅剩磁盘上的 75 包 / 100,331 行，只被 `-tags crushparity` 的对拍测试引用。
+- 与 Crush TUI 的已知差距（有意不做）：无鼠标交互、无文件选择器/命令面板、无图片附件、无多会话并行标签；附着桌面宿主已按决策丢弃。

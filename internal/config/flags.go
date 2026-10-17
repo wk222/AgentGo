@@ -94,13 +94,6 @@ var (
 	GatewayAddr  = newStr("AGENTGO_GATEWAY_ADDR", "", GroupGateway, "HTTP gateway listen address (never beyond loopback unless set)")
 	GatewayPort  = newStr("AGENTGO_GATEWAY_PORT", "", GroupGateway, "HTTP gateway port on loopback")
 	GatewayToken = newSecret("AGENTGO_GATEWAY_TOKEN", GroupGateway, "gateway bearer token; generated when empty")
-
-	CrushprotoAddr   = newStr("AGENTGO_CRUSHPROTO_ADDR", "", GroupGateway, "serve the Crush protocol on this address; empty = off")
-	CrushprotoEngine = newStr("AGENTGO_CRUSHPROTO_ENGINE", "", GroupGateway, "engine id used by the Crush protocol")
-	CrushprotoYolo   = newBool("AGENTGO_CRUSHPROTO_YOLO", false, GroupGateway, "auto-grant permission prompts from the Crush TUI")
-
-	Hostlink    = newBool("AGENTGO_HOSTLINK", true, GroupGateway, "loopback host endpoint other surfaces attach to")
-	HostlinkLog = newBool("AGENTGO_HOSTLINK_LOG", false, GroupGateway, "log every host protocol request")
 )
 
 // --- plugins / background services ----------------------------------------

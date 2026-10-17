@@ -56,14 +56,13 @@ def disk_total():
 def main():
     entries = {
         'codetools (./internal/codetools)': './internal/codetools',
-        'tui (./cmd/agentgo-tui)': './cmd/agentgo-tui',
+        'cli (./cmd/agentgo-cli)': './cmd/agentgo-cli',
         'all internal (./internal/...)': './internal/...',
     }
     report = {}
     for name, target in entries.items():
         pkgs = closure(target)
         report[name] = {'packages': len(pkgs), 'lines': sum(pkgs.values())}
-    # ./internal/... misses cmd/agentgo-tui; union it in for the total.
     pkgs, lines = disk_total()
     report['third_party/crush on disk'] = {'packages': pkgs, 'lines': lines}
 

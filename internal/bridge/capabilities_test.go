@@ -64,7 +64,7 @@ func TestProbeWithNoHostReportsEverythingUnavailable(t *testing.T) {
 // Every plugin a capability names must exist, or the probe would report
 // "not enabled" for a typo forever.
 func TestCapabilitiesNameRealPlugins(t *testing.T) {
-	known := map[string]bool{"eino": true, "coding-agent": true, "officedoc": true, "crushproto": true, "codetools": true, "host": true}
+	known := map[string]bool{"eino": true, "coding-agent": true, "officedoc": true, "codetools": true}
 	for _, p := range (&Runtime{}).runtimePlugins() {
 		known[p.Name] = true
 	}
@@ -90,10 +90,6 @@ func TestCapabilitiesFollowTheRunningHost(t *testing.T) {
 			t.Errorf("%s should be available on a fresh runtime: %+v", id, c)
 		}
 	}
-	if c := capByID(cs, "protocol.crush"); c.Available || !strings.Contains(c.Reason, "AGENTGO_CRUSHPROTO_ADDR") {
-		t.Errorf("protocol.crush: %+v", c)
-	}
-
 	if out := s.StopPlugin("ide"); out["success"] != true {
 		t.Fatalf("stop ide: %+v", out)
 	}
