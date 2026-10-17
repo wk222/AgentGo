@@ -53,7 +53,7 @@ var CanvasPolicies = map[ExecutionCanvas]CanvasPolicy{
 	CanvasBalanced: {
 		SummarizationTokens:  120_000,
 		ReductionClearTokens: 120_000,
-		MaxIterations:        12,
+		MaxIterations:        20,
 		DistillIntervalHours: 24,
 		LLMTimeout:           60 * time.Second,
 		ToolBudgetPerSession: 20.0,
@@ -66,7 +66,7 @@ var CanvasPolicies = map[ExecutionCanvas]CanvasPolicy{
 	CanvasDeep: {
 		SummarizationTokens:  180_000,
 		ReductionClearTokens: 160_000,
-		MaxIterations:        20,
+		MaxIterations:        30,
 		DistillIntervalHours: 6,
 		LLMTimeout:           120 * time.Second,
 		ToolBudgetPerSession: 100.0,

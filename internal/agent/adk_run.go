@@ -37,6 +37,13 @@ func (r *Runner) drainADKEvents(ctx context.Context, iter *adk.AsyncIterator[*ad
 			break
 		}
 		if ev.Err != nil {
+			if hitIterationLimit(ev.Err) {
+				content += iterationLimitNotice
+				if emit != nil {
+					emit(iterationLimitNotice)
+				}
+				return content, nil, "", nil
+			}
 			return "", nil, "", ev.Err
 		}
 		if ev.Action != nil && ev.Action.Interrupted != nil {

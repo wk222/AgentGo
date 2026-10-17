@@ -261,6 +261,12 @@ func (r *Runner) drainADKEventsToChannel(ctx context.Context, iter *adk.AsyncIte
 			break
 		}
 		if ev.Err != nil {
+			if hitIterationLimit(ev.Err) {
+				e := event.New(invocationID, "assistant", event.WithTag("chunk"))
+				e.Response = &event.Response{Choices: []event.Choice{{Index: 0, Delta: iterationLimitNotice}}}
+				_ = event.EmitEvent(ctx, ch, e)
+				return content + iterationLimitNotice, nil, "", nil
+			}
 			return "", nil, "", ev.Err
 		}
 		if ev.Action != nil && ev.Action.Interrupted != nil {
