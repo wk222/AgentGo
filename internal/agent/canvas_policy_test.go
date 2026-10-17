@@ -29,6 +29,17 @@ func TestCanvasPolicyPresets(t *testing.T) {
 	}
 }
 
+// The task-list tools cost ~5k tokens on every model call; only deep pays for them.
+func TestPlanTasksOnlyForDeepCanvas(t *testing.T) {
+	for c, want := range map[ExecutionCanvas]bool{
+		CanvasFocused: false, CanvasBalanced: false, CanvasDeep: true,
+	} {
+		if got := CanvasPolicyFor(c).PlanTasks; got != want {
+			t.Errorf("canvas %s: PlanTasks = %v, want %v", c, got, want)
+		}
+	}
+}
+
 func TestContextCanvasPolicy(t *testing.T) {
 	ctx := context.Background()
 
