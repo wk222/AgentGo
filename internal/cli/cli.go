@@ -338,6 +338,11 @@ func listSessions(be Backend, env IO) int {
 func listApprovals(be Backend, env IO) int {
 	pending := be.Pending()
 	for _, p := range pending {
+		if p.Type == "question" {
+			fmt.Fprintf(env.Out, "%s\tquestion\t%s\t(%s; answer it in the chat, or drop it with `deny`)\n",
+				p.ApprovalID, oneLine(p.Content, 100), p.Arguments)
+			continue
+		}
 		fmt.Fprintf(env.Out, "%s\t%s\t%s\n", p.ApprovalID, p.ToolName, oneLine(p.Arguments, 120))
 	}
 	if len(pending) == 0 {
@@ -352,6 +357,11 @@ func decide(c *Chat, ids []string, approved bool, env IO) int {
 	var all []Message
 	for _, p := range c.B.Pending() {
 		byID[p.ApprovalID] = p
+		if approved && p.Type == "question" {
+			// "approve all" cannot answer a question; leave it for the chat.
+			fmt.Fprintf(env.Err, "skipping question %s: it needs an answer, not an approval\n", p.ApprovalID)
+			continue
+		}
 		all = append(all, p)
 	}
 	targets := all
