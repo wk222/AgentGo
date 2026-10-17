@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"strconv"
+	"strings"
 	"sync/atomic"
 
 	"github.com/cloudwego/eino/adk"
@@ -50,7 +51,14 @@ func (m *ToolCallEventMiddleware) WrapInvokableToolCall(
 			obs.ToolStarted(callID, toolName, args)
 		}
 		result, err := endpoint(innerCtx, args, opts...)
-		if err != nil {
+		if err != nil && isPauseSignal(err) {
+			// The tool stopped the run to wait for the user (ask_user): a pause,
+			// not a failure, so it must not be shown as one.
+			EmitTrace(innerCtx, "end", "Tool", toolName, "")
+			if obs != nil {
+				obs.ToolFinished(callID, toolName, "waiting for your answer", false)
+			}
+		} else if err != nil {
 			EmitTrace(innerCtx, "error", "Tool", toolName, err.Error())
 			if obs != nil {
 				obs.ToolFinished(callID, toolName, err.Error(), true)
@@ -63,4 +71,14 @@ func (m *ToolCallEventMiddleware) WrapInvokableToolCall(
 		}
 		return result, err
 	}, nil
+}
+
+// isPauseSignal reports whether err is Eino's interrupt signal, which a tool
+// returns to pause the run for human input. The concrete type is internal to
+// Eino, so it is recognised by its stable message prefix.
+func isPauseSignal(err error) bool {
+	if _, ok := compose.IsInterruptRerunError(err); ok {
+		return true
+	}
+	return err != nil && strings.Contains(err.Error(), "interrupt signal: ID=")
 }
