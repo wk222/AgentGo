@@ -61,8 +61,9 @@ func (t *timeline) add(e entry) {
 func (t *timeline) closeStreams() {
 	if n := len(t.entries); n > 0 {
 		last := &t.entries[n-1]
-		if last.kind == kAssistant || last.kind == kReasoning {
+		if (last.kind == kAssistant || last.kind == kReasoning) && !last.closed {
 			last.closed = true
+			t.rev++ // a closed reply is drawn as markdown, so it must re-render
 		}
 	}
 }

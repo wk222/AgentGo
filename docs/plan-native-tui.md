@@ -93,3 +93,12 @@ T1 `internal/tui` 骨架 + 模型 + 测试 → T2 接入 `agentgo-cli`（TTY 默
 - T3：删除 `cmd/agentgo-tui`、`cmd/crushproto-probe`、`cmd/agentgo-headless`（只服务 Crush 协议）、`internal/crushproto`、`internal/hostlink`、bridge 的 crushproto/hostlink 插件与测试、相关 flag（`AGENTGO_CRUSHPROTO_*`、`AGENTGO_HOSTLINK*`）、能力项 `protocol.crush`/`host.attach`；`crushproto_history.go` 里的会话转写服务是通用的，改名 `transcript_svc.go` 保留。
 - 冻结白名单清空：`./internal/...` 与 `./cmd/...` 对 `third_party/crush` 的依赖 = 0；`third_party/crush` 仅剩磁盘上的 75 包 / 100,331 行，只被 `-tags crushparity` 的对拍测试引用。
 - 与 Crush TUI 的已知差距（有意不做）：无鼠标交互、无文件选择器/命令面板、无图片附件、无多会话并行标签；附着桌面宿主已按决策丢弃。
+## 真实终端验证(ConPTY + gpt-6-luna)
+
+用 ConPTY 起真实的 `agentgo-cli.exe`,配一个小型 VT 模拟器读屏,脚本走完:启动 → 提问流式回答 → 请求改文件 → 审批面板(带参数预览)→ `y` → 工具结果 → `/help` → `/sessions` 选单 → Ctrl+D。结果:全流程可用,磁盘上 `a.txt` 确实被改。跑出来并已修的 3 个问题(测试里没覆盖到的):
+
+1. **审批后的续跑看不到工具调用/diff/流式回复。** 续跑段的事件只发给桌面事件总线,CLI 拿不到。新增 `bridge.ResolveApprovalTap` + `tui.Streamer`(`ApproveStream`),续跑事件同时送给终端;`onResolved` 按 `streamed` 去重,避免回复出现两次。
+2. **流式回复结束后不渲染 markdown。** `closeStreams` 没递增 `rev`,视图不重绘。已修并加测试。
+3. **忙时按 Enter 没反应、输入被吞。** 现在普通消息排队,当前回合结束后自动发送;斜杠命令忙时拒绝并提示;取消/出错会清空队列。
+
+验证用的 ConPTY 驱动是一次性脚本,未入库。

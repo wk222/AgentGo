@@ -70,7 +70,13 @@ func (b *bridgeBackend) Run(sessionID, input string, sink engine.EventSink) engi
 }
 
 func (b *bridgeBackend) Approve(approvalID string, approved bool) cli.Result {
-	out := b.svc.ResolveApproval(approvalID, approved, "cli")
+	return b.ApproveStream(approvalID, approved, nil)
+}
+
+// ApproveStream is Approve with the continued run's events delivered to sink
+// (tui.Streamer), so the screen shows the tool the approval unblocked.
+func (b *bridgeBackend) ApproveStream(approvalID string, approved bool, sink engine.EventSink) cli.Result {
+	out := b.svc.ResolveApprovalTap(approvalID, approved, "cli", sink)
 	var r cli.Result
 	if ok, _ := out["success"].(bool); !ok {
 		r.Error = str(out["error"])

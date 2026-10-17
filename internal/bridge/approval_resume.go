@@ -168,6 +168,9 @@ func (s *AppService) resolveApproval(ctx context.Context, approvalID string, app
 				return
 			}
 			desktop.Emit(ev)
+			if tap := eventTapFrom(ctx); tap != nil {
+				tap.Emit(ev)
+			}
 		})
 		live, finish = engine.ResumeEmitter(s.logRunEvents(pr.SessionID, forward), runID, pr.SessionID, EinoEngineID)
 	}
