@@ -18,6 +18,11 @@ type RunUsage struct {
 	CompletionTokens int `json:"completion_tokens"`
 	ReasoningTokens  int `json:"reasoning_tokens"`
 	ToolCalls        int `json:"tool_calls"`
+	// Spill accounting: large tool outputs moved out of the context. SavedBytes is
+	// what the model was spared (original minus the preview that replaced it).
+	Spills       int   `json:"spills,omitempty"`
+	SpilledBytes int64 `json:"spilled_bytes,omitempty"`
+	SavedBytes   int64 `json:"saved_bytes,omitempty"`
 }
 
 // CacheHitRate is cached / prompt tokens (0 when nothing was sent).
@@ -78,6 +83,20 @@ func (m *RunMeter) addModel(tu *model.TokenUsage) {
 	m.u.CachedTokens += tu.PromptTokenDetails.CachedTokens
 	m.u.CompletionTokens += tu.CompletionTokens
 	m.u.ReasoningTokens += tu.CompletionTokensDetails.ReasoningTokens
+	m.mu.Unlock()
+}
+
+// addSpill records one tool output replaced by a shorter preview.
+func (m *RunMeter) addSpill(original, preview int) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	m.u.Spills++
+	m.u.SpilledBytes += int64(original)
+	if original > preview {
+		m.u.SavedBytes += int64(original - preview)
+	}
 	m.mu.Unlock()
 }
 

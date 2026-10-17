@@ -26,12 +26,15 @@ type doneEvent struct {
 	Content string `json:"content"`
 	Error   string `json:"error"`
 	Usage   *struct {
-		ModelCalls       int `json:"model_calls"`
-		PromptTokens     int `json:"prompt_tokens"`
-		CachedTokens     int `json:"cached_tokens"`
-		CompletionTokens int `json:"completion_tokens"`
-		ReasoningTokens  int `json:"reasoning_tokens"`
-		ToolCalls        int `json:"tool_calls"`
+		ModelCalls       int   `json:"model_calls"`
+		PromptTokens     int   `json:"prompt_tokens"`
+		CachedTokens     int   `json:"cached_tokens"`
+		CompletionTokens int   `json:"completion_tokens"`
+		ReasoningTokens  int   `json:"reasoning_tokens"`
+		ToolCalls        int   `json:"tool_calls"`
+		Spills           int   `json:"spills"`
+		SpilledBytes     int64 `json:"spilled_bytes"`
+		SavedBytes       int64 `json:"saved_bytes"`
 	} `json:"usage"`
 }
 
@@ -160,7 +163,8 @@ func parseChatSSE(r io.Reader) (string, Metrics, error) {
 				var m Metrics
 				if u := d.Usage; u != nil {
 					m = Metrics{ModelCalls: u.ModelCalls, PromptTokens: u.PromptTokens, CachedTokens: u.CachedTokens,
-						CompletionTokens: u.CompletionTokens, ReasoningTokens: u.ReasoningTokens, ToolCalls: u.ToolCalls}
+						CompletionTokens: u.CompletionTokens, ReasoningTokens: u.ReasoningTokens, ToolCalls: u.ToolCalls,
+						Spills: u.Spills, SpilledBytes: u.SpilledBytes, SavedBytes: u.SavedBytes}
 				}
 				if d.Error != "" {
 					return out, m, fmt.Errorf("agent error: %s", d.Error)
