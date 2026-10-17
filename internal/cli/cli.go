@@ -182,6 +182,13 @@ func Main(args []string, env IO, open OpenFunc) int {
 		o.cfg.Workspace, _ = os.Getwd()
 	}
 
+	// The full-screen client owns the terminal: log lines on stderr would tear
+	// the screen, so they stay in agentgo.log even with -v.
+	useTUI := (cmd == "chat" || cmd == "tui") && env.TUI != nil && env.InTTY && !o.plain && !o.json
+	if useTUI {
+		o.cfg.Verbose = false
+	}
+
 	be, err := open(o.cfg)
 	if err != nil {
 		fmt.Fprintln(env.Err, "agentgo-cli:", err)
@@ -219,7 +226,7 @@ func Main(args []string, env IO, open OpenFunc) int {
 	if cmd == "run" {
 		return runOnce(chat, prompt, env)
 	}
-	if env.TUI != nil && env.InTTY && !o.plain && !o.json {
+	if useTUI {
 		return env.TUI(be, TUIOptions{Workspace: o.cfg.Workspace, Session: chat.Session, Yolo: o.yolo, Thinking: o.thinking})
 	}
 	if cmd == "tui" {

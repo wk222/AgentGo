@@ -98,6 +98,8 @@
 | 全部闭包行数 | 100,321 | ~85,000 | ~68,000 | 0 |
 | AgentGo 直接 import 点 | 5 文件 | 2（接口装配） | 1 | 0 |
 
+**实测（2026-10-17，D6 后）：** codetools 闭包 0 包；`./internal/...`、`./cmd/...` 闭包 0 包 / 0 行；AgentGo 非测试代码对 `third_party/crush` 的 import 点 = 0（仅 `-tags crushparity` 的对拍测试文件引用）；`third_party/crush` 磁盘 75 包 / 100,331 行保留作参照，删除待确认（D7）。`agentgo-cli` 的 `-v` 在全屏 TUI 下被忽略（日志只进 `agentgo.log`，避免 stderr 撕屏）。
+
 数字是目标不是承诺；每阶段以 `crush-closure.py` 实测为准，写进 `docs/plan.md` 的阶段记录。
 
 ## 5. 风险与不做清单
