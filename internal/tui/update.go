@@ -157,8 +157,14 @@ func (m *Model) answer(text string) tea.Cmd {
 	m.queue = m.queue[1:]
 	m.tl.user(text)
 	m.mode = modeBusy
-	be, id := m.be, p.ApprovalID
-	return tea.Batch(tick(), func() tea.Msg { return resolvedMsg{be.Answer(id, text)} })
+	m.tl.streamed = false
+	be, sk, id := m.be, m.sink, p.ApprovalID
+	return tea.Batch(tick(), func() tea.Msg {
+		if st, ok := be.(Streamer); ok {
+			return resolvedMsg{st.AnswerStream(id, text, sk)}
+		}
+		return resolvedMsg{be.Answer(id, text)}
+	})
 }
 
 func (m *Model) startRun(text string) tea.Cmd {

@@ -102,3 +102,5 @@ T1 `internal/tui` 骨架 + 模型 + 测试 → T2 接入 `agentgo-cli`（TTY 默
 3. **忙时按 Enter 没反应、输入被吞。** 现在普通消息排队,当前回合结束后自动发送;斜杠命令忙时拒绝并提示;取消/出错会清空队列。
 
 验证用的 ConPTY 驱动是一次性脚本,未入库。
+
+补充:`ask_user` 回答后的续跑同样接了事件流(`bridge.AnswerQuestionTap` + `Streamer.AnswerStream`),单测覆盖;未用真实模型走 ask_user 路径。

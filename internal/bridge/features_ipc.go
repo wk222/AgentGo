@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"agentgo/internal/agent"
+	"agentgo/internal/engine"
 	"agentgo/internal/interactive"
 	"agentgo/internal/taskhub"
 	"agentgo/internal/workflow"
@@ -80,6 +81,12 @@ func (s *AppService) DeleteScheduledJob(id string) map[string]any {
 // --- Interactive ask_user ---
 
 func (s *AppService) AnswerQuestion(interruptID, answerJSON string) map[string]any {
+	return s.AnswerQuestionTap(interruptID, answerJSON, nil)
+}
+
+// AnswerQuestionTap answers like AnswerQuestion and streams the continued run's
+// events (tool calls, tokens) to tap, for callers without the desktop event bus.
+func (s *AppService) AnswerQuestionTap(interruptID, answerJSON string, tap engine.EventSink) map[string]any {
 	ctx := context.Background()
 	runner := s.rt.AgentRunner()
 	if runner == nil {
@@ -94,6 +101,10 @@ func (s *AppService) AnswerQuestion(interruptID, answerJSON string) map[string]a
 	sessionID := ""
 	if ok {
 		sessionID = p.SessionID
+	}
+	if tap != nil {
+		live, _ := engine.ResumeEmitter(tap, "", sessionID, EinoEngineID) // no finish: the caller owns the turn's end
+		ctx = bindEngineObservers(ctx, live)
 	}
 	res, err := runner.ResumeInterrupt(ctx, llm, sessionID, interruptID, answerJSON)
 	if err != nil {
