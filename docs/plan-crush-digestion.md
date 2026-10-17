@@ -160,3 +160,5 @@
 为不丢掉对拍价值，删除前把 Crush 对 FS/搜索/LSP 场景的真实输出录成 `internal/codetools/testdata/crush_golden.json`（含 gopls 版本），原生测试 `TestNative*MatchesCrushRecording`/`TestNativeLSPToolsAgainstGopls` 逐字比对（LSP 仅在同版本 gopls 下比）。归属与许可证保留在 `licenses/crush/`（`NOTICE.md` + `LICENSE.md`，被派生文件的头注释指向它）；架构测试改为 `TestCrushIsNotImported`，禁止再次引入 Crush。
 
 **D7 评测全量（删除后，同一模型 gpt-6-luna，`--runs 3`，对 `docs/eval/baseline.json`）：** 19/19 用例全过（57 次运行，311 秒），prompt token 803,144（基线 786,759，+2%），工具调用 106（基线 103）；缓存命中 83%（基线 94%，仅警告级，未定位原因，见下一步）。原始结果未入库（`docs/eval/baseline.json` 不更新：行为未有意改变）。
+
+**缓存命中复查（2026-10-17）：不是回归，是噪声。** 评测里 94% → 83% 引起怀疑后，做了两件事：① 用 `AGENTGO_DUMP_LLM_DIR` 转储一轮评测的 57 个请求，按语义（不是按 JSON 字节，body 里 `messages` 排在 `tools` 前，字节前缀会误报）比对：同一次对话里系统消息和历史消息逐条稳定，唯一会变的是 `tool_search` 加载延迟工具时在 `tools` 末尾追加一个工具（既有设计，已知代价）。② 用同一评测各跑 3 轮、交替执行（A=Crush 版 `d647700`，B=当前原生版，`--runs 1`）：A 命中 94/94/93%，B 命中 89/97/98%，19/19 全过，工具调用数相同（35–37）。B 第一轮偏低像是缓存冷启动，之后追平并更高。结论：原生化没有破坏前缀稳定性。另记一笔：B 的 prompt token 总量比 A 高约 5%（276–286k vs 260–283k），工具调用数相同，未追查。
