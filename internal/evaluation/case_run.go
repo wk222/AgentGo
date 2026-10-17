@@ -12,6 +12,56 @@ import (
 // approval. Cases with ExpectApproval treat it as the passing outcome.
 var ErrApprovalPaused = errors.New("run paused for approval")
 
+// ApprovalPause is the concrete pause error of agents that expose the approval
+// id; it matches ErrApprovalPaused under errors.Is.
+type ApprovalPause struct{ ID, Tool string }
+
+func (p *ApprovalPause) Error() string {
+	return fmt.Sprintf("%v: tool %q (cases that are not marked expect_approval or decision must not need approval)", ErrApprovalPaused, p.Tool)
+}
+
+func (p *ApprovalPause) Unwrap() error { return ErrApprovalPaused }
+
+// ApprovalResolver is an agent that can settle a pause and continue the run it
+// stopped. The result is shaped like one Generate turn: a further pause comes
+// back as an *ApprovalPause error.
+type ApprovalResolver interface {
+	ResolveApproval(ctx context.Context, approvalID string, approve bool) (string, Metrics, error)
+}
+
+// maxApprovalsPerTurn bounds an approve loop so a model that keeps asking
+// cannot hang a case.
+const maxApprovalsPerTurn = 12
+
+// settle answers the pauses of one turn according to the case's Decision and
+// returns the outcome of the run after the last one.
+func settle(ctx context.Context, agent AgentGenerator, c EvalCase, out string, m Metrics, err error) (string, Metrics, error) {
+	if c.Decision == "" {
+		return out, m, err
+	}
+	rv, canResolve := agent.(ApprovalResolver)
+	for n := 0; n < maxApprovalsPerTurn; n++ {
+		var p *ApprovalPause
+		if !errors.As(err, &p) {
+			return out, m, err
+		}
+		if !canResolve {
+			return out, m, fmt.Errorf("the agent cannot settle approvals (it has no ApprovalResolver): %w", err)
+		}
+		o, dm, derr := rv.ResolveApproval(ctx, p.ID, c.Decision == "approve")
+		m.Add(dm)
+		if o != "" {
+			out = o
+		}
+		err = derr
+	}
+	var p *ApprovalPause
+	if errors.As(err, &p) {
+		return out, m, fmt.Errorf("still paused after %d approvals", maxApprovalsPerTurn)
+	}
+	return out, m, err
+}
+
 // EvalTurn is a follow-up message sent in the same session as the case input.
 type EvalTurn struct {
 	Input        string   `json:"input"`
@@ -85,6 +135,12 @@ func generateFirstTurn(ctx context.Context, agent AgentGenerator, sessionID, inp
 // well the prefix stays cached from turn to turn.
 func runCase(ctx context.Context, agent AgentGenerator, sessionID string, c EvalCase) caseRun {
 	var res caseRun
+	cleanup, perr := c.prepareWorkspace()
+	defer cleanup()
+	if perr != nil {
+		res.ErrorMsg = perr.Error()
+		return res
+	}
 	passed := true
 	var scoreSum float64
 	turns := c.turns()
@@ -97,6 +153,7 @@ func runCase(ctx context.Context, agent AgentGenerator, sessionID string, c Eval
 		} else {
 			out, m, err = generateOnce(ctx, agent, sessionID, t.Input)
 		}
+		out, m, err = settle(ctx, agent, c, out, m, err)
 		res.Metrics.Add(m)
 		res.Output = out
 		if err != nil {
@@ -114,6 +171,10 @@ func runCase(ctx context.Context, agent AgentGenerator, sessionID string, c Eval
 			break
 		}
 		score, ok := ScoreCase(out, EvalCase{ExpectedText: t.ExpectedText, Keywords: t.Keywords})
+		if t.ExpectedText == "" && len(t.Keywords) == 0 && c.hasVerification() {
+			// The disk, not the reply, is what this case asserts.
+			score, ok = 1, true
+		}
 		scoreSum += score
 		if !ok {
 			passed = false
@@ -121,6 +182,12 @@ func runCase(ctx context.Context, agent AgentGenerator, sessionID string, c Eval
 				res.ErrorMsg = fmt.Sprintf("turn %d did not match expectations", i+1)
 			}
 			break
+		}
+	}
+	if passed && c.hasVerification() {
+		if err := c.verify(ctx); err != nil {
+			passed = false
+			res.ErrorMsg = err.Error()
 		}
 	}
 	if passed && c.MaxToolCalls != nil && res.Metrics.ToolCalls > *c.MaxToolCalls {

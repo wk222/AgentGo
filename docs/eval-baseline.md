@@ -136,3 +136,23 @@ python scripts/ab_codetools.py --a 旧版.exe --b 新版.exe --runs 3           
 ```
 
 依赖 `gopls`（脚本把 `~/go/bin` 加进 PATH）。约 27 次运行、几十万 prompt token。参考结果（2026-10-17，gpt-6-luna，`--runs 3`）：原生版 27/27；删除前的 Crush 版 25/27（LSP 诊断启动竞态，见 `docs/plan-crush-digestion.md` D7）。动了工具集、LSP、审批或提示词时跑一遍。
+## 工作区套件：审批续跑 + 验磁盘（`suite_workspace.json`）
+
+默认套件只读仓库，覆盖不到"批准 → 续跑 → 磁盘上真的变了"。这套件补上这一块，**单独成套、单独对基线**（它的 token 构成和默认套件不同，混在一起会让默认基线的 token 增长误报）。
+
+```powershell
+$env:AGENTGO_WORKSPACE_ROOT = 'C:\Users\wgk\Documents\GitHub\agentgo'
+agentgo --serve
+agentgo-eval --suite internal/evaluation/suite_workspace.json --workspace . --runs 3
+```
+
+- `--workspace` 必须和 `agentgo --serve` 的工作区是同一个目录，否则磁盘校验必然失败（用例会给出明确的文件路径）。
+- 用例字段：`decision`（`approve`/`deny`，自动处理每一次审批并续跑，上限 12 次）、`scratch`（用例独占的子目录，运行前清空、结束后删除）、`setup`（夹具文件）、`verify`（文件 `contains` / `not_contains` / `absent`）、`verify_cmd`（在工作区里执行命令，退出码 0 才算过；套件是受信输入，会在本机执行）。
+- 判分看磁盘而不是回复：没写 `expected_text` 的用例，只要磁盘校验通过就算过；模型嘴上说"写好了"但磁盘没变，会失败。
+- 加载套件时会校验：`decision` 拼错（例如 `aprove`）会直接报错，而不是被当成拒绝。
+- 续跑走新的网关接口 `POST /api/v1/approvals/{id}`（`{"approve":true|false}`，SSE，格式与 `/api/v1/chat/stream` 相同；续跑又停在下一个审批时会再发 `interrupt`，可以一直链下去）。
+
+### 这套件发现的真问题（2026-10-17，gpt-6-luna，standard 档）
+
+1. **网关里的审批从来无法批准（已修）。** `StreamChat` 把审批 id 发给了客户端，却没有写进待办存储，所以随后无论谁批准都是"没有可恢复的运行"。桌面端不受影响（它走自己的注册路径），只有 `--serve` 受影响。现在会登记（`ask_user` 例外：网关答不了问题，登记了只会留下一个挡住切换工作区的死条目）。
+2. **迭代预算被记账工具吃掉一半，且超限时直接报错。** `fix-bug-run-tests` 的实际序列是：`TaskCreate`×2、`TaskUpdate`×4、`list_workspace_dir`、`tool_search`、读文件、改文件（`run_batch_script`）、`go test`……活其实干完了，磁盘上 bug 已修、`go test` 通过，但第 12 次模型调用时 Eino 报 `exceeds max iterations`，用户看到的是错误。balanced 档上限是 12（`internal/agent/canvas_policy.go`）。可能的处理：超限时优雅收尾而不是报错；提高 balanced 上限（上限不是目标，不会让早结束的任务多花 token）；不把任务记账类工具算进去。**这是策略决定，尚未改**，该用例目前稳定失败（2 次）。

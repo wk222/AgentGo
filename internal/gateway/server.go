@@ -40,6 +40,7 @@ func NewServer(cfg Config, backend Backend) *Server {
 	mux.HandleFunc("/api/v1/workflows", s.handleWorkflowList)
 	mux.HandleFunc("/api/v1/workflows/", s.handleWorkflowItem)
 	mux.HandleFunc("/api/v1/harnesses", s.handleHarnesses)
+	mux.HandleFunc("/api/v1/approvals/", s.handleApprovals)
 	mux.HandleFunc("/api/v1/inner-apps", s.handleInnerApps)
 	mux.HandleFunc("/api/v1/inner-apps/", s.handleInnerApps)
 	s.registerTriggerRoutes(mux)

@@ -1,0 +1,48 @@
+{
+  "id": "agentgo-workspace-v1",
+  "cases": [
+    {
+      "id": "write-approve-disk",
+      "input": "在工作区创建文件 .eval-scratch/write-approve/note.txt，内容只有一行：hello-eval-7421。",
+      "decision": "approve",
+      "scratch": ".eval-scratch/write-approve",
+      "verify": [
+        { "path": ".eval-scratch/write-approve/note.txt", "contains": "hello-eval-7421" }
+      ],
+      "skip_harnesses": ["minimal"]
+    },
+    {
+      "id": "write-deny-disk",
+      "input": "在工作区创建文件 .eval-scratch/write-deny/note.txt，内容只有一行：hello-eval-7421。",
+      "decision": "deny",
+      "scratch": ".eval-scratch/write-deny",
+      "verify": [
+        { "path": ".eval-scratch/write-deny/note.txt", "absent": true }
+      ],
+      "skip_harnesses": ["minimal"]
+    },
+    {
+      "id": "fix-bug-run-tests",
+      "input": ".eval-scratch/fixbug 是一个很小的 Go 模块，里面的 go test 目前是失败的。找出 bug 并修复，不要修改测试文件，修完后用 go test 确认通过。",
+      "decision": "approve",
+      "scratch": ".eval-scratch/fixbug",
+      "setup": [
+        { "path": ".eval-scratch/fixbug/go.mod", "content": "module evalfix\n\ngo 1.21\n" },
+        {
+          "path": ".eval-scratch/fixbug/calc.go",
+          "content": "package evalfix\n\n// Add returns a+b.\nfunc Add(a, b int) int {\n\treturn a - b\n}\n\n// Max returns the larger of a and b.\nfunc Max(a, b int) int {\n\tif a > b {\n\t\treturn a\n\t}\n\treturn b\n}\n"
+        },
+        {
+          "path": ".eval-scratch/fixbug/calc_test.go",
+          "content": "package evalfix\n\nimport \"testing\"\n\nfunc TestAdd(t *testing.T) {\n\tif got := Add(2, 3); got != 5 {\n\t\tt.Fatalf(\"Add(2, 3) = %d, want 5\", got)\n\t}\n}\n\nfunc TestMax(t *testing.T) {\n\tif got := Max(2, 3); got != 3 {\n\t\tt.Fatalf(\"Max(2, 3) = %d, want 3\", got)\n\t}\n}\n"
+        }
+      ],
+      "verify": [
+        { "path": ".eval-scratch/fixbug/calc_test.go", "contains": "Add(2, 3) = %d, want 5" }
+      ],
+      "verify_cmd": { "dir": ".eval-scratch/fixbug", "name": "go", "args": ["test", "./..."], "timeout_sec": 120 },
+      "min_tool_calls": 2,
+      "skip_harnesses": ["minimal"]
+    }
+  ]
+}

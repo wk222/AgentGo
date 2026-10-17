@@ -41,6 +41,7 @@ func run() int {
 		token      = flag.String("token", "", "gateway token (default: from agentgo-serve.json)")
 		infoPath   = flag.String("serve-info", "", "path of agentgo-serve.json (default: <data dir>/agentgo-serve.json)")
 		harness    = flag.String("harness", "", "run every session as this harness preset (minimal|standard|ultimate|creative); default: server default")
+		workspace  = flag.String("workspace", ".", "directory `agentgo --serve` works in; cases with fixtures or disk checks use it")
 		timeout    = flag.Duration("case-timeout", 5*time.Minute, "timeout of one run")
 		maxPass    = flag.Float64("max-pass-drop", evaluation.DefaultThresholds().MaxPassDrop, "allowed pass-rate drop vs baseline (0.10 = 10 points)")
 		maxTokens  = flag.Float64("max-token-growth", evaluation.DefaultThresholds().MaxTokenGrowth, "allowed growth of prompt tokens per run vs baseline")
@@ -66,6 +67,9 @@ func run() int {
 	effective := *harness
 	if effective == "" {
 		effective = httpAgent.DefaultHarness(ctx)
+	}
+	if abs, err := filepath.Abs(*workspace); err == nil {
+		set.Workspace = abs
 	}
 	set = set.ForHarness(effective)
 	agent := &timeoutAgent{inner: httpAgent, d: *timeout}
@@ -180,6 +184,12 @@ func (t *timeoutAgent) GenerateMeasured(ctx context.Context, sid, in string) (st
 	ctx, cancel := context.WithTimeout(ctx, t.d)
 	defer cancel()
 	return t.inner.GenerateMeasured(ctx, sid, in)
+}
+
+func (t *timeoutAgent) ResolveApproval(ctx context.Context, id string, approve bool) (string, evaluation.Metrics, error) {
+	ctx, cancel := context.WithTimeout(ctx, t.d)
+	defer cancel()
+	return t.inner.ResolveApproval(ctx, id, approve)
 }
 
 func printReport(r *evaluation.EvalResult) {
