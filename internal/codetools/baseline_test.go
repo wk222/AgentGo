@@ -34,7 +34,11 @@ func baselineTools(t *testing.T, native bool) (dir string, tools map[string]eino
 	t.Cleanup(tb.Close)
 	box := Wrap(tb)
 	if native {
-		box = Overlay(box, NativeFS(box, dir, nil))
+		native := NativeFS(box, dir, nil)
+		// Rg off: the Go walker is deterministic, and it is what the Crush
+		// tools use under `go test` too.
+		native = append(native, NativeSearch(SearchOptions{WorkDir: dir, Rg: func() string { return "" }})...)
+		box = Overlay(box, native)
 	}
 	adapted, err := Adapt(box.Tools())
 	if err != nil {

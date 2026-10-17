@@ -57,7 +57,7 @@
 - 现有 Crush 实现作为接口的第一个实现者（适配器），行为不变。
 - **验收**：`bridge` 中除适配器装配外不再出现 `ct.` 类型；测试不变全绿。删 0 行，但解耦完成。
 
-### D2 原生代码工具（3–5 天，收益最大）🟡 D2a 完成（view/write/edit/multiedit），D2b（grep/glob/ls）待做
+### D2 原生代码工具（3–5 天，收益最大）✅ 2026-10-17（D2a view/write/edit/multiedit + D2b grep/glob/ls；闭包收缩验收改挂 D3）
 - 用 `workspace`+`ideruntime` 实现 view/edit/multiedit/write/grep/glob/ls 七个工具（Eino 工具，经现有 `internal/codetools` 适配层注册），语义对齐 Crush：编辑前快照、文件追踪、skills 路径提示等行为逐条对拍。
 - bash 对齐 `execute_bash`；todos/question 分别对齐已有 taskhub/`ask_user`，不新写。
 - 与 Crush 实现并行注册为影子工具跑对拍（同参数同工作区，比输出），全绿后切换，`pkg/codetools` 改只剩 LSP 工具。
@@ -115,3 +115,7 @@
 **D2a 结果（2026-10-17）：** internal/coderuntime 新增原生 view/write/edit/multiedit（`fs_tools.go`、`fs_edit.go`、`edit_match.go`，纯标准库，无 Crush 依赖），`internal/codetools.Overlay`/`NativeFS` 把它们叠在 Crush 工具箱上同名替换；开关 `AGENTGO_CODETOOLS_NATIVE`（默认开，`0` 回退 Crush 实现）。LSP 仍由 Crush 提供：写后诊断 = 调 `lsp_diagnostics`，view 只预热 LSP。对拍测试 `native_test.go` 用 28 步场景（先读后改、重复/缺失匹配、空白容错与提示、删除/创建、分页、multiedit 部分失败、CRLF 保持）在两套实现上比对模型可见输出和磁盘字节，全部一致；`baseline_test.go` 两套实现都过。
 有意差异（4 处，均为小改进或去耦）：① multiedit 把每个失败编辑的原因写进结果（Crush 放在模型看不到的 metadata）；② view 不再附带诊断块（诊断用 `lsp_diagnostics`，省掉每次 300ms 等待）；③ 图片文件返回文本说明（Crush 要靠模型是否支持图片的上下文）；④ 读后改的追踪用内存表，不再落 SQLite（进程重启后需重新 view，与重启后会话本就丢失一致）。
 闭包数字**未变**：`pkg/codetools` 仍构造 Crush 的七个文件工具（grep/glob/ls 还在用），要等 D2b 把 grep/glob/ls 也原生化、并让 `pkg/codetools` 只构造 LSP 工具后，`agent/tools`/`shell`/`skills`/`history`/`filetracker` 才会从闭包里消失。D2b 的难点是 `fsext` 的 gitignore 感知遍历和 Crush 自己的 rg 查找（可直接复用 `ideruntime` 内嵌的 `rg.exe`）。
+**D2b 结果（2026-10-17）：** `internal/codetools` 新增原生 grep / glob / ls（`search.go`、`search_ls.go`、`search_walk.go`、`search_ignore.go`），不依赖 Crush 的 `fsext`：自己的有序遍历 + go-git gitignore 匹配（`.gitignore`/`.agentgoignore`/`.crushignore` 逐级叠加）+ doublestar。有 ripgrep 就用 rg（`ideruntime.RgBinary()`：Windows 内嵌版，否则 PATH；此前 Crush 只认 PATH），没有就退回纯 Go 遍历。生产装配改为 `ct.Options{LSPOnly: true}`（Crush 只构造 5 个 LSP 工具，不再创建 view/edit/…/ls 及其权限、历史、追踪状态）+ 原生工具叠加；`AGENTGO_CODETOOLS_NATIVE=0` 仍整体回退到 Crush 全套。
+对拍：`TestNativeSearchParityWithCrush`（grep 字面/include/无匹配/非法正则/隐藏文件/gitignore，glob，ls 全量/depth/ignore/不存在路径）与 Crush 输出逐字一致；`TestNativeSearchRgMatchesWalker` 保证 rg 路径与 Go 遍历找到同一批文件；`TestNativeAssemblyKeepsToolSet` 保证生产装配的工具名集合与 Crush 全套相同。
+有意差异（3 处）：① Crush 的 Go 回退 grep 会进 `node_modules`（目录用了"文件"规则，常见目录名表只对目录生效），原生不进（`TestNativeSearchSkipsNoiseDirs`）；② ls 的同级目录顺序：Crush 在 depth 限制下顺序不稳定，原生固定"先文件后目录、字典序"，测试按行排序后比对；③ ls 传 `depth` 参数时 Crush 不打印"深度提示"（它只看配置里的 depth），原生按参数打印。另：ls 对反斜杠根路径也能出树（Crush 在 Windows 上因路径分隔符不一致会把整条绝对路径嵌套成树）。
+闭包数字**仍未变**（37 包 / ~34.9k 行）：Go 按包粒度编译，`agent/tools` 里的 LSP 工具（diagnostics/references/symbols/definition/callhierarchy）和 TUI 用的其它工具同在一个包里，Crush 的 view/edit/…/ls 源文件因 TUI 仍在用而不能从 vendored 树里删。真正的收缩要等 D3（把 5 个 LSP 工具连同 `lsp` 一起原生化）之后，`pkg/codetools` 才能整体删除，codetools 闭包才归零。D2 的"闭包消失"验收项因此改挂在 D3；D2 本身的验收（原生工具上线、对拍全绿、默认走原生）已满足。

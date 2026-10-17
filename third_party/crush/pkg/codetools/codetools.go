@@ -49,6 +49,11 @@ type Options struct {
 	// Approver is asked before mutating or sensitive actions. Nil means
 	// everything is allowed without asking.
 	Approver Approver
+	// LSPOnly builds just the language-server tools (diagnostics, references,
+	// symbols, definition, call hierarchy). AgentGo sets it once its native
+	// file tools (internal/coderuntime, internal/codetools) replace Crush's
+	// view/edit/multiedit/write/grep/glob/ls.
+	LSPOnly bool
 }
 
 // Result is a tool's output.
@@ -130,20 +135,25 @@ func New(opts Options) (*Toolbox, error) {
 	tracker := newMemTracker()
 	cfg := store.Config()
 
-	fa := []fantasy.AgentTool{
-		tools.NewViewTool(lspMgr, perms, tracker, skills.NewTracker(nil), workDir, cfg.Options.SkillsPaths...),
-		tools.NewEditTool(lspMgr, perms, files, tracker, workDir),
-		tools.NewMultiEditTool(lspMgr, perms, files, tracker, workDir),
-		tools.NewWriteTool(lspMgr, perms, files, tracker, workDir),
-		tools.NewGlobTool(workDir, cfg.Tools.Glob),
-		tools.NewGrepTool(workDir, cfg.Tools.Grep),
-		tools.NewLsTool(perms, workDir, cfg.Tools.Ls),
+	var fa []fantasy.AgentTool
+	if !opts.LSPOnly {
+		fa = append(fa,
+			tools.NewViewTool(lspMgr, perms, tracker, skills.NewTracker(nil), workDir, cfg.Options.SkillsPaths...),
+			tools.NewEditTool(lspMgr, perms, files, tracker, workDir),
+			tools.NewMultiEditTool(lspMgr, perms, files, tracker, workDir),
+			tools.NewWriteTool(lspMgr, perms, files, tracker, workDir),
+			tools.NewGlobTool(workDir, cfg.Tools.Glob),
+			tools.NewGrepTool(workDir, cfg.Tools.Grep),
+			tools.NewLsTool(perms, workDir, cfg.Tools.Ls),
+		)
+	}
+	fa = append(fa,
 		tools.NewDiagnosticsTool(lspMgr),
 		tools.NewReferencesTool(lspMgr),
 		tools.NewSymbolsTool(lspMgr),
 		tools.NewDefinitionTool(lspMgr),
 		tools.NewCallHierarchyTool(lspMgr),
-	}
+	)
 	tb := &Toolbox{
 		lsp:       lspMgr,
 		cancel:    cancel,

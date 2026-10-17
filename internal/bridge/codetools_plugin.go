@@ -12,6 +12,7 @@ import (
 	"agentgo/internal/coderuntime"
 	"agentgo/internal/codetools"
 	"agentgo/internal/config"
+	"agentgo/internal/ideruntime"
 	"agentgo/internal/plugin"
 	"agentgo/internal/tools"
 )
@@ -85,7 +86,7 @@ func codetoolsPlugin(env codetoolsEnv) (plugin.Plugin, bool) {
 			if root == "" {
 				return fmt.Errorf("no workspace selected")
 			}
-			opts := ct.Options{WorkDir: root, DataDir: filepath.Join(env.DataDir, "codetools")}
+			opts := ct.Options{WorkDir: root, DataDir: filepath.Join(env.DataDir, "codetools"), LSPOnly: config.CodeToolsNative.On()}
 			if !config.CodeToolsAppr.On() {
 				opts.Approver = func(context.Context, ct.Request) bool { return false }
 			}
@@ -99,7 +100,11 @@ func codetoolsPlugin(env codetoolsEnv) (plugin.Plugin, bool) {
 				if !config.CodeToolsAppr.On() {
 					approve = func(context.Context, coderuntime.FSRequest) bool { return false }
 				}
-				wrapped = codetools.Overlay(wrapped, codetools.NativeFS(wrapped, root, approve))
+				native := codetools.NativeFS(wrapped, root, approve)
+				native = append(native, codetools.NativeSearch(codetools.SearchOptions{
+					WorkDir: root, Approve: approve, Rg: ideruntime.RgBinary,
+				})...)
+				wrapped = codetools.Overlay(wrapped, native)
 			}
 			env.Publish(wrapped)
 			c.Effect("close codetools", func() {
