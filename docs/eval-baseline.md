@@ -124,3 +124,15 @@ agentgo --serve
 
 - 套件 v2 已达 20 个。仍缺：真正"写文件 → 跑测试 → 读结果"的多步闭环（需要沙箱工作区，避免污染仓库）；
   审批后"批准/拒绝"两条分支的续跑（目前只验证到"暂停等待审批"）。
+
+## 代码工具回归（真改文件的闭环）
+
+`agentgo-eval` 走网关、对着仓库只读，覆盖不到"改文件 → 跑测试 → 验磁盘"。这类回归用 `scripts/ab_codetools.py`：每次运行拷一份小 Go 夹具到临时目录，让 `agentgo-cli run -yolo -json` 真干活（找定义/改常量/修 bug 并跑测试/LSP 诊断与引用/读行/新建文件/重命名/glob），再按磁盘文件与答案自动判分，同时记录工具名和调用数。
+
+```powershell
+go build -o D:\tmp\agentgo-cli.exe ./cmd/agentgo-cli
+python scripts/ab_codetools.py --b D:/tmp/agentgo-cli.exe --runs 3          # 只验当前构建
+python scripts/ab_codetools.py --a 旧版.exe --b 新版.exe --runs 3           # 两个构建对比
+```
+
+依赖 `gopls`（脚本把 `~/go/bin` 加进 PATH）。约 27 次运行、几十万 prompt token。参考结果（2026-10-17，gpt-6-luna，`--runs 3`）：原生版 27/27；删除前的 Crush 版 25/27（LSP 诊断启动竞态，见 `docs/plan-crush-digestion.md` D7）。动了工具集、LSP、审批或提示词时跑一遍。
