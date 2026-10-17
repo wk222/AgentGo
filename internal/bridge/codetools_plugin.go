@@ -9,6 +9,7 @@ import (
 
 	ct "agentgo/third_party/crush/pkg/codetools"
 
+	"agentgo/internal/codelsp"
 	"agentgo/internal/coderuntime"
 	"agentgo/internal/codetools"
 	"agentgo/internal/config"
@@ -59,6 +60,42 @@ func (s *AppService) rebindCodetools(string) error {
 	return nil
 }
 
+// newToolbox assembles the code tools for root. By default everything is
+// native: codelsp for the language-server tools, with the native file tools
+// (view/write/edit/multiedit, grep/glob/ls) layered on top. With
+// AGENTGO_CODETOOLS_NATIVE=0 it falls back to the vendored Crush toolbox. The
+// returned func releases it (stops language servers).
+func newToolbox(root, dataDir string) (coderuntime.Toolbox, func(), error) {
+	var approve func(context.Context, coderuntime.FSRequest) bool
+	if !config.CodeToolsAppr.On() {
+		approve = func(context.Context, coderuntime.FSRequest) bool { return false }
+	}
+	search := codetools.SearchOptions{WorkDir: root, Approve: approve, Rg: ideruntime.RgBinary}
+
+	if config.CodeToolsNative.On() {
+		overrides, err := codelsp.LoadOverrides(dataDir)
+		if err != nil {
+			log.Printf("[codetools] ignoring %s: %v", filepath.Join(dataDir, "lsp.json"), err)
+		}
+		lsp, err := codelsp.New(codelsp.Options{WorkDir: root, Overrides: overrides, Search: codetools.SymbolSearch(search)})
+		if err != nil {
+			return nil, nil, err
+		}
+		native := append(codetools.NativeFS(lsp, root, approve), codetools.NativeSearch(search)...)
+		return codetools.Overlay(lsp, native), lsp.Close, nil
+	}
+
+	opts := ct.Options{WorkDir: root, DataDir: dataDir}
+	if approve != nil {
+		opts.Approver = func(context.Context, ct.Request) bool { return false }
+	}
+	tb, err := ct.New(opts)
+	if err != nil {
+		return nil, nil, err
+	}
+	return codetools.Wrap(tb), tb.Close, nil
+}
+
 // codetoolsPlugin contributes Crush's code-aware tools (LSP diagnostics,
 // references, symbols, view/edit/write, grep/glob/ls) to AgentGo's tool
 // registry, so the Eino agent can diagnose and fix code on its own.
@@ -86,30 +123,14 @@ func codetoolsPlugin(env codetoolsEnv) (plugin.Plugin, bool) {
 			if root == "" {
 				return fmt.Errorf("no workspace selected")
 			}
-			opts := ct.Options{WorkDir: root, DataDir: filepath.Join(env.DataDir, "codetools"), LSPOnly: config.CodeToolsNative.On()}
-			if !config.CodeToolsAppr.On() {
-				opts.Approver = func(context.Context, ct.Request) bool { return false }
-			}
-			tb, err := ct.New(opts)
+			wrapped, closeBox, err := newToolbox(root, filepath.Join(env.DataDir, "codetools"))
 			if err != nil {
 				return err
-			}
-			wrapped := codetools.Wrap(tb)
-			if config.CodeToolsNative.On() {
-				var approve func(context.Context, coderuntime.FSRequest) bool
-				if !config.CodeToolsAppr.On() {
-					approve = func(context.Context, coderuntime.FSRequest) bool { return false }
-				}
-				native := codetools.NativeFS(wrapped, root, approve)
-				native = append(native, codetools.NativeSearch(codetools.SearchOptions{
-					WorkDir: root, Approve: approve, Rg: ideruntime.RgBinary,
-				})...)
-				wrapped = codetools.Overlay(wrapped, native)
 			}
 			env.Publish(wrapped)
 			c.Effect("close codetools", func() {
 				env.Publish(nil)
-				tb.Close()
+				closeBox()
 			}) // registered first => released last
 
 			adapted, err := codetools.Adapt(wrapped.Tools())

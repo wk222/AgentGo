@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -223,6 +224,8 @@ func seedParity(t *testing.T, dir string) {
 	}
 }
 
+var isoTime = regexp.MustCompile(`\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})`)
+
 func runParity(t *testing.T, native bool, seed func(*testing.T, string), scenario []step) (transcript []string, disk map[string]string) {
 	t.Helper()
 	dir, tools := baselineTools(t, native)
@@ -236,6 +239,7 @@ func runParity(t *testing.T, native bool, seed func(*testing.T, string), scenari
 		if s.tool == "code_ls" {
 			out = normalizeLS(out)
 		}
+		out = isoTime.ReplaceAllString(out, "<time>") // staleness errors quote the file's mtime
 		transcript = append(transcript, out)
 	}
 	disk = map[string]string{}
