@@ -50,14 +50,19 @@ type SearchOptions struct {
 
 type searcher struct{ SearchOptions }
 
-// NativeSearch returns the grep, glob and ls tools.
-func NativeSearch(opts SearchOptions) []coderuntime.Tool {
+// normalizeSearch fills in the defaults: rg from PATH, 5s grep and 30s glob.
+func normalizeSearch(opts SearchOptions) SearchOptions {
 	if opts.Rg == nil {
 		opts.Rg = func() string { p, _ := exec.LookPath("rg"); return p }
 	}
 	opts.GrepTimeout = cmp.Or(opts.GrepTimeout, 5*time.Second)
 	opts.GlobTimeout = cmp.Or(opts.GlobTimeout, 30*time.Second)
-	s := &searcher{opts}
+	return opts
+}
+
+// NativeSearch returns the grep, glob and ls tools.
+func NativeSearch(opts SearchOptions) []coderuntime.Tool {
+	s := &searcher{normalizeSearch(opts)}
 	return []coderuntime.Tool{s.grepTool(), s.globTool(), s.lsTool()}
 }
 

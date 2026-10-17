@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	"agentgo/internal/codelsp"
 	"agentgo/internal/coderuntime"
 )
 
@@ -41,6 +42,26 @@ func (o *overlay) Tools() []coderuntime.Tool {
 		}
 	}
 	return out
+}
+
+// SymbolSearch adapts the native grep walker for codelsp: lsp_references,
+// lsp_definition and lsp_call_hierarchy find a symbol's candidate positions
+// with the same ripgrep-first search and ignore rules the grep tool uses.
+func SymbolSearch(opts SearchOptions) codelsp.SymbolSearch {
+	s := &searcher{normalizeSearch(opts)}
+	return func(ctx context.Context, pattern, root string, _ int) ([]codelsp.SymbolHit, error) {
+		ctx, cancel := context.WithTimeout(ctx, s.GrepTimeout)
+		defer cancel()
+		matches, _, err := s.searchFiles(ctx, pattern, root, "")
+		if err != nil {
+			return nil, err
+		}
+		hits := make([]codelsp.SymbolHit, 0, len(matches))
+		for _, m := range matches {
+			hits = append(hits, codelsp.SymbolHit{Path: m.path, Line: m.lineNum, Char: m.charNum})
+		}
+		return hits, nil
+	}
 }
 
 // NativeFS builds the native view/write/edit/multiedit tools for workDir.

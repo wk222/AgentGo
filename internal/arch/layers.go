@@ -46,6 +46,7 @@ var PackageLayer = map[string]Layer{
 	"plugin":             LayerFoundation, // plugin host: services, scopes, event middleware; stdlib only
 	"officedoc":          LayerAssets,     // native Word/Excel generation (docx writer, excelize) as Eino tools
 	"codetools":          LayerAssets,     // Crush code-aware tools adapted to Eino tools
+	"codelsp":            LayerAssets,     // native LSP client manager + lsp_* tools on powernap (replaces Crush's lsp package)
 	"engine":             LayerSystems,    // unified AgentEngine/EventSink contracts; stdlib only
 	"audio":              LayerSystems,    // kernel side of voice: frames, events, interrupt contract; stdlib only (VAD/ASR/TTS are plugins)
 	"crushproto":         LayerSystems,    // serves Crush's /v1 protocol so the stock Crush TUI can front AgentGo; stdlib only
