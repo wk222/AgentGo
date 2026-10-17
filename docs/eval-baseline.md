@@ -65,10 +65,12 @@ agentgo-eval --runs 3 --out docs/eval/baseline.json
 
 | 基线文件 | 档位 | 用例 | 通过 | 运行 | prompt token | 缓存命中 | 工具调用 |
 |---|---|---|---|---|---|---|---|
-| `docs/eval/baseline.json` | standard（服务默认） | 19 | 19/19 | 57 | 786,759 | **94%** | 103 |
+| `docs/eval/baseline.json` | standard（服务默认） | 19 | 19/19 | 57 | 544,340 | 85% | 106 |
 | `docs/eval/baseline-minimal.json` | minimal | 17 | 17/17 | 51 | 651,851 | 85% | 89 |
 | `docs/eval/baseline-ultimate.json` | ultimate | 20 | 20/20 | 60 | 857,781 | 87% | 98 |
 | `docs/eval/baseline-creative.json` | creative | 20 | 20/20 | 60 | 872,847 | 88% | 98 |
+
+> 2026-10-17：standard 基线已刷新——balanced 画布不再挂载任务清单工具，固定前缀少约 5k token（prompt 786,759→544,340，缓存命中率随之从 94% 降到 85%，因为分母变小）。其余三档基线尚未重录，对比时会显得偏高。
 
 > 基线只对同一档位有意义。对比时：`agentgo-eval --runs 3 --harness minimal --baseline docs/eval/baseline-minimal.json`。
 

@@ -100,7 +100,7 @@ func BuildTypedMiddlewareStack[M adk.MessageType](ctx context.Context, baseModel
 	}
 
 	// 6. PlanTask Middleware (TaskCreate, TaskGet, TaskUpdate, TaskList)
-	if EinoPlanTaskEnabled() {
+	if EinoPlanTaskEnabled() && policy.PlanTasks {
 		taskDir := filepath.Join(workspaceRoot, ".tasks")
 		if strings.TrimSpace(workspaceRoot) == "" {
 			taskDir = filepath.Join(dataDir, "tasks")

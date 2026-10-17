@@ -31,6 +31,11 @@ type CanvasPolicy struct {
 	AgentDepth           int
 	MemoryRecallTopK     int
 	ContextTokenBudget   int
+
+	// PlanTasks mounts the TaskCreate/Update task-list tools. Their schemas and
+	// guidance add ~5k tokens to every model call's fixed prefix, so only the deep
+	// canvas (long multi-step work) pays for them. See docs/spill-and-round-trips.md.
+	PlanTasks bool
 }
 
 type canvasPolicyCtxKey struct{}
@@ -75,6 +80,7 @@ var CanvasPolicies = map[ExecutionCanvas]CanvasPolicy{
 		AgentDepth:           4,
 		MemoryRecallTopK:     10,
 		ContextTokenBudget:   65_536,
+		PlanTasks:            true,
 	},
 }
 
