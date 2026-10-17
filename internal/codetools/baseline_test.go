@@ -2,6 +2,7 @@ package codetools
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,7 +17,14 @@ import (
 // observable behavior (what the model sees and what lands on disk), not the
 // Crush implementation.
 
-func baselineTools(t *testing.T) (dir string, tools map[string]einotool.BaseTool) {
+// eachImpl runs fn against the Crush-backed tools and against the Crush toolbox
+// with the native file tools overlaid; both must satisfy the same baseline.
+func eachImpl(t *testing.T, fn func(t *testing.T, native bool)) {
+	t.Run("crush", func(t *testing.T) { fn(t, false) })
+	t.Run("native", func(t *testing.T) { fn(t, true) })
+}
+
+func baselineTools(t *testing.T, native bool) (dir string, tools map[string]einotool.BaseTool) {
 	t.Helper()
 	dir = t.TempDir()
 	tb, err := ct.New(ct.Options{WorkDir: dir, DataDir: t.TempDir()})
@@ -24,7 +32,11 @@ func baselineTools(t *testing.T) (dir string, tools map[string]einotool.BaseTool
 		t.Fatal(err)
 	}
 	t.Cleanup(tb.Close)
-	adapted, err := Adapt(Wrap(tb).Tools())
+	box := Wrap(tb)
+	if native {
+		box = Overlay(box, NativeFS(box, dir, nil))
+	}
+	adapted, err := Adapt(box.Tools())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +69,11 @@ func runTool(t *testing.T, tools map[string]einotool.BaseTool, name, args string
 }
 
 func TestBaselineViewEditGrepWrite(t *testing.T) {
-	dir, tools := baselineTools(t)
+	eachImpl(t, baselineViewEditGrepWrite)
+}
+
+func baselineViewEditGrepWrite(t *testing.T, native bool) {
+	dir, tools := baselineTools(t, native)
 	file := filepath.Join(dir, "a.txt")
 	if err := os.WriteFile(file, []byte("hello baseline\nsecond line\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -81,7 +97,13 @@ func TestBaselineViewEditGrepWrite(t *testing.T) {
 }
 
 func TestBaselineDiagnosticsNeverEmpty(t *testing.T) {
-	_, tools := baselineTools(t)
+	eachImpl(t, func(t *testing.T, native bool) {
+		baselineDiagnosticsNeverEmpty(t, native)
+	})
+}
+
+func baselineDiagnosticsNeverEmpty(t *testing.T, native bool) {
+	_, tools := baselineTools(t, native)
 	// Even with no language server able to analyse the workspace, the model must
 	// get an explanatory non-empty answer (see emptyDiagnostics).
 	if out := runTool(t, tools, "lsp_diagnostics", `{}`); strings.TrimSpace(out) == "" {
@@ -90,5 +112,6 @@ func TestBaselineDiagnosticsNeverEmpty(t *testing.T) {
 }
 
 func quote(s string) string {
-	return `"` + strings.ReplaceAll(strings.ReplaceAll(s, `\`, `\\`), `"`, `\"`) + `"`
+	b, _ := json.Marshal(s)
+	return string(b)
 }
