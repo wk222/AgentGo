@@ -32,7 +32,7 @@
 `governance.RememberApproval`：按 会话+工具+参数哈希 记住批准；`RiskCritical` 永远不会被记住的批准放行。IPC `ApproveAndRemember`，前端有按钮。
 
 ## 3 CI / 发布
-`.github/workflows/ci.yml`（前端 typecheck/test/build → Windows 全量 go build/vet/test；Linux/macOS 构建可移植包；PR 上只对改动文件检查 gofmt）、`release.yml`（打 tag 出 Windows 包 + 校验和，另出 agentgo-cua 的 linux/mac 二进制）、`dependabot.yml`、PR 模板、`SECURITY.md`、`CONTRIBUTING.md`。
+`.github/workflows/ci.yml`（前端 typecheck/test/build → Windows 全量 go build/vet/test；Linux/macOS 构建可移植包；PR 上只对改动文件检查 gofmt）、`release.yml`（打 tag 时跑 `scripts/release-windows.ps1` 出 Windows 桌面包 + 校验和；2026-10-31 起不再发 Linux/macOS 二进制，它们只在 `ci.yml` 里编译）、`dependabot.yml`、PR 模板、`SECURITY.md`、`CONTRIBUTING.md`。
 没做 goreleaser：`agentgo-cli` 依赖 Wails，只能在 Windows 构建，没有跨平台发布的意义。
 `go.mod` 里 eino 指向 `github.com/wk222/eino` 的 replace，CI 需要能访问该仓库（私有的话要配 token）。
 

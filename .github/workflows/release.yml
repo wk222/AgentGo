@@ -1,6 +1,10 @@
 name: Release
 
-# Windows builds only, on purpose. Linux and macOS are still compiled on every push by ci.yml (go-portable).
+# Windows only, on purpose. Linux and macOS are still compiled on every push by ci.yml (go-portable).
+# The desktop package is built by scripts/release-windows.ps1, the script a maintainer runs locally, so a CI
+# package and a local one are the same thing: `production` build tag (without it Wails runs in dev mode),
+# Windows icon and manifest, the version stamped into the binary, README, licenses and a build receipt.
+# Go tests run in ci.yml on every push to master and are not repeated here (-SkipTests; the receipt says so).
 # The Windows 7 packages are not built here: they need the legacy toolchain, see scripts/release-win7.ps1.
 on:
   push:
@@ -30,31 +34,26 @@ jobs:
           npm ci
           npm run typecheck
           npm test
-          npm run build
-      - name: build binaries
+      - name: wails3 (embeds the icon and manifest)
         shell: pwsh
-        env:
-          CGO_ENABLED: "0"
-          GOOS: windows
-          GOARCH: amd64
         run: |
-          $ver = "${{ github.ref_name }}"
-          New-Item -ItemType Directory -Force dist | Out-Null
-          go build -trimpath -ldflags "-s -w -H=windowsgui" -o dist/agentgo.exe ./cmd/agentgo
-          go build -trimpath -ldflags "-s -w" -o dist/agentgo-cli.exe ./cmd/agentgo-cli
-          go build -trimpath -ldflags "-s -w" -o dist/agentgo-cua.exe ./cmd/agentgo-cua
-          go build -trimpath -tags web -ldflags "-s -w" -o dist/agentgo-web.exe ./cmd/agentgo-web
-          Compress-Archive -Path dist/*.exe -DestinationPath "agentgo-$ver-windows-amd64.zip" -Force
-          (Get-FileHash "agentgo-$ver-windows-amd64.zip" -Algorithm SHA256).Hash.ToLower() + "  agentgo-$ver-windows-amd64.zip" | Set-Content "agentgo-$ver-windows-amd64.zip.sha256"
+          go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.6
+          Add-Content -Path $env:GITHUB_PATH -Value (Join-Path (go env GOPATH) 'bin')
+      - name: package
+        shell: pwsh
+        run: |
+          # tag v1.2.0 -> 1.2.0; a manual run on a branch gets a throwaway version
+          $ver = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { "0.0.0-ci.$env:GITHUB_RUN_NUMBER" }
+          ./scripts/release-windows.ps1 -Version $ver -SkipTests
       - uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
           generate_release_notes: true
           files: |
-            agentgo-*-windows-amd64.zip
-            agentgo-*-windows-amd64.zip.sha256
+            bin/agentgo-*-windows-amd64.zip
+            bin/agentgo-*-windows-amd64.zip.sha256
       - uses: actions/upload-artifact@v4
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         with:
           name: agentgo-windows
-          path: dist/*.exe
+          path: bin/agentgo-*-windows-amd64.zip
