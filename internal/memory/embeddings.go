@@ -102,17 +102,14 @@ func (p *Pipeline) RecallWithEmbedding(ctx context.Context, query string, opts R
 	}
 	var out []scored
 	now := time.Now().Unix()
+	space := emb.Space()
+	skipped := map[string]int{}
+	defer func() { reportSkippedVectors(skipped, space) }()
 	for _, r := range rows {
-		vec, ok := r.Metadata["embedding"].([]float32)
-		if !ok {
-			if arr, ok2 := r.Metadata["embedding"].([]interface{}); ok2 && len(arr) > 0 {
-				vec = make([]float32, len(arr))
-				for i, v := range arr {
-					if f, ok := v.(float64); ok {
-						vec[i] = float32(f)
-					}
-				}
-			}
+		vec, why := usableVector(r, space, len(qv))
+		if why != skipNone {
+			skipped[why]++
+			continue
 		}
 		rel := cosineSimilarity(qv, vec)
 		if rel <= 0 {

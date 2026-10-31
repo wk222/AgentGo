@@ -1,0 +1,28 @@
+<html><body><pre id="result">RUNNING</pre><div id="app"></div><script type="module">
+import {createApp,nextTick} from 'vue'
+import App from '/src/App.tsx'
+import {useLayout} from '/src/stores/useLayout.ts'
+import '/src/style.css'
+import '/src/styles/refined-ui.css'
+const result=document.querySelector('#result')
+const check=(v,m)=>{if(!v)throw Error(m)}
+try {
+ const layout=useLayout();layout.focusAgent();createApp(App).mount('#app');await new Promise(r=>setTimeout(r,1200))
+ const toggle=()=>document.querySelector('.titlebar-workspace-switch')
+ check(toggle().textContent.trim()==='工作台','button label is not stable')
+ check(toggle().getAttribute('aria-pressed')==='false','closed button active')
+ layout.setView('code');await new Promise(r=>setTimeout(r,1800));layout.setView('workflow');await new Promise(r=>setTimeout(r,1500));layout.setAgent('docked');await nextTick()
+ const tab=id=>[...document.querySelectorAll('.scene-tab-item')].find(e=>e.textContent.includes(id))
+ tab('代码').click();await nextTick();check(layout.state.agent==='docked','code tab changed layout')
+ tab('工作流').click();await nextTick();check(layout.state.agent==='docked','workflow tab hid conversation')
+ layout.sceneTabs.splitViewId='code';await nextTick();toggle().click();await nextTick()
+ check(layout.state.agent==='maximized','toggle failed to hide')
+ check(layout.state.view==='workflow'&&layout.sceneTabs.splitViewId==='code','hide discarded scene or split')
+ check(toggle().textContent.trim()==='工作台','hidden button renamed')
+ toggle().click();await nextTick();check(layout.state.agent==='docked'&&layout.state.view==='workflow'&&layout.sceneTabs.splitViewId==='code','toggle failed to restore content/layout')
+ layout.sceneTabs.splitViewId=null;layout.setAgent('hidden');await nextTick();tab('代码').click();await nextTick();check(layout.state.agent==='hidden','tab changed maximized layout')
+ document.querySelector('[aria-label="收起工作台"]').click();await nextTick();check(layout.state.agent==='maximized','close button failed')
+ toggle().click();await nextTick();check(layout.state.agent==='hidden'&&layout.state.view==='code','restore changed maximized scene')
+ result.textContent='PASS: stable workbench toggle; active state; scene tabs preserve layout; hide preserves split/content; close and restore'
+} catch(e) {result.textContent='FAIL: '+e.message}
+</script></body></html>

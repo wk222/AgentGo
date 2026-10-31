@@ -2,6 +2,10 @@ package memory
 
 import (
 	"context"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -28,17 +32,30 @@ func (p *Pipeline) RunJournal(ctx context.Context, caller LLMCaller, scope strin
 	if caller == nil || strings.TrimSpace(conversation) == "" {
 		return "", nil
 	}
+	id := stableDerivedMemoryID("journal", scope, conversation)
+	if p.store != nil {
+		if existing, err := p.store.GetRecord(ctx, id); err == nil {
+			if existing.Status == "active" && existing.SupersedesID == "" && existing.ContradictedBy == "" {
+				return existing.Content, nil
+			}
+			return "", nil
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			return "", err
+		}
+	}
 	text, err := caller(ctx, journalSystem, "请归纳以下对话:\n\n"+conversation)
-	if err != nil || strings.TrimSpace(text) == "" || strings.Contains(text, "无") {
+	if err != nil || strings.TrimSpace(text) == "" || strings.TrimSpace(text) == "无" {
 		return "", err
 	}
 	now := time.Now().Unix()
 	rec := Record{
-		ID: fmt.Sprintf("journal_%d", now), Content: strings.TrimSpace(text),
+		ID: id, Content: strings.TrimSpace(text),
 		Scope: scope, Modality: modalityJournal, Status: "active",
 		Importance: 0.4, CreatedAt: now, UpdatedAt: now,
 	}
-	_ = p.Ingest(ctx, rec)
+	if err := p.Ingest(ctx, rec); err != nil {
+		return "", err
+	}
 	return text, nil
 }
 
@@ -47,23 +64,63 @@ func (p *Pipeline) RunDistillLLM(ctx context.Context, caller LLMCaller, scope st
 	if caller == nil {
 		return p.Distill(ctx, scope, 20)
 	}
-	user := fmt.Sprintf("## 现有记忆\n%s\n\n## 近期日记\n%s\n", memorySnapshot, journalText)
-	out, err := caller(ctx, distillSystem, user)
+	user, known, err := p.distillInput(ctx, scope, journalText, memorySnapshot)
+	if err != nil {
+		return "", err
+	}
+	sourceRevision, err := p.store.ContextRevision(ctx, scope)
+	if err != nil {
+		return "", err
+	}
+	out, err := caller(ctx, atomicDistillSystem, user)
 	if err != nil || strings.TrimSpace(out) == "" {
 		return "", err
 	}
-	now := time.Now().Unix()
-	rec := Record{
-		ID: fmt.Sprintf("distill_%d", now), Content: out,
-		Scope: scope, Modality: modalityReflection, Status: "active",
-		Importance: 1.2, CreatedAt: now, UpdatedAt: now,
+	currentRevision, err := p.store.ContextRevision(ctx, scope)
+	if err != nil {
+		return "", err
 	}
-	_ = p.Ingest(ctx, rec)
-	_ = p.store.SetPipelineState(ctx, "distill", now)
+	if currentRevision != sourceRevision {
+		return "", ErrSourcesChanged
+	}
+	now := time.Now().Unix()
+	rec := Record{ID: stableDerivedMemoryID("distill", scope, out), Content: out, Scope: scope, Modality: modalityReflection, Status: "active", Importance: 0.8, SourceTrust: 0.35, CreatedAt: now, UpdatedAt: now, Metadata: map[string]interface{}{"verification": "derived_unverified"}}
+	if existing, lookupErr := p.store.GetRecord(ctx, rec.ID); lookupErr == nil {
+		if existing.Status != "active" || existing.SupersedesID != "" || existing.ContradictedBy != "" {
+			return "", nil
+		}
+		rec = existing
+	} else if !errors.Is(lookupErr, sql.ErrNoRows) {
+		return "", lookupErr
+	}
+	var envelope map[string]json.RawMessage
+	if json.Unmarshal([]byte(cleanJSONResponse(out)), &envelope) == nil && envelope["atoms"] != nil {
+		rec.Metadata["atomic_container"] = true
+	}
+	if err := p.Ingest(ctx, rec); err != nil {
+		return "", err
+	}
+	accepted, err := p.persistDistilledAtoms(ctx, rec, known)
+	if err != nil {
+		return "", err
+	}
+	if len(accepted) > 0 {
+		rec.Metadata["atomic_children"] = true
+		if err := p.Ingest(ctx, rec); err != nil {
+			return "", err
+		}
+	}
+	if err := p.store.SetPipelineState(ctx, "distill", now); err != nil {
+		return "", err
+	}
+	if rec.Metadata["atomic_container"] == true {
+		return packContextRecords(accepted, 500), nil
+	}
 	return out, nil
 }
 
 // RunReflect runs stage-3 REFLECT.
+// Reflections stay in their originating scope; derived suggestions are not global user preferences.
 func (p *Pipeline) RunReflect(ctx context.Context, caller LLMCaller, scope, memoryContent string) ([]string, error) {
 	if caller == nil || memoryContent == "" {
 		return nil, nil
@@ -73,11 +130,10 @@ func (p *Pipeline) RunReflect(ctx context.Context, caller LLMCaller, scope, memo
 		return nil, err
 	}
 	now := time.Now().Unix()
-	_ = p.Ingest(ctx, Record{
-		ID: fmt.Sprintf("reflect_%d", now), Content: out,
-		Scope: scope, Modality: modalityReflection, Status: "active",
-		Importance: 1.0, CreatedAt: now, UpdatedAt: now,
-	})
+	parentID := fmt.Sprintf("reflect_%d", time.Now().UnixNano())
+	if err := p.Ingest(ctx, Record{ID: parentID, Content: out, Scope: scope, Modality: modalityReflection, Status: "active", Importance: 0.8, SourceTrust: 0.35, CreatedAt: now, UpdatedAt: now, Metadata: map[string]interface{}{"verification": "derived_unverified"}}); err != nil {
+		return nil, err
+	}
 	var insights []string
 	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(line)
@@ -86,14 +142,14 @@ func (p *Pipeline) RunReflect(ctx context.Context, caller LLMCaller, scope, memo
 		}
 		if strings.HasPrefix(line, "-") || strings.HasPrefix(line, "*") {
 			insights = append(insights, line)
-			_ = p.Ingest(ctx, Record{
-				ID:      fmt.Sprintf("insight_%d_%d", now, len(insights)),
-				Content: line, Scope: "global", Modality: modalityInsight,
-				Status: "active", Importance: 1.1, CreatedAt: now, UpdatedAt: now,
-			})
+			if err := p.Ingest(ctx, Record{ID: fmt.Sprintf("%s_insight_%d", parentID, len(insights)), Content: line, Scope: scope, Modality: modalityInsight, Status: "active", Importance: 0.8, SourceTrust: 0.35, CreatedAt: now, UpdatedAt: now, Metadata: map[string]interface{}{"verification": "derived_unverified", "parent_id": parentID}}); err != nil {
+				return nil, err
+			}
 		}
 	}
-	_ = p.store.SetPipelineState(ctx, "reflect", now)
+	if err := p.store.SetPipelineState(ctx, "reflect", now); err != nil {
+		return nil, err
+	}
 	return insights, nil
 }
 
@@ -114,19 +170,32 @@ func (p *Pipeline) runFullPipelineProcedural(ctx context.Context, caller LLMCall
 	if _, err := p.RunJournal(ctx, caller, scope, conversation); err != nil {
 		return err
 	}
-	journals, _ := p.store.ListByModality(ctx, modalityJournal, scope, 7)
+	journals, err := p.store.ListByModality(ctx, modalityJournal, scope, 7)
+	if err != nil {
+		return err
+	}
 	var jb strings.Builder
 	for _, j := range journals {
 		jb.WriteString(j.Content)
 		jb.WriteString("\n---\n")
 	}
-	snap, _ := p.ContextPrompt(ctx, scope)
+	snap, err := p.ContextPrompt(ctx, scope)
+	if err != nil {
+		return err
+	}
 	if _, err := p.RunDistillLLM(ctx, caller, scope, jb.String(), snap); err != nil {
 		return err
 	}
 	if snap != "" {
-		_, _ = p.RunReflect(ctx, caller, scope, snap)
+		if _, err := p.RunReflect(ctx, caller, scope, snap); err != nil {
+			return err
+		}
 	}
-	_, _ = p.RunGC(ctx, 30, 0.4)
-	return nil
+	_, err = p.RunGC(ctx, 30, 0.4)
+	return err
+}
+
+func stableDerivedMemoryID(kind, scope, content string) string {
+	sum := sha256.Sum256([]byte(scope + "\x00" + strings.TrimSpace(content)))
+	return fmt.Sprintf("%s_%x", kind, sum[:16])
 }

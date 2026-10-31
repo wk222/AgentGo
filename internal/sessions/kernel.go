@@ -1,6 +1,7 @@
 package sessions
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -18,6 +19,10 @@ type SessionKernel struct {
 	touched    map[string]int64 // rel path -> unix mod time when recorded
 	maxRecent  int
 	compressAt int // active turn pairs before hygiene suggests compress
+	scanAt     time.Time
+	scanCache  []string
+	teamInfo   os.FileInfo
+	teamText   string
 }
 
 // NewSessionKernel creates a kernel for the given workspace root.
@@ -52,6 +57,15 @@ func (k *SessionKernel) RecordFileTouch(relPath string) {
 
 // EnrichSnapshot fills WorkspaceRecent, TeamMemory, and optional hygiene from kernel state.
 func (k *SessionKernel) EnrichSnapshot(snap SpineSnapshot, messages []*schema.Message) SpineSnapshot {
+	return k.enrichSnapshot(snap, messages, true)
+}
+
+// EnrichSnapshotWithoutTeam avoids duplicating TEAM.md already loaded as workspace rules.
+func (k *SessionKernel) EnrichSnapshotWithoutTeam(snap SpineSnapshot, messages []*schema.Message) SpineSnapshot {
+	return k.enrichSnapshot(snap, messages, false)
+}
+
+func (k *SessionKernel) enrichSnapshot(snap SpineSnapshot, messages []*schema.Message, includeTeam bool) SpineSnapshot {
 	if k == nil {
 		return snap
 	}
@@ -62,7 +76,11 @@ func (k *SessionKernel) EnrichSnapshot(snap SpineSnapshot, messages []*schema.Me
 			snap.WorkspaceRecent = append(snap.WorkspaceRecent, line)
 		}
 	}
-	for _, line := range k.teamMemoryLines() {
+	var team []string
+	if includeTeam {
+		team = k.teamMemoryLines()
+	}
+	for _, line := range team {
 		if !containsLine(snap.TeamMemory, line) {
 			snap.TeamMemory = append(snap.TeamMemory, line)
 		}
@@ -86,7 +104,6 @@ func (k *SessionKernel) ShouldCompress(messages []*schema.Message) bool {
 
 func (k *SessionKernel) recentFiles() []string {
 	k.mu.Lock()
-	defer k.mu.Unlock()
 	type pair struct {
 		path string
 		ts   int64
@@ -95,8 +112,20 @@ func (k *SessionKernel) recentFiles() []string {
 	for p, ts := range k.touched {
 		list = append(list, pair{p, ts})
 	}
+	needsScan := len(list) < k.maxRecent && (k.scanAt.IsZero() || time.Since(k.scanAt) > 15*time.Second)
+	if needsScan {
+		k.scanAt = time.Now()
+	}
+	cached := append([]string(nil), k.scanCache...)
+	k.mu.Unlock()
+	if needsScan {
+		cached = k.scanMTIME()
+		k.mu.Lock()
+		k.scanCache = append([]string(nil), cached...)
+		k.mu.Unlock()
+	}
 	if len(list) < k.maxRecent {
-		for _, p := range k.scanMTIME() {
+		for _, p := range cached {
 			found := false
 			for _, x := range list {
 				if x.path == p {
@@ -127,7 +156,18 @@ func (k *SessionKernel) scanMTIME() []string {
 	}
 	cutoff := time.Now().Add(-72 * time.Hour)
 	var found []string
+	visited := 0
 	_ = filepath.WalkDir(k.root, func(path string, d os.DirEntry, err error) error {
+		visited++
+		if visited > 2048 {
+			return filepath.SkipAll
+		}
+		if d != nil && d.IsDir() && path != k.root {
+			switch d.Name() {
+			case ".git", "node_modules", "vendor", "dist", "build", "bin", ".venv", "__pycache__":
+				return filepath.SkipDir
+			}
+		}
 		if err != nil || d.IsDir() {
 			if d != nil && d.IsDir() {
 				rel, _ := filepath.Rel(k.root, path)
@@ -162,15 +202,32 @@ func (k *SessionKernel) teamMemoryLines() []string {
 	if k.root == "" {
 		return nil
 	}
-	b, err := os.ReadFile(filepath.Join(k.root, "TEAM.md"))
-	if err != nil || len(b) == 0 {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	path := filepath.Join(k.root, "TEAM.md")
+	info, err := os.Stat(path)
+	if err != nil {
+		k.teamInfo = nil
+		k.teamText = ""
 		return nil
 	}
-	s := strings.TrimSpace(string(b))
-	if len(s) > 600 {
-		s = s[:600] + "…"
+	if k.teamInfo == nil || !os.SameFile(k.teamInfo, info) || k.teamInfo.Size() != info.Size() || !k.teamInfo.ModTime().Equal(info.ModTime()) {
+		f, err := os.Open(path)
+		if err != nil {
+			return nil
+		}
+		b, err := io.ReadAll(io.LimitReader(f, 2400))
+		_ = f.Close()
+		if err != nil {
+			return nil
+		}
+		k.teamInfo = info
+		k.teamText = excerpt(strings.TrimSpace(string(b)), 600)
 	}
-	return []string{s}
+	if k.teamText == "" {
+		return nil
+	}
+	return []string{k.teamText}
 }
 
 func (k *SessionKernel) shouldSuggestCompress(messages []*schema.Message) bool {

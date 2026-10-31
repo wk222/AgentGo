@@ -32,7 +32,9 @@ func (m *loopingModel) Stream(ctx context.Context, in []*schema.Message, opts ..
 	return schema.StreamReaderFromArray([]*schema.Message{msg}), nil
 }
 
-func (m *loopingModel) WithTools([]*schema.ToolInfo) (model.ToolCallingChatModel, error) { return m, nil }
+func (m *loopingModel) WithTools([]*schema.ToolInfo) (model.ToolCallingChatModel, error) {
+	return m, nil
+}
 
 func TestRunThatExhaustsItsIterationBudgetEndsGracefully(t *testing.T) {
 	ctx := context.Background()

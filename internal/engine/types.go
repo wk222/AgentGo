@@ -83,6 +83,10 @@ type RunRequest struct {
 	Blocks    []ContentBlock
 	Workspace string         // optional cwd override
 	Meta      map[string]any // engine-specific options
+	// StartedExtra is merged into the payload of the "started" status event, so a
+	// client learns what the turn was filed under (its workspace checkpoint, for
+	// one) before the first token arrives. Clients must ignore keys they do not know.
+	StartedExtra map[string]any
 }
 
 // Message is a final, persisted-style output message.
@@ -102,6 +106,7 @@ type RunResult struct {
 	Engine   string    `json:"engine"`
 	Messages []Message `json:"messages,omitempty"`
 	Error    string    `json:"error,omitempty"`
+	Degraded string    `json:"degraded,omitempty"` // tool-less fallback; not verified task completion
 	// Pending is true when the run stopped waiting for approval/answer.
 	Pending bool `json:"pending,omitempty"`
 	// Reason qualifies how the run ended when that is not an error, e.g.

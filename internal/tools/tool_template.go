@@ -29,7 +29,7 @@ func RegisterCreateToolFromTemplate(r *Registry, store *DynamicStore, dataDir st
 
 	t, err := utils.InferTool("create_tool_from_template",
 		"Create a dynamic tool from a JSON template in data/tool_templates (parameters + description + code stub).",
-		func(_ context.Context, in createFromTemplateInput) (createFromTemplateOutput, error) {
+		func(ctx context.Context, in createFromTemplateInput) (createFromTemplateOutput, error) {
 			tpl := strings.TrimSpace(in.Template)
 			if tpl == "" {
 				return createFromTemplateOutput{Success: false, Message: "template name required"}, nil
@@ -48,6 +48,7 @@ func RegisterCreateToolFromTemplate(r *Registry, store *DynamicStore, dataDir st
 				Parameters  string `json:"parameters"`
 				Code        string `json:"code"`
 				UsageGuide  string `json:"usage_guide"`
+				EnvVars     string `json:"env_vars"`
 			}
 			if err := json.Unmarshal(raw, &spec); err != nil {
 				return createFromTemplateOutput{Success: false, Message: err.Error()}, nil
@@ -60,23 +61,37 @@ func RegisterCreateToolFromTemplate(r *Registry, store *DynamicStore, dataDir st
 			if !toolNamePattern.MatchString(name) {
 				return createFromTemplateOutput{Success: false, Message: "invalid tool_name"}, nil
 			}
+			envVars, err := ParseEnvVars(spec.EnvVars)
+			if err != nil {
+				return createFromTemplateOutput{Success: false, Message: err.Error()}, nil
+			}
 			def := DynamicToolDef{
 				Name: name, Description: spec.Description, Parameters: spec.Parameters,
-				Code: spec.Code, UsageGuide: spec.UsageGuide,
+				Code: spec.Code, UsageGuide: spec.UsageGuide, EnvVars: envVars,
 			}
 			if store == nil {
 				return createFromTemplateOutput{Success: false, Message: "dynamic store unavailable"}, nil
 			}
+			if err := ValidateDynamicToolDef(ctx, def); err != nil {
+				return createFromTemplateOutput{Success: false, Message: "tool rejected, nothing saved: " + err.Error()}, nil
+			}
+			prev, prevErr := store.Get(name)
+			prevExists := prevErr == nil
 			if err := store.Save(def); err != nil {
 				return createFromTemplateOutput{Success: false, Message: err.Error()}, nil
 			}
-			if capRegister != nil {
-				capRegister("tool", name, "agent")
-			}
 			if onCompiled != nil {
 				if err := onCompiled(def); err != nil {
-					return createFromTemplateOutput{Success: false, Message: err.Error()}, nil
+					if prevExists {
+						_ = store.Save(prev)
+					} else {
+						_ = store.Delete(name)
+					}
+					return createFromTemplateOutput{Success: false, Message: "registration failed, nothing saved: " + err.Error()}, nil
 				}
+			}
+			if capRegister != nil {
+				capRegister("tool", name, "agent")
 			}
 			return createFromTemplateOutput{
 				Success: true, Name: name,

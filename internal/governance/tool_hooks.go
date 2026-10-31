@@ -31,13 +31,14 @@ type ToolOutcome struct {
 // Semantics, fixed so plugins can rely on them:
 //   - Hooks run in registration order, around the actual execution only. A call
 //     that is waiting for approval, was rejected, or was denied by policy never
-//     reaches them, so Before sees exactly the calls that are about to run.
+//     reaches them. Before sees execution candidates before atomic admission;
+//     a concurrent limit/budget failure can still stop one afterward.
 //   - Before returning an error vetoes the call: the tool does not run, the
 //     model receives a "rejected" result naming the hook, and later hooks and
 //     After are skipped. A panic in Before also vetoes (fail closed).
 //   - After is observational: it cannot change the result, and a panic in it is
-//     logged and ignored. It runs for every call that Before allowed, whether
-//     the tool succeeded, failed or was cancelled.
+//     logged and ignored. It runs only after admission and endpoint entry,
+//     whether the tool succeeded, failed or was cancelled.
 //   - A call whose context is already cancelled does not run and is not retried;
 //     governance never retries a tool, since tools may not be idempotent.
 type ToolHook struct {
@@ -130,15 +131,12 @@ func (h ToolHook) runAfter(ctx context.Context, c ToolCall, o ToolOutcome) {
 
 // withHooks wraps the real execution so every path that runs the tool (direct,
 // pre-approved, resumed after approval) goes through the same hooks.
-func (m *GovernanceMiddleware) withHooks(toolName string, endpoint ToolInvokeFunc) ToolInvokeFunc {
+func (m *GovernanceMiddleware) withHooks(toolName string, endpoint ToolInvokeFunc, admit func(context.Context, string) error) ToolInvokeFunc {
 	return func(ctx context.Context, args string) (string, error) {
-		hs := hookSnapshot()
-		if len(hs) == 0 {
-			return endpoint(ctx, args)
-		}
 		if err := ctx.Err(); err != nil {
 			return "", err
 		}
+		hs := hookSnapshot()
 		call := ToolCall{
 			CallID: callIDFrom(ctx), Name: toolName, Arguments: args,
 			SessionID: SessionIDFromContext(ctx), Workspace: m.policy.WorkspaceRoot,
@@ -148,6 +146,17 @@ func (m *GovernanceMiddleware) withHooks(toolName string, endpoint ToolInvokeFun
 				m.recordAudit(ctx, "hook_deny", toolName, args, "rejected", "", fmt.Sprintf("hook %s: %v", h.Name, err))
 				return m.buildDisapprovedResponse(toolName, args, fmt.Sprintf("blocked by %s: %v", h.Name, err))
 			}
+		}
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		if admit != nil {
+			if err := admit(ctx, args); err != nil {
+				return "", err
+			}
+		}
+		if err := ctx.Err(); err != nil {
+			return "", err
 		}
 		start := time.Now()
 		out, err := endpoint(ctx, args)

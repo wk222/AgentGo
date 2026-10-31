@@ -6,11 +6,6 @@ import (
 	"log"
 	"strings"
 
-	milvusindexer "github.com/cloudwego/eino-ext/components/indexer/milvus2"
-	milvusretriever "github.com/cloudwego/eino-ext/components/retriever/milvus2"
-	"github.com/cloudwego/eino-ext/components/retriever/milvus2/search_mode"
-	"github.com/milvus-io/milvus/client/v2/milvusclient"
-
 	"agentgo/internal/config"
 )
 
@@ -75,32 +70,13 @@ func NewHybridEngine(ctx context.Context, sqlite *SQLiteStore, cfg BootConfig) (
 	})
 
 	if cfg.MilvusAddr != "" && cfg.APIKey != "" {
-		einoEmb := NewEinoEmbedder(EmbeddingConfig{
-			APIBase: cfg.APIBase, APIKey: cfg.APIKey, Model: cfg.EmbeddingModel,
-		})
-		if einoEmb != nil {
-			clientCfg := &milvusclient.ClientConfig{Address: cfg.MilvusAddr}
-			idxCfg := &milvusindexer.IndexerConfig{
-				ClientConfig: clientCfg,
-				Collection:   cfg.MilvusCollection,
-				Embedding:    einoEmb,
-				Vector:       &milvusindexer.VectorConfig{Dimension: int64(cfg.VectorDim)},
-			}
-			retCfg := &milvusretriever.RetrieverConfig{
-				ClientConfig: clientCfg,
-				Collection:   cfg.MilvusCollection,
-				Embedding:    einoEmb,
-				TopK:         10,
-				SearchMode:   search_mode.NewApproximate(milvusretriever.COSINE),
-			}
-			ms, err := NewMilvusStore(ctx, idxCfg, retCfg)
-			if err != nil {
-				log.Printf("[memory] Milvus disabled: %v (using SQLite+embedding only)", err)
-			} else {
-				h.milvus = ms
-				h.milvusOn = true
-				log.Printf("[memory] Milvus connected %s collection=%s", cfg.MilvusAddr, cfg.MilvusCollection)
-			}
+		ms, err := connectMilvusStore(ctx, cfg)
+		if err != nil {
+			log.Printf("[memory] Milvus disabled: %v (using SQLite+embedding only)", err)
+		} else if ms != nil {
+			h.milvus = ms
+			h.milvusOn = true
+			log.Printf("[memory] Milvus connected %s collection=%s", cfg.MilvusAddr, cfg.MilvusCollection)
 		}
 	}
 	if cfg.APIKey != "" {
@@ -113,8 +89,9 @@ func (h *HybridEngine) Pipeline() *Pipeline { return h.pipeline }
 
 func (h *HybridEngine) ingestRecord(ctx context.Context, r Record) error {
 	const maxChunkLen = 1200
-	if len(r.Content) > maxChunkLen && r.Modality != "episode" {
-		chunks := ChunkContent(r.Content, maxChunkLen, 200)
+	// Atomic statements must keep their canonical ID even when UTF-8 bytes exceed the chunk threshold.
+	if len(r.Content) > maxChunkLen && r.Modality != "episode" && r.Metadata["source"] != "llm_distillation" && r.Metadata["atomic_container"] != true {
+		chunks := chunkContent(r.Content, maxChunkLen, 200)
 		if len(chunks) > 1 {
 			for i, chunk := range chunks {
 				chunkRec := r
@@ -132,12 +109,17 @@ func (h *HybridEngine) ingestRecord(ctx context.Context, r Record) error {
 
 func (h *HybridEngine) ingestSingleRecord(ctx context.Context, r Record) error {
 	if h.embedder != nil && h.embedder.cfg.APIKey != "" && strings.TrimSpace(r.Content) != "" {
-		if vec, err := h.embedder.Embed(ctx, r.Content); err == nil {
-			if r.Metadata == nil {
-				r.Metadata = map[string]interface{}{}
-			}
-			r.Metadata["embedding"] = vec
+		// Chunks share the caller's Metadata map, so work on a copy: a failed
+		// embedding must not leave the previous chunk's vector on this one.
+		meta := make(map[string]interface{}, len(r.Metadata)+4)
+		for k, v := range r.Metadata {
+			meta[k] = v
 		}
+		clearEmbedding(meta)
+		if vec, err := h.embedder.Embed(ctx, r.Content); err == nil {
+			stampEmbedding(meta, vec, h.embedder.Space(), r.Content)
+		}
+		r.Metadata = meta
 	}
 	if err := h.sqlite.Ingest(ctx, r); err != nil {
 		return err
@@ -163,31 +145,18 @@ func (h *HybridEngine) Feedback(ctx context.Context, id string, kind FeedbackKin
 }
 
 func (h *HybridEngine) ContextPrompt(ctx context.Context, sessionID string) (string, error) {
+	query := RecallQueryFromContext(ctx)
+	if query == "" {
+		query = "session context user preferences goals"
+	}
+	ctx = WithRecallQuery(ctx, query)
 	cfg := RecallConfigFromEnv()
 	rctx, cancel := context.WithTimeout(ctx, cfg.Timeout)
 	defer cancel()
 
-	recs, err := h.Recall(rctx, "session context user preferences goals", RecallOptions{
-		Scope: sessionID, Limit: 8,
-	})
-	if err != nil || len(recs) == 0 {
-		recs, _ = h.Recall(rctx, "global preferences", RecallOptions{Scope: "global", Limit: 4})
+	recs, err := collectContextRecords(rctx, h.Recall, query, sessionID)
+	if err != nil {
+		return "", err
 	}
-	if len(recs) == 0 {
-		return "", nil
-	}
-	var b strings.Builder
-	b.WriteString("## Recalled memories (FTS + Milvus hybrid)\n")
-	for _, r := range recs {
-		line := strings.TrimSpace(r.Content)
-		if len(line) > 300 {
-			line = line[:300] + "..."
-		}
-		b.WriteString("- [")
-		b.WriteString(r.Modality)
-		b.WriteString("] ")
-		b.WriteString(line)
-		b.WriteString("\n")
-	}
-	return b.String(), nil
+	return h.pipeline.forest.ContextPrompt(ctx, sessionID, recs, PromptTokenBudget(ctx)), nil
 }

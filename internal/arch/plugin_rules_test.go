@@ -17,6 +17,11 @@ import (
 var concretePlugins = []string{
 	"agentgo/internal/codetools",
 	"agentgo/internal/officedoc",
+	// Optional capabilities. memory reaches the chunker only through
+	// memory.SetChunker, so it builds and is tested without it; a build tag used
+	// to enforce that by accident, this list is the explicit rule.
+	"agentgo/internal/docchunk",
+	"agentgo/internal/visionocr",
 }
 
 // contractOnlyStdlib packages are contracts or the host itself; they may not

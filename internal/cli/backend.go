@@ -42,6 +42,12 @@ type Streamer interface {
 	AnswerStream(questionID, text string, sink engine.EventSink) Result
 }
 
+// Forker is implemented by backends that can copy a whole conversation into a
+// new one (the original is left as it is) and return the new session's id.
+type Forker interface {
+	Fork(sessionID string) (string, error)
+}
+
 // SessionInfo is one saved conversation.
 type SessionInfo struct {
 	ID        string

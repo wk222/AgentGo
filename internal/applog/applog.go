@@ -13,6 +13,7 @@ var (
 	mu    sync.Mutex
 	path  string
 	quiet bool
+	file  *os.File // the open log file, so a second Init (or Close) can release it
 )
 
 // SetQuiet keeps process logs out of stderr (they still go to the log file).
@@ -24,6 +25,11 @@ func SetQuiet(q bool) {
 	mu.Unlock()
 }
 
+// MaxLogBytes is how large agentgo.log may be when the app starts. A bigger file is moved to
+// agentgo.log.old (replacing the previous one), so the log never fills a work PC's disk: at most about two
+// files of this size are kept.
+const MaxLogBytes int64 = 16 << 20
+
 // Init appends process logs to dataDir/agentgo.log (and stderr unless quiet).
 func Init(dataDir string) error {
 	mu.Lock()
@@ -32,6 +38,7 @@ func Init(dataDir string) error {
 		return err
 	}
 	path = filepath.Join(dataDir, "agentgo.log")
+	rotate(path, MaxLogBytes)
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
@@ -39,10 +46,50 @@ func Init(dataDir string) error {
 	if quiet {
 		log.SetOutput(f)
 	} else {
-		log.SetOutput(io.MultiWriter(os.Stderr, f))
+		log.SetOutput(fileFirst{file: f, stderr: os.Stderr})
 	}
+	if file != nil {
+		_ = file.Close()
+	}
+	file = f
 	log.Printf("[agentgo] logging to %s", path)
 	return nil
+}
+
+// fileFirst writes every log line to the log file and, best effort, to stderr. A desktop (windowsgui)
+// process has no usable stderr, and io.MultiWriter ends the write at the first writer that fails, so
+// listing stderr ahead of the file used to leave the desktop build with an empty agentgo.log.
+type fileFirst struct {
+	file   io.Writer
+	stderr io.Writer
+}
+
+func (w fileFirst) Write(p []byte) (int, error) {
+	n, err := w.file.Write(p)
+	_, _ = w.stderr.Write(p)
+	return n, err
+}
+
+// Close stops logging to the file (process logs go back to stderr) and releases it.
+func Close() {
+	mu.Lock()
+	defer mu.Unlock()
+	log.SetOutput(os.Stderr)
+	if file != nil {
+		_ = file.Close()
+		file = nil
+	}
+}
+
+// rotate moves an oversized log aside. Failing to do so is not fatal: the log just keeps growing.
+func rotate(path string, max int64) {
+	st, err := os.Stat(path)
+	if err != nil || st.Size() <= max {
+		return
+	}
+	old := path + ".old"
+	_ = os.Remove(old)
+	_ = os.Rename(path, old)
 }
 
 // Path returns the active log file path (empty if Init not called).

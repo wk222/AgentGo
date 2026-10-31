@@ -1,20 +1,29 @@
 package sessions
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/cloudwego/eino/schema"
 )
 
 // CompileOptions configures message → ProjectedRuntimeView classification.
 type CompileOptions struct {
-	MaxActiveTurns int
+	// RecallTokenBudget is the already planned recall budget; nil retains the legacy default, zero clears recall.
+	RecallTokenBudget  *int
+	KeepActiveHistory  bool // normal path: let official summarization own semantic compaction
+	PlanTasks          []PlanTaskSnapshot
+	MaxActiveTurns     int
+	PreserveLatestUser bool
+	// HardToolResultChars is used only under budget pressure, including recent/error outputs.
+	HardToolResultChars int
 	// RecentTailTurns controls how many most-recent messages keep full tool outputs
 	// before deterministic head/tail snipping applies (default 6).
 	RecentTailTurns int
 	// MaxStaleToolChars is the character threshold above which older tool results
-	// are deterministically snipped to preserve prompt prefix cache economics (default 1600).
+	// are snipped under explicit budget pressure; zero leaves recorded outputs intact.
 	MaxStaleToolChars int
 	DurableTasks      []string
 	WorkspaceRules    string // SOUL/TEAM/rules preloaded (optional)
@@ -40,12 +49,13 @@ func CompileProjectedView(messages []*schema.Message, opt CompileOptions) *Proje
 		opt.MaxActiveTurns = 30
 	}
 	view := &ProjectedRuntimeView{
-		DurableTasks:    append([]string(nil), opt.DurableTasks...),
-		WorkflowContext: append([]string(nil), opt.Snapshot.WorkflowContext...),
-		EpisodicSummary: append([]string(nil), opt.Snapshot.EpisodicSummary...),
-		ContextHygiene:  append([]string(nil), opt.Snapshot.ContextHygiene...),
-		TeamMemory:      append([]string(nil), opt.Snapshot.TeamMemory...),
-		Isolation:       append([]string(nil), opt.Snapshot.Isolation...),
+		recallTokenBudget: opt.RecallTokenBudget,
+		DurableTasks:      append([]string(nil), opt.DurableTasks...),
+		WorkflowContext:   append([]string(nil), opt.Snapshot.WorkflowContext...),
+		EpisodicSummary:   append([]string(nil), opt.Snapshot.EpisodicSummary...),
+		ContextHygiene:    append([]string(nil), opt.Snapshot.ContextHygiene...),
+		TeamMemory:        append([]string(nil), opt.Snapshot.TeamMemory...),
+		Isolation:         append([]string(nil), opt.Snapshot.Isolation...),
 	}
 	if rules := strings.TrimSpace(opt.WorkspaceRules); rules != "" {
 		view.SystemRules = append(view.SystemRules, rules)
@@ -60,12 +70,27 @@ func CompileProjectedView(messages []*schema.Message, opt CompileOptions) *Proje
 			continue
 		}
 		content := strings.TrimSpace(msg.Content)
-		if content == "" && len(msg.ToolCalls) == 0 {
+		if content == "" && len(msg.ToolCalls) == 0 && len(msg.UserInputMultiContent) == 0 && msg.Role != schema.Tool && !(msg.Role == schema.System && msg.Extra["agentgo.memory_context"] == true) {
 			continue
 		}
 
 		switch {
 		case msg.Role == schema.System:
+			if msg.Extra != nil && msg.Extra["agentgo.memory_context"] == true {
+				view.freshRecall = true
+				if revision, ok := msg.Extra[ExtraMemoryRevision].(string); ok {
+					view.memory.MemoryRevision = revision
+				}
+				text := strings.TrimSpace(strings.TrimPrefix(content, tagMemoryInject))
+				if text != "" {
+					view.RecalledMemory = append(view.RecalledMemory, text)
+				}
+				continue
+			}
+			if msg.Extra != nil && msg.Extra["agentgo.workspace_context"] == true {
+				continue
+			}
+			view.inheritMemory(msg)
 			// A message rendered by an earlier compile of this run carries its raw input.
 			// Re-reading its rendered text would wrap <system_rules> again and again and
 			// fold every block back into the rules, growing the prompt on each model call.
@@ -79,20 +104,34 @@ func CompileProjectedView(messages []*schema.Message, opt CompileOptions) *Proje
 			}
 
 		case msg.Role == schema.User:
-			switch {
-			case strings.HasPrefix(content, tagSystemSummary):
+			if !IsContextMessage(msg) {
+				active = append(active, flatFromSchema(msg))
+				continue
+			}
+			switch ContextKind(msg) {
+			case "runtime":
+				view.inheritMemory(msg)
+				continue // regenerated from the current snapshot and persisted projection memory
+			case "summary":
+				if revision, ok := msg.Extra[ExtraMemoryRevision].(string); ok {
+					view.memory.MemoryRevision = revision
+				}
 				view.EpisodicSummary = append(view.EpisodicSummary, strings.TrimSpace(strings.TrimPrefix(content, tagSystemSummary)))
-			case strings.HasPrefix(content, tagMemoryInject):
-				view.EpisodicSummary = append(view.EpisodicSummary, strings.TrimSpace(strings.TrimPrefix(content, tagMemoryInject)))
-			case strings.HasPrefix(content, tagEnvFeedback):
+			case "memory":
+				view.freshRecall = true
+				if revision, ok := msg.Extra[ExtraMemoryRevision].(string); ok {
+					view.memory.MemoryRevision = revision
+				}
+				view.RecalledMemory = append(view.RecalledMemory, strings.TrimSpace(strings.TrimPrefix(content, tagMemoryInject)))
+			case "feedback":
 				view.ToolOutputs = append(view.ToolOutputs, strings.TrimSpace(strings.TrimPrefix(content, tagEnvFeedback)))
-			case strings.HasPrefix(content, tagWorkflowContext), strings.HasPrefix(content, tagAppMatrix):
+			case "workflow", "app_matrix":
 				view.WorkflowContext = append(view.WorkflowContext, stripKnownPrefix(content))
-			case strings.HasPrefix(content, tagContextHygiene):
+			case "hygiene":
 				view.ContextHygiene = append(view.ContextHygiene, stripKnownPrefix(content))
-			case strings.HasPrefix(content, tagTeamMemory):
+			case "team":
 				view.TeamMemory = append(view.TeamMemory, stripKnownPrefix(content))
-			case strings.HasPrefix(content, tagIsolation), strings.HasPrefix(content, tagModeProfile):
+			case "isolation", "mode":
 				view.Isolation = append(view.Isolation, stripKnownPrefix(content))
 			default:
 				active = append(active, flatFromSchema(msg))
@@ -109,16 +148,148 @@ func CompileProjectedView(messages []*schema.Message, opt CompileOptions) *Proje
 		}
 	}
 
+	// Repair protocol history before either truncation or recovery-ledger creation.
+	// Invalid/duplicate results must not reappear later as remembered facts.
+	active = normalizeToolPairs(active)
+	rawActive := active
 	var dropped int
+	if opt.KeepActiveHistory {
+		opt.MaxActiveTurns = len(active)
+	}
 	active, dropped = pruneAndNormalizeActive(active, opt.MaxActiveTurns)
+	if opt.PreserveLatestUser {
+		for i := len(rawActive) - 1; i >= 0; i-- {
+			if rawActive[i].Role == "user" {
+				found := false
+				for _, m := range active {
+					if m.Role == "user" && m.Content == rawActive[i].Content {
+						found = true
+						break
+					}
+				}
+				if !found {
+					active = append([]FlatMessage{rawActive[i]}, active...)
+					dropped = max(0, dropped-1)
+				}
+				break
+			}
+		}
+	}
+	view.rememberCompaction(rawActive, active, dropped)
+	view.applyPlanTasks(opt.PlanTasks)
 	var snipped int
-	active, snipped = snipStaleToolResults(active, opt.RecentTailTurns, opt.MaxStaleToolChars)
+	if opt.MaxStaleToolChars > 0 {
+		active, snipped = snipStaleToolResults(active, opt.RecentTailTurns, opt.MaxStaleToolChars)
+	}
 	if dropped > 0 || snipped > 0 {
 		view.ContextHygiene = append(view.ContextHygiene,
-			fmt.Sprintf("活跃窗口保留最近 %d 条消息（裁剪较早 %d 条，确定性折叠旧工具长输出 %d 处以保护 Prefix Cache；需要更早细节请参考 episodic_summary）。", len(active), dropped, snipped))
+			fmt.Sprintf("活跃窗口保留最近 %d 条消息（裁剪较早 %d 条，确定性折叠旧工具长输出 %d 处以控制上下文预算；需要更早细节请参考 episodic_summary）。", len(active), dropped, snipped))
+	}
+	if opt.HardToolResultChars > 0 {
+		for i := range active {
+			if active[i].Role == "tool" && len(active[i].Content) > opt.HardToolResultChars {
+				n := opt.HardToolResultChars
+				content := active[i].Content
+				active[i].Content = validSnippetHead(content, n*2/3) + "\n...[context budget: tool result excerpt; retrieve full output from session/spill if needed]...\n" + validSnippetTail(content, n/3)
+			}
+		}
 	}
 	view.ActiveTurn = active
 	return view
+}
+
+// buildCompactionCheckpoint constructs a zero-LLM deterministic state recovery summary
+// (absorbed from a reference implementation) when older turns are
+// pruned or snipped: it preserves the initial user goal anchor and a compact ledger of
+// earlier tool actions so the model never loses original constraints or touched targets.
+func buildCompactionCheckpoint(rawActive, keptActive []FlatMessage) string {
+	if len(rawActive) == 0 {
+		return ""
+	}
+	var parts []string
+
+	// 1. Initial user goal anchor if the earliest user turn was pruned out of keptActive.
+	firstUser := ""
+	for _, m := range rawActive {
+		if m.Role == "user" || m.Role == string(schema.User) {
+			firstUser = collapseOneLine(m.Content, 220)
+			break
+		}
+	}
+	if firstUser != "" {
+		stillPresent := false
+		for _, m := range keptActive {
+			if (m.Role == "user" || m.Role == string(schema.User)) && collapseOneLine(m.Content, 220) == firstUser {
+				stillPresent = true
+				break
+			}
+		}
+		if !stillPresent {
+			parts = append(parts, "初始目标锚点: "+firstUser)
+		}
+	}
+
+	// 2. Deterministic tool action ledger from pruned/older turns.
+	cutoff := len(rawActive) - len(keptActive)
+	if cutoff < len(rawActive)/2 {
+		cutoff = len(rawActive) / 2
+	}
+	var actions []string
+	seen := make(map[string]bool)
+	for i := 0; i < cutoff && i < len(rawActive); i++ {
+		m := rawActive[i]
+		if m.Role != "assistant" && m.Role != string(schema.Assistant) {
+			continue
+		}
+		for _, tc := range m.ToolCalls {
+			entry := summarizeToolCallForCheckpoint(tc.Function.Name, tc.Function.Arguments)
+			if entry != "" && !seen[entry] {
+				seen[entry] = true
+				actions = append(actions, entry)
+			}
+		}
+	}
+	if len(actions) > 8 {
+		actions = actions[len(actions)-8:]
+	}
+	if len(actions) > 0 {
+		parts = append(parts, "工具调用轨迹（不代表完成或成功）: "+strings.Join(actions, " -> "))
+	}
+
+	if len(parts) == 0 {
+		return ""
+	}
+	return "[Compaction Checkpoint] " + strings.Join(parts, " | ")
+}
+
+func summarizeToolCallForCheckpoint(name, rawArgs string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	var args map[string]any
+	if err := json.Unmarshal([]byte(rawArgs), &args); err == nil && len(args) > 0 {
+		for _, k := range []string{"path", "relative_path", "file", "command", "pattern", "url", "case", "tool", "action"} {
+			if v, ok := args[k]; ok {
+				if s := collapseOneLine(fmt.Sprint(v), 48); s != "" {
+					return fmt.Sprintf("%s(%s)", name, s)
+				}
+			}
+		}
+	}
+	return name
+}
+
+func collapseOneLine(s string, maxRunes int) string {
+	s = strings.Join(strings.Fields(strings.TrimSpace(s)), " ")
+	if maxRunes <= 0 || s == "" {
+		return s
+	}
+	r := []rune(s)
+	if len(r) > maxRunes {
+		return string(r[:maxRunes]) + "…"
+	}
+	return s
 }
 
 // snipStaleToolResults implements tiered tool-result snipping:
@@ -163,10 +334,10 @@ func snipStaleToolResults(active []FlatMessage, recentTail int, maxChars int) ([
 			continue
 		}
 		out[i].Content = fmt.Sprintf(
-			"%s\n...[snip: %d chars omitted for prefix-cache hygiene]...\n%s",
-			content[:headKeep],
+			"%s\n...[snip: %d chars omitted for context budget]...\n%s",
+			validSnippetHead(content, headKeep),
 			omitted,
-			content[len(content)-tailKeep:],
+			validSnippetTail(content, tailKeep),
 		)
 		snippedCount++
 	}
@@ -191,7 +362,7 @@ func looksLikeErrorToolOutput(content string) bool {
 func pruneAndNormalizeActive(active []FlatMessage, maxTurns int) ([]FlatMessage, int) {
 	if len(active) <= maxTurns {
 		normalized := normalizeToolPairs(active)
-		return normalized, len(active) - len(normalized)
+		return normalized, max(0, len(active)-len(normalized))
 	}
 
 	start := len(active) - maxTurns
@@ -202,61 +373,55 @@ func pruneAndNormalizeActive(active []FlatMessage, maxTurns int) ([]FlatMessage,
 
 	candidate := active[start:]
 	normalized := normalizeToolPairs(candidate)
-	dropped := len(active) - len(normalized)
+	dropped := max(0, len(active)-len(normalized))
 	return normalized, dropped
 }
 
-// normalizeToolPairs ensures every tool message has a preceding assistant with matching ToolCallID,
-// and every assistant ToolCall has a following tool message. Any orphaned items are safely filtered out.
+// normalizeToolPairs preserves contiguous call/result groups. Missing results are
+// prompt-only unknown outcomes, never evidence of execution or success.
 func normalizeToolPairs(msgs []FlatMessage) []FlatMessage {
-	if len(msgs) == 0 {
-		return msgs
-	}
-
-	// 1. Identify which tool_call_ids actually have a response in the window
-	toolResponses := make(map[string]bool)
-	for _, m := range msgs {
-		if m.Role == "tool" && m.ToolCallID != "" {
-			toolResponses[m.ToolCallID] = true
-		}
-	}
-
-	// 2. Identify which assistant messages have tool calls
-	knownCalls := make(map[string]bool)
-	for _, m := range msgs {
-		if m.Role == "assistant" {
-			for _, tc := range m.ToolCalls {
-				if tc.ID != "" {
-					knownCalls[tc.ID] = true
-				}
-			}
-		}
-	}
-
-	// 3. Filter: drop tool responses without parent call; drop assistant tool calls without responses
 	result := make([]FlatMessage, 0, len(msgs))
-	for _, m := range msgs {
+	for i := 0; i < len(msgs); i++ {
+		m := msgs[i]
 		if m.Role == "tool" {
-			// Orphaned tool response whose parent assistant call was dropped
-			if !knownCalls[m.ToolCallID] {
+			continue
+		} // orphan, duplicate, or late result
+		if m.Role != "assistant" || len(m.ToolCalls) == 0 {
+			result = append(result, m)
+			continue
+		}
+		calls := make([]schema.ToolCall, 0, len(m.ToolCalls))
+		allowed := map[string]bool{}
+		for _, tc := range m.ToolCalls {
+			if tc.ID == "" || allowed[tc.ID] {
 				continue
 			}
-			result = append(result, m)
-		} else if m.Role == "assistant" && len(m.ToolCalls) > 0 {
-			var validCalls []schema.ToolCall
-			for _, tc := range m.ToolCalls {
-				if toolResponses[tc.ID] {
-					validCalls = append(validCalls, tc)
-				}
+			allowed[tc.ID] = true
+			calls = append(calls, tc)
+		}
+		outputs := make([]FlatMessage, 0, len(calls))
+		returned := map[string]bool{}
+		for i+1 < len(msgs) && msgs[i+1].Role == "tool" {
+			i++
+			output := msgs[i]
+			if allowed[output.ToolCallID] && !returned[output.ToolCallID] {
+				returned[output.ToolCallID] = true
+				outputs = append(outputs, output)
 			}
-			// If all tool calls were dropped and content is empty, skip this empty assistant msg
-			if len(validCalls) == 0 && strings.TrimSpace(m.Content) == "" {
-				continue
+		}
+		m.ToolCalls = calls
+		if len(calls) == 0 && strings.TrimSpace(m.Content) == "" {
+			continue
+		}
+		result = append(result, m)
+		result = append(result, outputs...)
+		for _, tc := range calls {
+			if !returned[tc.ID] {
+				result = append(result, FlatMessage{Role: "tool", ToolCallID: tc.ID,
+					Content: "[Tool result unavailable] No result was recorded for this call. It may have been interrupted; execution and side effects are unknown. Verify actual state before retrying. Do not treat this as success.",
+					Extra:   map[string]any{"agentgo.tool_result_unavailable": true},
+				})
 			}
-			m.ToolCalls = validCalls
-			result = append(result, m)
-		} else {
-			result = append(result, m)
 		}
 	}
 	return result
@@ -264,6 +429,8 @@ func normalizeToolPairs(msgs []FlatMessage) []FlatMessage {
 
 func flatFromSchema(msg *schema.Message) FlatMessage {
 	fm := FlatMessage{
+		Source:  msg,
+		Extra:   msg.Extra,
 		Role:    string(msg.Role),
 		Content: strings.TrimSpace(msg.Content),
 	}
@@ -299,4 +466,18 @@ func stripKnownPrefix(content string) string {
 		}
 	}
 	return content
+}
+
+func validSnippetHead(s string, n int) string {
+	for n > 0 && n < len(s) && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
+}
+func validSnippetTail(s string, n int) string {
+	start := len(s) - n
+	for start < len(s) && !utf8.RuneStart(s[start]) {
+		start++
+	}
+	return s[start:]
 }

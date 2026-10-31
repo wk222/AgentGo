@@ -31,13 +31,14 @@ import (
 //
 // Opt-in: AGENTGO_LLM_API=responses.
 type responsesModel struct {
-	baseURL string
-	apiKey  string
-	model   string
-	effort  string // "" = model default
-	summary string // reasoning.summary: auto|concise|detailed
-	client  *http.Client
-	tools   []*schema.ToolInfo
+	baseURL   string
+	apiKey    string
+	model     string
+	effort    string // "" = model default
+	summary   string // reasoning.summary: auto|concise|detailed
+	client    *http.Client
+	tools     []*schema.ToolInfo
+	maxOutput int
 }
 
 // responsesEnabled reports whether the Responses channel is selected.
@@ -61,12 +62,13 @@ func newResponsesModel(cfg LLMSettings, modelName string, timeout time.Duration,
 		summary = "auto"
 	}
 	return &responsesModel{
-		baseURL: strings.TrimRight(strings.TrimSpace(cfg.APIBase), "/"),
-		apiKey:  cfg.APIKey,
-		model:   modelName,
-		effort:  config.ReasoningEffort.Get(),
-		summary: summary,
-		client:  hc,
+		baseURL:   strings.TrimRight(strings.TrimSpace(cfg.APIBase), "/"),
+		apiKey:    cfg.APIKey,
+		model:     modelName,
+		effort:    config.ReasoningEffort.Get(),
+		summary:   summary,
+		client:    hc,
+		maxOutput: modelOutputLimit(cfg),
 	}
 }
 
@@ -276,6 +278,9 @@ func (m *responsesModel) buildRequest(in []*schema.Message, co *model.Options) (
 		req["reasoning"] = map[string]any{"effort": m.effort, "summary": m.summary}
 	} else if m.effort == "none" {
 		req["reasoning"] = map[string]any{"effort": "none"}
+	}
+	if m.maxOutput > 0 {
+		req["max_output_tokens"] = m.maxOutput
 	}
 	if co.MaxTokens != nil {
 		req["max_output_tokens"] = *co.MaxTokens

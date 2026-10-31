@@ -115,57 +115,44 @@ func ApplyTruthResolution(ctx context.Context, store *SQLiteStore, factA, factB 
 	if strings.TrimSpace(factA.ID) == "" || strings.TrimSpace(factB.ID) == "" {
 		return Record{}, fmt.Errorf("truth resolution: both facts require ids")
 	}
+	// Reload authoritative records; caller-supplied content and scope are not evidence.
+	var err error
+	factA, err = store.GetRecord(ctx, factA.ID)
+	if err != nil {
+		return Record{}, err
+	}
+	factB, err = store.GetRecord(ctx, factB.ID)
+	if err != nil {
+		return Record{}, err
+	}
+	if factA.Scope != factB.Scope {
+		return Record{}, fmt.Errorf("truth resolution cannot cross memory scopes")
+	}
 	switch strings.TrimSpace(res.Resolution) {
 	case "supersede_a_with_b":
-		if err := store.MarkSupersedes(ctx, factA.ID, factB.ID); err != nil {
+		if err := store.SupersedeRecords(ctx, factB.Scope, factB.ID, factA.ID); err != nil {
 			return Record{}, err
 		}
-		_ = store.MarkCanonical(ctx, factB.ID, true)
-		_ = store.MarkContradiction(ctx, factA.ID, factB.ID)
-		_ = store.Link(ctx, factB.ID, factA.ID, "supersedes")
-		got, err := store.GetRecord(ctx, factB.ID)
-		if err != nil {
-			return factB, nil
-		}
-		res.AppliedRecordID = got.ID
-		return got, nil
+		return store.GetRecord(ctx, factB.ID)
 	case "supersede_b_with_a":
-		if err := store.MarkSupersedes(ctx, factB.ID, factA.ID); err != nil {
+		if err := store.SupersedeRecords(ctx, factA.Scope, factA.ID, factB.ID); err != nil {
 			return Record{}, err
 		}
-		_ = store.MarkCanonical(ctx, factA.ID, true)
-		_ = store.MarkContradiction(ctx, factB.ID, factA.ID)
-		_ = store.Link(ctx, factA.ID, factB.ID, "supersedes")
-		got, err := store.GetRecord(ctx, factA.ID)
-		if err != nil {
-			return factA, nil
-		}
-		res.AppliedRecordID = got.ID
-		return got, nil
+		return store.GetRecord(ctx, factA.ID)
 	case "merge":
 		merged, err := mergedTruthRecord(factA, factB, res)
 		if err != nil {
 			return Record{}, err
 		}
-		if err := store.Ingest(ctx, merged); err != nil {
+		if err := store.mergeAndSupersede(ctx, merged, factA.ID, factB.ID); err != nil {
 			return Record{}, err
 		}
-		_ = store.MarkSupersedes(ctx, factA.ID, merged.ID)
-		_ = store.MarkSupersedes(ctx, factB.ID, merged.ID)
-		_ = store.Link(ctx, merged.ID, factA.ID, "merged_from")
-		_ = store.Link(ctx, merged.ID, factB.ID, "merged_from")
-		got, err := store.GetRecord(ctx, merged.ID)
-		if err != nil {
-			return merged, nil
-		}
-		return got, nil
+		return store.GetRecord(ctx, merged.ID)
 	case "keep_both", "":
-		_ = store.Link(ctx, factA.ID, factB.ID, "truth_checked_keep_both")
-		got, err := store.GetRecord(ctx, factB.ID)
-		if err != nil {
-			return factB, nil
+		if err := store.Link(ctx, factA.ID, factB.ID, "truth_checked_keep_both"); err != nil {
+			return Record{}, err
 		}
-		return got, nil
+		return store.GetRecord(ctx, factB.ID)
 	default:
 		return Record{}, fmt.Errorf("truth resolution: unknown resolution %q", res.Resolution)
 	}
@@ -219,6 +206,7 @@ func mergedTruthRecord(factA, factB Record, res TruthResolution) (Record, error)
 		SourceTrust: trust,
 		Metadata: map[string]interface{}{
 			"truth_resolution": res.Resolution,
+			"verification":     "derived_unverified",
 			"source_a":         factA.ID,
 			"source_b":         factB.ID,
 			"explanation":      res.Explanation,

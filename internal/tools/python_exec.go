@@ -1,13 +1,14 @@
 package tools
 
 import (
+	"agentgo/internal/processutil"
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -44,17 +45,25 @@ func RegisterDynamicPythonExec(r *Registry, store *DynamicStore, sandboxDir stri
 			if err != nil {
 				return execDynamicOutput{Error: err.Error()}, nil
 			}
-			scriptPath, err := materializePythonScript(sandboxDir, def)
+			// Per-invocation directory: the fixed <tool>_args.json / <tool>_wrapper.py
+			// names let concurrent calls overwrite each other's arguments.
+			runDir, err := os.MkdirTemp(sandboxDir, def.Name+"-run-")
 			if err != nil {
 				return execDynamicOutput{Error: err.Error()}, nil
 			}
-			argsPath := filepath.Join(sandboxDir, def.Name+"_args.json")
+			defer os.RemoveAll(runDir)
+			scriptPath, err := materializePythonScript(runDir, def)
+			if err != nil {
+				return execDynamicOutput{Error: err.Error()}, nil
+			}
+			argsPath := filepath.Join(runDir, "args.json")
 			if in.ArgsJSON == "" {
 				in.ArgsJSON = "{}"
 			}
 			if err := os.WriteFile(argsPath, []byte(in.ArgsJSON), 0o600); err != nil {
 				return execDynamicOutput{Error: err.Error()}, nil
 			}
+			runRel := filepath.Base(runDir)
 
 			cctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 			defer cancel()
@@ -70,14 +79,14 @@ args_path = os.environ.get("AGENTGO_ARGS_FILE")
 with open(args_path, "r", encoding="utf-8") as f:
     args = json.load(f)
 globals_dict = {"args": args, "__name__": "__main__"}
-exec(open("/sandbox/%s.py", encoding="utf-8").read(), globals_dict)
-`, def.Name)
-				wrapperPath := filepath.Join(sandboxDir, def.Name+"_wrapper.py")
+exec(open("/sandbox/%s/%s.py", encoding="utf-8").read(), globals_dict)
+`, runRel, def.Name)
+				wrapperPath := filepath.Join(runDir, "wrapper.py")
 				_ = os.WriteFile(wrapperPath, []byte(wrapper), 0o600)
 
 				stdout, stderr, exitCode, err := sandbox.RunInContainer(cctx, image, sandboxDir, "/sandbox",
-					[]string{"python", "/sandbox/" + def.Name + "_wrapper.py"},
-					[]string{"AGENTGO_ARGS_FILE=/sandbox/" + def.Name + "_args.json"},
+					[]string{"python", "/sandbox/" + runRel + "/wrapper.py"},
+					declaredEnvOnly(def, "AGENTGO_ARGS_FILE=/sandbox/"+runRel+"/args.json"),
 				)
 				out := execDynamicOutput{Stdout: stdout, Stderr: stderr, ExitCode: exitCode}
 				if err != nil {
@@ -85,13 +94,13 @@ exec(open("/sandbox/%s.py", encoding="utf-8").read(), globals_dict)
 				}
 				return out, nil
 			} else if config.SandboxDocker.On() {
-				fmt.Println("[sandbox] WARNING: Docker Sandbox Mode requested but Docker daemon is unreachable. Falling back to local execution.")
+				log.Printf("[sandbox] Docker sandbox requested but daemon unreachable; running %s locally with filtered env", def.Name)
 			}
 
 			var cmd *exec.Cmd
-			py := "python3"
-			if runtime.GOOS == "windows" {
-				py = "python"
+			py, perr := pythonInterpreter()
+			if perr != nil {
+				return execDynamicOutput{Error: perr.Error()}, nil
 			}
 			// Wrapper passes AGENTGO_ARGS_FILE to user script
 			wrapper := fmt.Sprintf(`import json, os, runpy
@@ -101,13 +110,14 @@ with open(args_path, "r", encoding="utf-8") as f:
 globals_dict = {"args": args, "__name__": "__main__"}
 exec(open(%q, encoding="utf-8").read(), globals_dict)
 `, scriptPath)
-			wrapperPath := filepath.Join(sandboxDir, def.Name+"_wrapper.py")
+			wrapperPath := filepath.Join(runDir, "wrapper.py")
 			_ = os.WriteFile(wrapperPath, []byte(wrapper), 0o600)
 
 			cmd = exec.CommandContext(cctx, py, wrapperPath)
+			processutil.HideWindow(cmd)
 			cmd.Dir = sandboxDir
-			cmd.Env = append(os.Environ(), "AGENTGO_ARGS_FILE="+argsPath)
-			var stdout, stderr strings.Builder
+			cmd.Env = buildToolEnv(def, "AGENTGO_ARGS_FILE="+argsPath)
+			var stdout, stderr processutil.OutputBuffer
 			cmd.Stdout = &stdout
 			cmd.Stderr = &stderr
 			runErr := cmd.Run()

@@ -118,15 +118,39 @@ type Finding struct {
 	Msg  string `json:"msg"`
 }
 
-// Compare checks cur against base. Per-run averages are compared so the runs
-// count does not have to match. Cases that passed in the baseline and fail now
-// are always reported, but only the aggregate numbers decide failure: a single
-// flaky model answer must not break the build.
-func Compare(base, cur *EvalResult, th Thresholds) []Finding {
-	var out []Finding
+// CheckBaselineCompatibility rejects different suites, selected cases or
+// harnesses before callers spend model requests on an invalid comparison.
+func CheckBaselineCompatibility(base, cur *EvalResult) error {
 	if base == nil || cur == nil {
-		return []Finding{{Fail: true, Msg: "baseline or current result is missing"}}
+		return fmt.Errorf("baseline or current result is missing")
 	}
+	if base.EvalSetID != cur.EvalSetID {
+		return fmt.Errorf("different suites: baseline %q vs current %q; establish a separate baseline", base.EvalSetID, cur.EvalSetID)
+	}
+	if base.Harness != cur.Harness {
+		return fmt.Errorf("different harnesses: baseline %q vs current %q", base.Harness, cur.Harness)
+	}
+	baseIDs, curIDs := make([]string, 0, len(base.Cases)), make([]string, 0, len(cur.Cases))
+	for _, c := range base.Cases {
+		baseIDs = append(baseIDs, c.CaseID)
+	}
+	for _, c := range cur.Cases {
+		curIDs = append(curIDs, c.CaseID)
+	}
+	sort.Strings(baseIDs)
+	sort.Strings(curIDs)
+	if strings.Join(baseIDs, "\x00") != strings.Join(curIDs, "\x00") {
+		return fmt.Errorf("baseline and current case sets differ; compare the same selected cases")
+	}
+	return nil
+}
+
+// Compare checks per-run cost and pass rate within the same suite and harness.
+func Compare(base, cur *EvalResult, th Thresholds) []Finding {
+	if err := CheckBaselineCompatibility(base, cur); err != nil {
+		return []Finding{{Fail: true, Msg: err.Error()}}
+	}
+	var out []Finding
 
 	if drop := base.PassingRate - cur.PassingRate; drop > th.MaxPassDrop+1e-9 {
 		out = append(out, Finding{Fail: true, Msg: fmt.Sprintf(

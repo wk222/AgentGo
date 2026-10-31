@@ -41,7 +41,10 @@ func (p *Pipeline) BuildPipelineGraph(ctx context.Context, caller LLMCaller) (co
 			jb.WriteString(j.Content)
 			jb.WriteString("\n---\n")
 		}
-		snap, _ := p.ContextPrompt(ctx, in.Scope)
+		snap, err := p.ContextPrompt(ctx, in.Scope)
+		if err != nil {
+			return in, err
+		}
 		if _, err := p.RunDistillLLM(ctx, caller, in.Scope, jb.String(), snap); err != nil {
 			return in, err
 		}
@@ -54,9 +57,14 @@ func (p *Pipeline) BuildPipelineGraph(ctx context.Context, caller LLMCaller) (co
 
 	// Node 3: RunReflect
 	reflectLambda := compose.InvokableLambda(func(ctx context.Context, in PipelineInput) (PipelineInput, error) {
-		snap, _ := p.ContextPrompt(ctx, in.Scope)
+		snap, err := p.ContextPrompt(ctx, in.Scope)
+		if err != nil {
+			return in, err
+		}
 		if snap != "" {
-			_, _ = p.RunReflect(ctx, caller, in.Scope, snap)
+			if _, err := p.RunReflect(ctx, caller, in.Scope, snap); err != nil {
+				return in, err
+			}
 		}
 		return in, nil
 	})

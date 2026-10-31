@@ -16,6 +16,7 @@ const (
 	KindFile        Kind = "file"      // marker file appears
 	KindLogMatch    Kind = "log_match" // a new line in a log file matches Pattern
 	KindWebhook     Kind = "webhook"   // fired by POST /api/v1/triggers/{id}/fire
+	KindTimer       Kind = "timer"     // fires once at FireAt (unix seconds); survives restarts
 )
 
 type Status string
@@ -40,6 +41,7 @@ type Trigger struct {
 	PID       int    `json:"pid,omitempty"`
 	Path      string `json:"path,omitempty"`
 	Pattern   string `json:"pattern,omitempty"`
+	FireAt    int64  `json:"fire_at,omitempty"` // KindTimer: unix seconds
 	Action    string `json:"action"`
 	SessionID string `json:"session_id,omitempty"`
 	Prompt    string `json:"prompt,omitempty"`
@@ -81,6 +83,13 @@ func (t *Trigger) Validate() error {
 		}
 		if _, err := regexp.Compile(t.Pattern); err != nil {
 			return fmt.Errorf("invalid pattern: %w", err)
+		}
+	case KindTimer:
+		if t.FireAt <= 0 {
+			return fmt.Errorf("timer requires fire_at")
+		}
+		if t.ExpiresAt > 0 && t.ExpiresAt <= t.FireAt {
+			return fmt.Errorf("timer would expire before it fires")
 		}
 	case KindWebhook:
 	default:

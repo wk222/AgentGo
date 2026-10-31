@@ -75,6 +75,10 @@ type Model struct {
 	queued  []string      // messages typed while a turn was running
 	yolo    bool
 
+	// afterLoad is a notice to show once the history of the session just switched
+	// to has replaced the timeline (which would otherwise wipe it).
+	afterLoad string
+
 	sessions []cli.SessionInfo
 	pick     int
 	help     bool

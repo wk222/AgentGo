@@ -5,10 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"agentgo/internal/agent"
-	"agentgo/internal/core"
+	"agentgo/internal/engine"
 	"agentgo/internal/gateway"
 	"agentgo/internal/workflow"
 )
@@ -32,68 +33,69 @@ func (g *RuntimeGateway) ChatModelName() string {
 }
 
 func (g *RuntimeGateway) StreamChat(ctx context.Context, req gateway.ChatRequest, emit func(event string, data []byte) error) (*gateway.ChatResult, error) {
-	runner := g.rt.AgentRunner()
-	if runner == nil {
-		return nil, fmt.Errorf("agent runner unavailable")
+	if g.rt.engineRouter == nil {
+		return nil, fmt.Errorf("engine router unavailable")
 	}
+	req.SessionID = strings.TrimSpace(req.SessionID)
 	if req.Harness != "" {
 		h, ok := agent.ResolveHarness(req.Harness)
 		if !ok {
 			return nil, fmt.Errorf("unknown harness %q", req.Harness)
 		}
 		if req.SessionID != "" {
-			runner.SetSessionModeForSession(req.SessionID, h.Mode())
+			if runner := g.rt.AgentRunner(); runner != nil {
+				runner.SetSessionModeForSession(req.SessionID, h.Mode())
+			}
 		}
 	}
-	cfg := g.rt.LLMConfig()
-	if cfg.APIKey == "" {
-		answer, err := ChatOnce(ctx, cfg, "", req.Message)
-		if err != nil {
-			return nil, err
-		}
-		_ = emit("chunk", mustJSON(map[string]string{"delta": answer}))
-		return &gateway.ChatResult{Content: answer}, nil
-	}
-	llm := agent.LLMSettings{APIBase: cfg.APIBase, APIKey: cfg.APIKey, Model: cfg.Model}
-	var full string
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	meter := &agent.RunMeter{}
 	ctx = agent.WithRunMeter(ctx, meter)
-	// Same transcript handling as the desktop: without it a gateway session
-	// forgets every earlier turn.
-	transcript := transcriptOf(g.rt)
-	ctx = transcript.Begin(ctx, req.SessionID, req.Message, nil)
-	res, err := runner.GenerateStream(ctx, llm, req.SessionID, req.Message, nil, func(delta string) {
-		full += delta
-		_ = emit("chunk", mustJSON(map[string]string{"delta": delta, "session_id": req.SessionID}))
-	})
-
+	var streamMu sync.Mutex
+	var streamErr error
+	res := g.rt.runEngineTurn(ctx, engine.RunRequest{
+		Engine: EinoEngineID, SessionID: req.SessionID, Input: req.Message,
+	}, engine.SinkFunc(func(ev engine.Event) {
+		event := ""
+		switch ev.Type {
+		case engine.EventToken:
+			event = "chunk"
+		case engine.EventApprovalRequest:
+			event = "interrupt"
+		}
+		if event == "" || emit == nil {
+			return
+		}
+		payload := make(map[string]any, len(ev.Payload)+1)
+		for k, v := range ev.Payload {
+			payload[k] = v
+		}
+		payload["session_id"] = req.SessionID
+		streamMu.Lock()
+		defer streamMu.Unlock()
+		if streamErr == nil {
+			streamErr = emit(event, mustJSON(payload))
+			if streamErr != nil {
+				cancel()
+			}
+		}
+	}))
+	streamMu.Lock()
+	err := streamErr
+	streamMu.Unlock()
 	if err != nil {
 		return nil, err
 	}
-	content := full
-	if res != nil && res.Content != "" {
-		content = res.Content
-	}
-	if res != nil && res.PendingApproval != nil {
-		// Without a pending-run record the id handed to the client could never
-		// be settled: POST /api/v1/approvals/{id} (and the desktop's approval
-		// list) both resolve it through this store. A question cannot be
-		// answered through the gateway, so recording it would only leave an
-		// unanswerable run blocking workspace switches.
-		if res.PendingApproval.ToolName != "ask_user" {
-			(&AppService{rt: g.rt}).registerPending(req.SessionID, req.Message, res.PendingApproval)
+	var content []string
+	for _, m := range res.Messages {
+		if m.Role == "assistant" && (m.Type == "" || m.Type == "text") {
+			content = append(content, m.Content)
 		}
-		_ = emit("interrupt", mustJSON(map[string]any{
-			"approval_id": res.PendingApproval.ApprovalID,
-			"tool_name":   res.PendingApproval.ToolName,
-		}))
-	}
-	if strings.TrimSpace(content) != "" {
-		transcript.Finish(req.SessionID, []core.Message{{Role: "assistant", Content: content}})
 	}
 	meter.Wait(2 * time.Second)
 	u := meter.Snapshot()
-	return &gateway.ChatResult{Content: content, Usage: &gateway.UsageStats{
+	return &gateway.ChatResult{Content: strings.Join(content, "\n\n"), Error: res.Error, Degraded: res.Degraded, Usage: &gateway.UsageStats{
 		ModelCalls: u.ModelCalls, PromptTokens: u.PromptTokens, CachedTokens: u.CachedTokens,
 		CompletionTokens: u.CompletionTokens, ReasoningTokens: u.ReasoningTokens, ToolCalls: u.ToolCalls,
 		Spills: u.Spills, SpilledBytes: u.SpilledBytes, SavedBytes: u.SavedBytes,
@@ -164,11 +166,21 @@ func (g *RuntimeGateway) RunWorkflow(ctx context.Context, id, input string) (str
 }
 
 func (g *RuntimeGateway) CancelSessionRun(ctx context.Context, sessionID string) bool {
-	runner := g.rt.AgentRunner()
-	if runner != nil {
-		return runner.CancelSessionRun(sessionID)
+	return g.rt.cancelSessionRun(sessionID)
+}
+
+// Cancel the shared turn (including prompt hooks) and any legacy/resumed ADK
+// segment which has not entered through the router.
+func (rt *Runtime) cancelSessionRun(sessionID string) bool {
+	sessionID = strings.TrimSpace(sessionID)
+	cancelled := false
+	if rt.engineRouter != nil {
+		cancelled = rt.engineRouter.CancelSession(sessionID) > 0
 	}
-	return false
+	if runner := rt.AgentRunner(); runner != nil {
+		cancelled = runner.CancelSessionRun(sessionID) || cancelled
+	}
+	return cancelled
 }
 
 func (g *RuntimeGateway) ListInnerApps(ctx context.Context) ([]byte, error) {

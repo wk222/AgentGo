@@ -22,8 +22,27 @@ func watchTrigger(ctx context.Context, t Trigger) (detail map[string]any, ok boo
 		return watchFile(ctx, t.Path)
 	case KindLogMatch:
 		return watchLog(ctx, t.Path, t.Pattern)
+	case KindTimer:
+		return watchTimer(ctx, t.FireAt)
 	default: // webhook: fired from outside
 		<-ctx.Done()
+		return nil, false
+	}
+}
+
+// watchTimer sleeps until the wall-clock deadline. Using an absolute time (not a
+// duration) is what lets a timer armed before a restart fire correctly after it.
+func watchTimer(ctx context.Context, fireAt int64) (map[string]any, bool) {
+	wait := time.Until(time.Unix(fireAt, 0))
+	if wait < 0 {
+		wait = 0
+	}
+	tm := time.NewTimer(wait)
+	defer tm.Stop()
+	select {
+	case <-tm.C:
+		return map[string]any{"fire_at": fireAt}, true
+	case <-ctx.Done():
 		return nil, false
 	}
 }

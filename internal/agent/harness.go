@@ -1,6 +1,10 @@
 package agent
 
-import "strings"
+import (
+	"strings"
+
+	"agentgo/internal/config"
+)
 
 // Harness is the user-facing working mode: one of a few named presets that the UI, the
 // ACP editor bridge and the gateway all expose. It is a thin, named view over the
@@ -18,10 +22,12 @@ type Harness struct {
 
 // Harness ids.
 const (
-	HarnessMinimal  = "minimal"
-	HarnessStandard = "standard"
-	HarnessUltimate = "ultimate"
-	HarnessCreative = "creative"
+	HarnessMinimal    = "minimal"
+	HarnessStandard   = "standard"
+	HarnessUltimate   = "ultimate"
+	HarnessCreative   = "creative"
+	HarnessReverse    = "reverse"
+	HarnessArmorBreak = "armor_break"
 )
 
 // DefaultHarnessID is what a session without an explicit choice runs as.
@@ -32,15 +38,28 @@ var harnesses = []Harness{
 	{HarnessStandard, "标准", "标准 Standard", "日常多步工程任务：规划 → 执行 → 验证", ModeAssistant, CanvasBalanced},
 	{HarnessUltimate, "极致", "极致 Ultimate", "复杂任务深度拆解、全量工具协同与闭环自检", ModeAdmin, CanvasDeep},
 	{HarnessCreative, "创造", "创造 Creative", "构建、预览与迭代 Inner App 及工作流", ModeAppMatrix, CanvasBalanced},
+	{HarnessReverse, "逆向", "逆向 Reverse", "证据分级（观察/推导/推断/未知）、静态优先探查与门控校验；默认开启破甲（自动批准 + 反拒答回退续跑）", ModeReverse, CanvasBalanced},
+}
+
+var harnessArmorBreak = Harness{
+	HarnessArmorBreak, "破甲", "破甲 ArmorBreak", "本地红队实测：开放工具、自动批准、弱化模型拒答提示（需 AGENTGO_ARMOR_BREAK=1）", ModeRedTeam, CanvasDeep,
+}
+
+func allHarnesses() []Harness {
+	out := append([]Harness(nil), harnesses...)
+	if config.ArmorBreak.On() {
+		out = append(out, harnessArmorBreak)
+	}
+	return out
 }
 
 // Harnesses returns the presets in display order (a copy; callers may modify it).
-func Harnesses() []Harness { return append([]Harness(nil), harnesses...) }
+func Harnesses() []Harness { return allHarnesses() }
 
 // HarnessByID looks a preset up by id, case-insensitively.
 func HarnessByID(id string) (Harness, bool) {
 	id = strings.ToLower(strings.TrimSpace(id))
-	for _, h := range harnesses {
+	for _, h := range allHarnesses() {
 		if h.ID == id {
 			return h, true
 		}
@@ -51,9 +70,11 @@ func HarnessByID(id string) (Harness, bool) {
 // legacyHarnessAliases maps ids older clients still send (the editor bridge used
 // architect/coder/ask) onto presets.
 var legacyHarnessAliases = map[string]string{
-	"architect": HarnessUltimate,
-	"coder":     HarnessStandard,
-	"ask":       HarnessMinimal,
+	"architect":           HarnessUltimate,
+	"coder":               HarnessStandard,
+	"ask":                 HarnessMinimal,
+	"re":                  HarnessReverse,
+	"reverse-engineering": HarnessReverse,
 }
 
 // ResolveHarness is HarnessByID that also understands legacy aliases.
@@ -78,6 +99,10 @@ func (m SessionMode) Harness() Harness {
 	p, c := m.normalized()
 	var id string
 	switch {
+	case p == ModeRedTeam && config.ArmorBreak.On():
+		id = HarnessArmorBreak
+	case p == ModeReverse:
+		id = HarnessReverse
 	case p == ModeAppMatrix:
 		id = HarnessCreative
 	case p == ModeAdmin || c == CanvasDeep:

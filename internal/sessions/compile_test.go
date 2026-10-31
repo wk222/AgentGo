@@ -160,3 +160,32 @@ func TestCompileProjectedView_TieredToolResultSnip(t *testing.T) {
 	}
 }
 
+func TestCompileProjectedView_CompactionCheckpointPreservesGoalAndToolLedger(t *testing.T) {
+	msgs := []*schema.Message{
+		schema.UserMessage("请分析 D:\\target.exe 的登录逻辑，不要使用轮询"),
+		schema.AssistantMessage("", []schema.ToolCall{{
+			ID:       "tc1",
+			Function: schema.FunctionCall{Name: "re_triage", Arguments: `{"path":"D:\\target.exe","case":"mw"}`},
+		}}),
+		schema.ToolMessage("pe32 nsis", "tc1"),
+		schema.UserMessage("继续看 HAR"),
+		schema.AssistantMessage("", []schema.ToolCall{{
+			ID:       "tc2",
+			Function: schema.FunctionCall{Name: "re_har_summary", Arguments: `{"path":"D:\\sample.har"}`},
+		}}),
+		schema.ToolMessage("81 endpoints", "tc2"),
+		schema.UserMessage("总结结论"),
+		schema.AssistantMessage("好的", nil),
+	}
+	view := CompileProjectedView(msgs, CompileOptions{MaxActiveTurns: 2})
+	joined := strings.Join(view.TaskState, "\n")
+	if !strings.Contains(joined, "[Compaction Checkpoint]") {
+		t.Fatalf("expected [Compaction Checkpoint] in TaskState, got: %v", view.TaskState)
+	}
+	if !strings.Contains(joined, "Goal anchor: 请分析 D:\\target.exe 的登录逻辑") {
+		t.Fatalf("expected initial goal anchor in checkpoint, got: %s", joined)
+	}
+	if !strings.Contains(joined, "re_triage(D:\\target.exe)") {
+		t.Fatalf("expected tool action ledger in checkpoint, got: %s", joined)
+	}
+}

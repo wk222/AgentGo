@@ -115,6 +115,10 @@ func (r *Runtime) codingAgentRun(ctx context.Context, req workflow.CodingRequest
 			finish()
 			return out, fmt.Errorf("coding agent (%s): %s", id, res.Error)
 		}
+		if res.Degraded != "" {
+			finish()
+			return out, fmt.Errorf("coding agent (%s): tool-less fallback: %s", id, res.Degraded)
+		}
 		if res.Pending {
 			apID, apTool, apArgs := sink.Approval()
 			pending = &codingPending{id: apID, tool: apTool, args: apArgs}

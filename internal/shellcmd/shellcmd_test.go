@@ -62,32 +62,33 @@ func slowGrandchild() string {
 	return `(touch started.txt; sleep 3; touch marker.txt)`
 }
 
-func TestKillTreeEndsWhatTheCommandStarted(t *testing.T) {
+func TestProcessTreeEndsWhatTheCommandStarted(t *testing.T) {
 	dir := t.TempDir()
 	cmd := Command(context.Background(), slowGrandchild())
 	cmd.Dir = dir
-	Prepare(cmd)
-	if err := cmd.Start(); err != nil {
+	tree, err := StartTree(cmd)
+	if err != nil {
 		t.Fatal(err)
 	}
 	waited := make(chan struct{})
-	go func() { _ = cmd.Wait(); close(waited) }()
+	go func() { _ = tree.Wait(); close(waited) }()
 
 	if !waitFor(filepath.Join(dir, "started.txt"), 15*time.Second) {
 		t.Fatal("the grandchild never started; the test cannot tell anything")
 	}
-	KillTree(cmd)
+	tree.Kill()
 	select {
 	case <-waited:
 	case <-time.After(5 * time.Second):
-		t.Fatal("the command did not exit after KillTree")
+		t.Fatal("the command did not exit after tree cancellation")
 	}
 	if waitFor(filepath.Join(dir, "marker.txt"), 5*time.Second) {
-		t.Fatal("a process started by the command survived KillTree")
+		t.Fatal("a process started by the command survived tree cancellation")
 	}
 }
 
-func TestKillTreeOnACommandThatNeverStarted(t *testing.T) {
-	KillTree(nil)
-	KillTree(Command(context.Background(), "echo x")) // Process is nil
+func TestProcessTreeRejectsNil(t *testing.T) {
+	if _, err := StartTree(nil); err == nil {
+		t.Fatal("nil command accepted")
+	}
 }

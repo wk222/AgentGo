@@ -13,6 +13,8 @@ import (
 	"time"
 
 	pty "github.com/aymanbagabas/go-pty"
+
+	"agentgo/internal/processutil"
 )
 
 // ProcessKind represents the purpose of the spawned process.
@@ -28,15 +30,15 @@ const (
 
 // ProcessSpec defines the specifications for spawning a process.
 type ProcessSpec struct {
-	ID      string            `json:"id"`
-	Kind    ProcessKind       `json:"kind"`
-	Command string            `json:"command"`
-	Args    []string          `json:"args"`
-	Cwd     string            `json:"cwd"`
-	Env     []string          `json:"env,omitempty"`
-	UsePTY  bool              `json:"use_pty"`
-	Cols    int               `json:"cols,omitempty"`
-	Rows    int               `json:"rows,omitempty"`
+	ID      string      `json:"id"`
+	Kind    ProcessKind `json:"kind"`
+	Command string      `json:"command"`
+	Args    []string    `json:"args"`
+	Cwd     string      `json:"cwd"`
+	Env     []string    `json:"env,omitempty"`
+	UsePTY  bool        `json:"use_pty"`
+	Cols    int         `json:"cols,omitempty"`
+	Rows    int         `json:"rows,omitempty"`
 }
 
 // ProcessInfo represents observable state for a managed process.
@@ -269,16 +271,16 @@ func (s *ProcessSupervisor) spawnPTY(ctx context.Context, spec ProcessSpec) (Pro
 	return h, nil
 }
 
-func (h *ptyProcessHandle) ID() string         { return h.spec.ID }
-func (h *ptyProcessHandle) Kind() ProcessKind  { return h.spec.Kind }
+func (h *ptyProcessHandle) ID() string        { return h.spec.ID }
+func (h *ptyProcessHandle) Kind() ProcessKind { return h.spec.Kind }
 func (h *ptyProcessHandle) PID() int {
 	if h.cmd != nil && h.cmd.Process != nil {
 		return h.cmd.Process.Pid
 	}
 	return 0
 }
-func (h *ptyProcessHandle) IsRunning() bool    { return h.running.Load() }
-func (h *ptyProcessHandle) ExitCode() int      { return int(h.exitCode.Load()) }
+func (h *ptyProcessHandle) IsRunning() bool { return h.running.Load() }
+func (h *ptyProcessHandle) ExitCode() int   { return int(h.exitCode.Load()) }
 
 func (h *ptyProcessHandle) Write(data []byte) error {
 	if !h.running.Load() || h.pty == nil {
@@ -452,6 +454,7 @@ func (s *ProcessSupervisor) spawnStd(ctx context.Context, spec ProcessSpec) (Pro
 	} else {
 		cmd = exec.Command(spec.Command, spec.Args...)
 	}
+	processutil.HideWindow(cmd) // piped stdio: nothing to show, and a GUI parent would flash a console
 
 	if spec.Cwd != "" {
 		cmd.Dir = spec.Cwd
@@ -499,16 +502,16 @@ func (s *ProcessSupervisor) spawnStd(ctx context.Context, spec ProcessSpec) (Pro
 	return h, nil
 }
 
-func (h *stdProcessHandle) ID() string         { return h.spec.ID }
-func (h *stdProcessHandle) Kind() ProcessKind  { return h.spec.Kind }
+func (h *stdProcessHandle) ID() string        { return h.spec.ID }
+func (h *stdProcessHandle) Kind() ProcessKind { return h.spec.Kind }
 func (h *stdProcessHandle) PID() int {
 	if h.cmd != nil && h.cmd.Process != nil {
 		return h.cmd.Process.Pid
 	}
 	return 0
 }
-func (h *stdProcessHandle) IsRunning() bool    { return h.running.Load() }
-func (h *stdProcessHandle) ExitCode() int      { return int(h.exitCode.Load()) }
+func (h *stdProcessHandle) IsRunning() bool { return h.running.Load() }
+func (h *stdProcessHandle) ExitCode() int   { return int(h.exitCode.Load()) }
 
 func (h *stdProcessHandle) Write(data []byte) error {
 	if !h.running.Load() || h.stdin == nil {

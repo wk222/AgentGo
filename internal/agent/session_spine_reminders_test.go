@@ -2,7 +2,10 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"testing"
+
+	"agentgo/internal/sessions"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/schema"
@@ -87,4 +90,90 @@ func TestSpineKeepsFrameworkReminderMarkerSoItIsInsertedOnce(t *testing.T) {
 		state.Messages[len(state.Messages)-2].ToolCalls[0].ID = "c" + string(rune('a'+call))
 		state.Messages[len(state.Messages)-1].ToolCallID = state.Messages[len(state.Messages)-2].ToolCalls[0].ID
 	}
+}
+
+// toolPairsIntact reports the first assistant tool call whose results do not follow it
+// directly. Providers answer such a prompt with HTTP 400 ("tool_calls must be followed
+// by tool messages"), which fails the whole run.
+func toolPairsIntact(msgs []*schema.Message) error {
+	for i, m := range msgs {
+		if m == nil || m.Role != schema.Assistant {
+			continue
+		}
+		for j, tc := range m.ToolCalls {
+			k := i + 1 + j
+			if k >= len(msgs) || msgs[k].Role != schema.Tool || msgs[k].ToolCallID != tc.ID {
+				return fmt.Errorf("tool call %q at message %d is not followed by its result", tc.ID, i)
+			}
+		}
+	}
+	return nil
+}
+
+// The projection puts its runtime-context message after the conversation. A reminder is
+// restored by counting trailing messages, so that extra tail message must not push it
+// into the middle of a tool call and its result.
+func TestSpineReminderNeverSplitsToolCallFromItsResult(t *testing.T) {
+	spine := NewSessionSpineMiddleware(SessionSpineConfig{})
+	ctx := sessions.WithSpineSnapshot(context.Background(), sessions.SpineSnapshot{WorkspaceRecent: []string{"recent: a.py"}})
+
+	state := &adk.ChatModelAgentState{Messages: []*schema.Message{schema.SystemMessage("BASE"), schema.UserMessage("q")}}
+	for call := 0; call < 4; call++ {
+		// Tool search inserts its reminder once, right after the latest user message.
+		if countReminders(state.Messages) == 0 {
+			state.Messages = append(state.Messages, reminderMsg("deferred tools: a b c"))
+		}
+		var err error
+		if _, state, err = spine.BeforeModelRewriteState(ctx, state, nil); err != nil {
+			t.Fatal(err)
+		}
+		if n := countReminders(state.Messages); n != 1 {
+			t.Fatalf("call %d: %d reminders in the prompt, want exactly 1", call, n)
+		}
+		if err := toolPairsIntact(state.Messages); err != nil {
+			t.Fatalf("call %d: %v\n%s", call, err, describeRoles(state.Messages))
+		}
+		id := fmt.Sprintf("call_%d", call)
+		state.Messages = append(state.Messages,
+			schema.AssistantMessage("", []schema.ToolCall{{ID: id, Function: schema.FunctionCall{Name: "t", Arguments: "{}"}}}),
+			schema.ToolMessage("ok", id))
+	}
+}
+
+// Whatever shifts the count (pruning, a message the projection added), the reminder
+// must land in front of the whole tool call group instead of inside it.
+func TestRestoreReminderStepsBackOverToolResults(t *testing.T) {
+	rem := reminderMsg("R")
+	call := schema.AssistantMessage("", []schema.ToolCall{
+		{ID: "a", Function: schema.FunctionCall{Name: "t", Arguments: "{}"}},
+		{ID: "b", Function: schema.FunctionCall{Name: "t", Arguments: "{}"}},
+	})
+	rendered := []*schema.Message{
+		schema.SystemMessage("projected"), schema.UserMessage("q"), call,
+		schema.ToolMessage("ra", "a"), schema.ToolMessage("rb", "b"), schema.UserMessage("next"),
+	}
+	for _, after := range []int{1, 2, 3} {
+		out := restoreSystemReminders(append([]*schema.Message(nil), rendered...), []spineReminder{{msg: rem, after: after}})
+		if err := toolPairsIntact(out); err != nil {
+			t.Fatalf("after=%d: %v\n%s", after, err, describeRoles(out))
+		}
+		if countReminders(out) != 1 {
+			t.Fatalf("after=%d: reminder lost or duplicated\n%s", after, describeRoles(out))
+		}
+	}
+}
+
+func describeRoles(msgs []*schema.Message) string {
+	out := ""
+	for i, m := range msgs {
+		kind := ""
+		switch {
+		case isSystemReminder(m):
+			kind = " reminder"
+		case sessions.ContextKind(m) != "":
+			kind = " ctx:" + sessions.ContextKind(m)
+		}
+		out += fmt.Sprintf("  [%d] %s%s calls=%d\n", i, m.Role, kind, len(m.ToolCalls))
+	}
+	return out
 }

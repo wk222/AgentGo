@@ -13,6 +13,11 @@ import (
 // implementation, in testdata/crush_golden.json; the native tools are held to
 // those recordings. Nothing here is regenerated from the native side: a
 // changed answer must be a deliberate edit of the recording, in review.
+//
+// One deliberate divergence: the edit tools' error and note wording was
+// rewritten (internal/coderuntime/edit_match.go, edit_hint.go), so those five
+// transcript lines were re-baselined by hand to the new wording. The files left
+// on disk are still held to what Crush produced.
 
 const goldenPath = "testdata/crush_golden.json"
 

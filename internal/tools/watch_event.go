@@ -17,6 +17,7 @@ type WatchRequest struct {
 	PID          int    `json:"pid,omitempty"`
 	Path         string `json:"path,omitempty"`
 	Pattern      string `json:"pattern,omitempty"`
+	DelaySec     int64  `json:"delay_sec,omitempty"`
 	Prompt       string `json:"prompt,omitempty"`
 	Title        string `json:"title,omitempty"`
 	SessionID    string `json:"session_id"`
@@ -44,7 +45,8 @@ func SetWatchHandler(h WatchHandler) {
 
 type watchEventInput struct {
 	Action      string  `json:"action" jsonschema:"description=Action: 'create', 'list' or 'cancel'"`
-	Kind        string  `json:"kind,omitempty" jsonschema:"description=What to wait for: 'file' (a marker file appears)\\, 'log_match' (a NEW log line matches pattern)\\, 'process_exit' (a process ends)\\, or 'webhook' (an external HTTP call)"`
+	Kind        string  `json:"kind,omitempty" jsonschema:"description=What to wait for: 'file' (a marker file appears)\\, 'log_match' (a NEW log line matches pattern)\\, 'process_exit' (a process ends)\\, 'webhook' (an external HTTP call)\\, or 'timer' (wake me after delay_seconds: a self-paced loop or a deferred re-check)"`
+	DelaySec    int64   `json:"delay_seconds,omitempty" jsonschema:"description=kind=timer: seconds until the wake-up (5 to 86400)"`
 	Path        string  `json:"path,omitempty" jsonschema:"description=Absolute path of the marker file or log file (kind=file or log_match)"`
 	Pattern     string  `json:"pattern,omitempty" jsonschema:"description=Regular expression for kind=log_match\\, e.g. 'DONE|Traceback'"`
 	PID         int     `json:"pid,omitempty" jsonschema:"description=Process id to wait for (kind=process_exit)"`
@@ -95,7 +97,7 @@ func RegisterWatchEventTool(r *Registry) error {
 				}
 				res, err := h.CreateWatch(ctx, WatchRequest{
 					Kind: strings.TrimSpace(in.Kind), PID: in.PID, Path: strings.TrimSpace(in.Path),
-					Pattern: in.Pattern, Prompt: in.Prompt, Title: in.Title,
+					Pattern: in.Pattern, DelaySec: in.DelaySec, Prompt: in.Prompt, Title: in.Title,
 					SessionID: sid, ExpiresInSec: int64(hours * 3600),
 				})
 				if err != nil {

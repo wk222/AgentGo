@@ -25,12 +25,15 @@ func (s *AppService) officedocEnv() officedocEnv {
 	return officedocEnv{WorkspaceRoot: s.rt.WorkspaceRoot}
 }
 
-// officedocPlugin contributes native Word / Excel generation (create_docx,
-// create_xlsx). Everything runs in-process in Go: no Office install and no
-// sidecar. Files are written inside the current workspace only; the tools are
-// always visible to the model, mutate files (so they are held back in the
-// read-only canvas and go through approval like other file writes) and are
-// MEDIUM risk.
+// officedocPlugin contributes native Office tools: create_docx, create_xlsx,
+// read_xlsx, edit_xlsx, create_pptx and inspect_pptx. Everything runs in-process
+// in Go: no Office install, no Python or Node and no sidecar, so it works on an
+// intranet PC that cannot download anything. Files are read and written inside
+// the current workspace only. The tools are always visible to the model. The
+// writers (create_*, edit_xlsx) are held back in the read-only canvas, go
+// through approval like other file writes and are MEDIUM risk; the readers
+// (read_xlsx, inspect_pptx) change nothing, stay available in the read-only
+// canvas and are LOW risk.
 //
 //	AGENTGO_OFFICEDOC=0  disable the plugin
 func officedocPlugin(env officedocEnv) (plugin.Plugin, bool) {
@@ -63,9 +66,11 @@ func officedocPlugin(env officedocEnv) (plugin.Plugin, bool) {
 					return err
 				}
 				name := info.Name
-				c.Effect("declare:"+name, tools.Declare(tools.Spec{
-					Name: name, Source: officedoc.Source, Static: true, Mutating: true, Risk: governance.RiskMedium,
-				}))
+				spec := tools.Spec{Name: name, Source: officedoc.Source, Static: true, Mutating: true, Risk: governance.RiskMedium}
+				if officedoc.ReadOnly(name) {
+					spec.Mutating, spec.Risk = false, governance.RiskLow
+				}
+				c.Effect("declare:"+name, tools.Declare(spec))
 				reg.AddTool(t)
 				c.Contribute("tool", name, func() { reg.RemoveTool(name) })
 			}

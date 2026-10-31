@@ -209,7 +209,7 @@ func FromDefinition(def Definition) FlowgramDocument {
 			}
 		}
 		doc.Nodes = append(doc.Nodes, fn)
-		x += 220
+		x += 340
 	}
 	for _, e := range def.Edges {
 		fe := FlowgramEdge{SourceNodeID: e.From, TargetNodeID: e.To}

@@ -2,67 +2,123 @@ package agent
 
 import (
 	"context"
+	"fmt"
+	"io"
+	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/cloudwego/eino/adk/filesystem"
 	"github.com/cloudwego/eino/adk/middlewares/agentsmd"
 )
 
-// osAgentsMDBackend implements agentsmd.Backend without eino-ext/local (no go-fitz).
-type osAgentsMDBackend struct {
-	root string
+// maxInstructionRead bounds how much of one instruction file is read. The
+// loader cuts files much shorter; this only keeps a wrong path (a huge file, a
+// device) from being read in full.
+const maxInstructionRead = 1 << 20
+
+// instructionBackend implements agentsmd.Backend without eino-ext/local (no
+// go-fitz). It serves the instruction files discoverInstructions found, the
+// documents it generated, and what those files @import from the project; nothing
+// else. A file that is not allowed is reported as missing, which makes the
+// loader skip it: an error of any other kind would end the whole load, and with
+// it the run.
+type instructionBackend struct {
+	workDir  string   // relative paths are read from here
+	roots    []string // allowed directory trees, symlinks resolved
+	files    []string // allowed single files, symlinks resolved
+	rulesDir string   // files under it lose their front matter
+	virtual  map[string]string
 }
 
-func newOSAgentsMDBackend(workspaceRoot string) agentsmd.Backend {
-	return &osAgentsMDBackend{root: workspaceRoot}
+func newInstructionBackend(workDir string, set instructionSet) agentsmd.Backend {
+	b := &instructionBackend{workDir: workDir, virtual: set.Virtual}
+	for _, root := range set.Roots {
+		b.roots = append(b.roots, resolvedPath(root))
+	}
+	for _, file := range set.Files {
+		b.files = append(b.files, resolvedPath(file))
+	}
+	if set.RulesDir != "" {
+		b.rulesDir = resolvedPath(set.RulesDir)
+	}
+	return b
 }
 
-func (b *osAgentsMDBackend) Read(_ context.Context, req *agentsmd.ReadRequest) (*agentsmd.FileContent, error) {
-	p := req.FilePath
-	if !filepath.IsAbs(p) {
-		p = filepath.Join(b.root, p)
+// resolvedPath is p with symbolic links followed, or p cleaned when it cannot be.
+func resolvedPath(p string) string {
+	if real, err := filepath.EvalSymlinks(p); err == nil {
+		return real
 	}
-	p = filepath.Clean(p)
-	if !stringsHasPrefix(p, filepath.Clean(b.root)) {
-		return nil, os.ErrPermission
+	return filepath.Clean(p)
+}
+
+func (b *instructionBackend) Read(_ context.Context, req *agentsmd.ReadRequest) (*agentsmd.FileContent, error) {
+	path := filepath.Clean(req.FilePath)
+	if text, ok := b.virtual[filepath.ToSlash(path)]; ok {
+		return fileContent(text), nil
 	}
-	data, err := os.ReadFile(p)
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(b.workDir, path)
+	}
+	// Decide on where the file really is: a link inside the project that leads
+	// out of it must not read what lies behind it.
+	real, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return nil, err // a missing file wraps os.ErrNotExist and is skipped
+	}
+	if !b.allowed(real) {
+		log.Printf("[agentsmd] %s lies outside the project and the user-level instruction file; not loaded", path)
+		return nil, fmt.Errorf("%w: %s is outside the instruction locations", os.ErrNotExist, path)
+	}
+	info, err := os.Stat(real)
 	if err != nil {
 		return nil, err
 	}
-	fc := filesystem.FileContent{Content: string(data)}
-	return (*agentsmd.FileContent)(&fc), nil
+	if info.IsDir() { // "@docs/" in a file names a directory, not a file
+		return nil, fmt.Errorf("%w: %s is a directory", os.ErrNotExist, path)
+	}
+	f, err := os.Open(real)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, maxInstructionRead))
+	if err != nil {
+		return nil, err
+	}
+	text := string(data)
+	if b.rulesDir != "" && insideDir(b.rulesDir, real) {
+		_, text = parseRuleFile(text)
+	}
+	return fileContent(text), nil
 }
 
-func stringsHasPrefix(path, root string) bool {
-	if root == "" {
-		return true
+func (b *instructionBackend) allowed(real string) bool {
+	for _, file := range b.files {
+		if rel, err := filepath.Rel(file, real); err == nil && rel == "." {
+			return true
+		}
 	}
-	rel, err := filepath.Rel(root, path)
+	for _, root := range b.roots {
+		if insideDir(root, real) {
+			return true
+		}
+	}
+	return false
+}
+
+// insideDir reports whether path lies strictly under dir.
+func insideDir(dir, path string) bool {
+	rel, err := filepath.Rel(dir, path)
 	if err != nil {
 		return false
 	}
-	return rel != ".." && !filepath.IsAbs(rel) && rel != ""
+	return rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
 }
 
-func agentsMDPaths(workspaceRoot string) []string {
-	var paths []string
-	for _, name := range []string{"AGENTS.md", "agents.md", "SOUL.md", "TEAM.md"} {
-		p := filepath.Join(workspaceRoot, name)
-		if _, err := os.Stat(p); err == nil {
-			paths = append(paths, p)
-		}
-	}
-	rules := filepath.Join(workspaceRoot, ".cursor", "rules")
-	_ = filepath.WalkDir(rules, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return nil
-		}
-		if filepath.Ext(path) == ".mdc" || filepath.Ext(path) == ".md" {
-			paths = append(paths, path)
-		}
-		return nil
-	})
-	return paths
+func fileContent(text string) *agentsmd.FileContent {
+	fc := filesystem.FileContent{Content: text}
+	return (*agentsmd.FileContent)(&fc)
 }

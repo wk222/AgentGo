@@ -1,11 +1,13 @@
 package agent
 
 import (
+	"agentgo/internal/promptbudget"
 	"context"
 	"strings"
 	"sync"
 
 	"agentgo/internal/sessions"
+	"github.com/cloudwego/eino/schema"
 )
 
 // ContextSegment represents a token/byte breakdown of a context segment source.
@@ -25,10 +27,16 @@ type TruncationDecision struct {
 
 // ContextBudgetReport represents the full inspect metrics for a session's token consumption.
 type ContextBudgetReport struct {
-	TotalTokens   int                  `json:"total_tokens"`
-	BudgetLimit   int                  `json:"budget_limit"`
-	Segments      []ContextSegment     `json:"segments"`
-	TruncationLog []TruncationDecision `json:"truncation_log"`
+	TotalTokens          int                  `json:"total_tokens"`
+	BudgetLimit          int                  `json:"budget_limit"`
+	ModelContextWindow   int                  `json:"model_context_window,omitempty"`
+	ReservedOutputTokens int                  `json:"reserved_output_tokens,omitempty"`
+	Segments             []ContextSegment     `json:"segments"`
+	TruncationLog        []TruncationDecision `json:"truncation_log"`
+	WindowPercent        float64              `json:"window_percent,omitempty"`
+	TopItems             []ContextItem        `json:"top_items,omitempty"`
+	Turns                []ContextTurn        `json:"turns,omitempty"`
+	Advice               []string             `json:"advice,omitempty"`
 }
 
 var (
@@ -52,7 +60,7 @@ func GetContextBudgetReport(sessionID string) (ContextBudgetReport, bool) {
 }
 
 // InspectContextBudget evaluates token usage segments of the ProjectedRuntimeView against the CanvasPolicy budget.
-func InspectContextBudget(ctx context.Context, sessionID string, view *sessions.ProjectedRuntimeView, budgetLimit int) ContextBudgetReport {
+func InspectContextBudget(ctx context.Context, sessionID string, view *sessions.ProjectedRuntimeView, budgetLimit int, tools ...[]*schema.ToolInfo) ContextBudgetReport {
 	report := ContextBudgetReport{
 		BudgetLimit: budgetLimit,
 		Segments:    make([]ContextSegment, 0),
@@ -61,7 +69,7 @@ func InspectContextBudget(ctx context.Context, sessionID string, view *sessions.
 	addSegment := func(source string, lines []string) int {
 		text := strings.Join(lines, "\n")
 		bytes := len(text)
-		tokens := estimateTokens(text)
+		tokens := EstimateCalibratedTokens("", text)
 		if tokens > 0 {
 			report.Segments = append(report.Segments, ContextSegment{
 				Source:     source,
@@ -76,6 +84,7 @@ func InspectContextBudget(ctx context.Context, sessionID string, view *sessions.
 	total += addSegment("system_rules", view.SystemRules)
 	total += addSegment("durable_tasks", view.DurableTasks)
 	total += addSegment("memory", view.EpisodicSummary)
+	total += addSegment("recalled_memory", view.RecalledMemory)
 	total += addSegment("workflow", view.WorkflowContext)
 	total += addSegment("workspace", view.WorkspaceRecent)
 	total += addSegment("hygiene", view.ContextHygiene)
@@ -84,11 +93,49 @@ func InspectContextBudget(ctx context.Context, sessionID string, view *sessions.
 	total += addSegment("tool_output", view.ToolOutputs)
 
 	var histTexts []string
+	protocol := 0
 	for _, msg := range view.ActiveTurn {
 		histTexts = append(histTexts, msg.Content)
+		protocol += 8
+		for _, tc := range msg.ToolCalls {
+			protocol += 8 + EstimateCalibratedTokens("", tc.Function.Name+tc.Function.Arguments)
+		}
+		for _, part := range msg.UserInputMultiContent {
+			if part.Type == schema.ChatMessagePartTypeText {
+				if part.Text != msg.Content {
+					protocol += EstimateCalibratedTokens("", part.Text)
+				}
+			} else {
+				protocol += 2000
+			}
+		}
 	}
+	total += addSegment("task_state", view.TaskState)
 	total += addSegment("history", histTexts)
-
+	if protocol > 0 {
+		report.Segments = append(report.Segments, ContextSegment{Source: "message_protocol_and_media", TokenCount: protocol})
+		total += protocol
+	}
+	if len(tools) > 0 {
+		n := toolSchemaTokens(tools[0])
+		if n > 0 {
+			report.Segments = append(report.Segments, ContextSegment{Source: "tool_schemas", TokenCount: n})
+			total += n
+		}
+	}
+	if rendered, err := view.Render(ctx); err == nil {
+		n := 0
+		for _, msg := range rendered {
+			n += messageContextTokens(msg)
+		}
+		if len(tools) > 0 {
+			n += toolSchemaTokens(tools[0])
+		}
+		if n > total {
+			report.Segments = append(report.Segments, ContextSegment{Source: "projection_markup", TokenCount: n - total})
+			total = n
+		}
+	}
 	report.TotalTokens = total
 
 	for i := range report.Segments {
@@ -98,21 +145,22 @@ func InspectContextBudget(ctx context.Context, sessionID string, view *sessions.
 	}
 
 	if total > budgetLimit {
-		diff := total - budgetLimit
 		report.TruncationLog = append(report.TruncationLog, TruncationDecision{
 			Source:  "history",
-			Reason:  "Context window budget limit exceeded",
-			Removed: diff,
+			Reason:  "Estimated context budget exceeded; inspection alone does not truncate messages",
+			Removed: 0,
 		})
 	}
 
+	var toolInfos []*schema.ToolInfo
+	if len(tools) > 0 {
+		toolInfos = tools[0]
+	}
+	report.TopItems, report.Turns = collectContextDetail(view, toolInfos)
+	report.Finalize()
 	return report
 }
 
-func estimateTokens(s string) int {
-	runes := []rune(s)
-	if len(runes) == 0 {
-		return 0
-	}
-	return len(runes)/3 + 1
-}
+// Conservative multilingual estimate; actual model usage can raise this via
+// calibration. CJK must not be treated as three characters per token.
+func estimateTokens(s string) int { return promptbudget.Estimate(s) }

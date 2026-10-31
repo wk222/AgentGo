@@ -1,6 +1,8 @@
 package core
 
 import (
+	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -57,5 +59,29 @@ func TestBuildHistoryRespectsBudgetsAndStartsWithUser(t *testing.T) {
 	}
 	if BuildHistory(nil, 5, 100) != nil {
 		t.Fatal("empty input must give no history")
+	}
+}
+
+func TestMigrationKeepsEarlyGoalAndCorrectionBeyondOldPromptWindow(t *testing.T) {
+	stored := []sessions.Message{sm("user", "text", "FIRST-GOAL: preserve the original project"), sm("assistant", "text", "recorded"), sm("user", "text", "USER-CORRECTION: keep the tests")}
+	for i := 0; i < 60; i++ {
+		stored = append(stored, sm("assistant", "text", fmt.Sprintf("progress %d", i)))
+	}
+	stored = append(stored, sm("user", "text", "LATEST-LEGACY-REQUEST"))
+	msgs, err := BuildMigrationHistory(context.Background(), stored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var all strings.Builder
+	for _, m := range msgs {
+		all.WriteString(m.Content)
+	}
+	for _, want := range []string{"FIRST-GOAL", "USER-CORRECTION", "LATEST-LEGACY-REQUEST"} {
+		if !strings.Contains(all.String(), want) {
+			t.Fatal("migration lost constraint", want)
+		}
+	}
+	if len(msgs) > HistoryMaxMessages+3 {
+		t.Fatal("migration replayed the entire transcript", len(msgs))
 	}
 }

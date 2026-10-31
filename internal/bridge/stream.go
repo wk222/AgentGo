@@ -8,6 +8,7 @@ import (
 
 	"agentgo/internal/agent"
 	"agentgo/internal/applog"
+	"agentgo/internal/engine"
 )
 
 // SendMessageStream runs the agent in a goroutine and emits Wails events:
@@ -30,12 +31,10 @@ func (s *AppService) runStream(sessionID, userText string, images []string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 
-	// History is loaded and the user message stored by the shared transcript service.
-	ctx = s.transcript().Begin(ctx, sessionID, userText, images)
 	if s.rt.runTrack != nil {
 		s.rt.runTrack.Set(sessionID, "goroutine", "runStream 已启动")
 	}
-	if s.app != nil {
+	if s.eventsOn() {
 		ctx = agent.WithTraceEmitter(ctx, agent.TraceEmitterFromWails(func(p map[string]any) {
 			p["session_id"] = sessionID
 			if s.rt.runTrack != nil {
@@ -43,11 +42,10 @@ func (s *AppService) runStream(sessionID, userText string, images []string) {
 				name, _ := p["name"].(string)
 				s.rt.runTrack.SetTrace(sessionID, comp, name)
 			}
-			s.app.Event.Emit("agent:trace", p)
+			s.emit("agent:trace", p)
 		}))
 		agent.EmitTrace(ctx, "start", "Runner", "stream", "流式任务已启动")
 	}
-	var streamed strings.Builder
 	var res SendMessageResult
 	emit := func(delta string) {
 		if delta == "" {
@@ -56,9 +54,8 @@ func (s *AppService) runStream(sessionID, userText string, images []string) {
 		if s.rt.runTrack != nil {
 			s.rt.runTrack.AddChunk(sessionID)
 		}
-		streamed.WriteString(delta)
-		if s.app != nil {
-			s.app.Event.Emit("chat:chunk", map[string]any{
+		if s.eventsOn() {
+			s.emit("chat:chunk", map[string]any{
 				"session_id": sessionID,
 				"delta":      delta,
 			})
@@ -83,50 +80,26 @@ func (s *AppService) runStream(sessionID, userText string, images []string) {
 	if s.rt.runTrack != nil {
 		s.rt.runTrack.Set(sessionID, "agent_run", "sendMessageCore")
 	}
-	res = s.sendMessageCore(ctx, sessionID, userText, images, emit)
-	fullStream := strings.TrimSpace(streamed.String())
-	if fullStream != "" {
-		merged := false
-		for i := range res.Messages {
-			m := &res.Messages[i]
-			if m.Role == "assistant" && (m.Type == "" || m.Type == "text") {
-				if len(fullStream) > len(strings.TrimSpace(m.Content)) {
-					m.Content = fullStream
-					m.Type = "text"
-				}
-				merged = true
-				break
-			}
+	res = sendResultFromEngine(s.rt.runEngineTurn(ctx, engine.RunRequest{
+		Engine: EinoEngineID, SessionID: sessionID, Input: userText, Images: images,
+	}, engine.SinkFunc(func(ev engine.Event) {
+		if ev.Type == engine.EventToken {
+			delta, _ := ev.Payload["delta"].(string)
+			emit(delta)
 		}
-		if !merged && res.Error == "" {
-			res.Messages = append(res.Messages, ChatMessageDTO{
-				Role: "assistant", Type: "text", Content: fullStream,
-			})
-		}
-	}
-	applog.Stream("done session=%s msgs=%d streamed=%d err=%q", sessionID, len(res.Messages), len(fullStream), res.Error)
-
-	if sessionID != "" {
-		persistTypes := map[string]int{}
-		for _, m := range res.Messages {
-			t := m.Type
-			if t == "" {
-				t = "text"
-			}
-			persistTypes[t]++
-		}
-		s.transcript().Finish(sessionID, coreMessages(res.Messages))
-		applog.Stream("persist session=%s types=%s", sessionID, applog.FormatCounts(persistTypes))
-	}
+	})))
+	s.emitPendingMessages(sessionID, res.Messages)
+	applog.Stream("done session=%s msgs=%d err=%q", sessionID, len(res.Messages), res.Error)
 }
 
 func (s *AppService) emitChatDone(sessionID string, res SendMessageResult) {
-	if s.app == nil {
+	if !s.eventsOn() {
 		return
 	}
-	s.app.Event.Emit("chat:done", map[string]any{
+	s.emit("chat:done", map[string]any{
 		"session_id": sessionID,
 		"messages":   res.Messages,
 		"error":      res.Error,
+		"degraded":   res.Degraded,
 	})
 }

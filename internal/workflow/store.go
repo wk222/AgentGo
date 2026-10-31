@@ -209,7 +209,9 @@ func (s *Store) SaveFlowgram(id string, doc FlowgramDocument) error {
 func (s *Store) SaveFromRegister(name, description, nodesJSON string) (Definition, error) {
 	var nodes []Node
 	if nodesJSON != "" {
-		_ = json.Unmarshal([]byte(nodesJSON), &nodes)
+		if err := json.Unmarshal([]byte(nodesJSON), &nodes); err != nil {
+			return Definition{}, err
+		}
 	}
 	if len(nodes) == 0 {
 		nodes = []Node{
@@ -218,11 +220,11 @@ func (s *Store) SaveFromRegister(name, description, nodesJSON string) (Definitio
 			{ID: "end", Type: "end", Title: "结束"},
 		}
 	}
-	def := Definition{
-		Name: name, Description: description,
-		Nodes: nodes,
-		Edges: []Edge{{From: "start", To: "llm1"}, {From: "llm1", To: "end"}},
+	edges := make([]Edge, 0, len(nodes)-1)
+	for i := 1; i < len(nodes); i++ {
+		edges = append(edges, Edge{From: nodes[i-1].ID, To: nodes[i].ID})
 	}
+	def := Definition{ID: uuid.NewString(), Name: name, Description: description, Nodes: nodes, Edges: edges}
 	if err := s.Save(def); err != nil {
 		return Definition{}, err
 	}

@@ -19,12 +19,15 @@ func feedbackDelta(kind FeedbackKind) float64 {
 	return 0
 }
 
+// tokenize splits a query into search words: the words as written, plus the
+// two-character pieces of any Chinese run (see cjk_tokens.go).
 func tokenize(s string) []string {
 	s = strings.ToLower(strings.TrimSpace(s))
 	if s == "" {
 		return nil
 	}
-	return strings.Fields(s)
+	words := strings.Fields(s)
+	return append(words, cjkPieces(words)...)
 }
 
 func bm25LiteScore(queryTokens []string, content string) float64 {

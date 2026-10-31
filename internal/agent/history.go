@@ -33,3 +33,17 @@ func runMessages(ctx context.Context, userText string) []*schema.Message {
 	out = append(out, h...)
 	return append(out, schema.UserMessage(userText))
 }
+
+type migrationHistoryKey struct{}
+
+// WithMigrationHistory captures pre-turn source history. It is evaluated only
+// once, when initializing a native session, so ordinary turns stay inexpensive.
+func WithMigrationHistory(ctx context.Context, source func(context.Context) ([]*schema.Message, error)) context.Context {
+	return context.WithValue(ctx, migrationHistoryKey{}, source)
+}
+func migrationHistoryFrom(ctx context.Context) ([]*schema.Message, error) {
+	if load, ok := ctx.Value(migrationHistoryKey{}).(func(context.Context) ([]*schema.Message, error)); ok {
+		return load(ctx)
+	}
+	return historyFrom(ctx), nil
+}

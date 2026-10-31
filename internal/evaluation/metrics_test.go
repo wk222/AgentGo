@@ -180,7 +180,7 @@ func TestDefaultSuiteIsWellFormed(t *testing.T) {
 			t.Errorf("bad or duplicate case %q", c.ID)
 		}
 		seen[c.ID] = true
-		if c.ExpectedText == "" && len(c.Keywords) == 0 && !c.ExpectApproval {
+		if c.ExpectedText == "" && len(c.Keywords) == 0 && !c.ExpectApproval && !c.hasVerification() {
 			t.Errorf("%s has no scoring criterion", c.ID)
 		}
 		if c.ExpectedText != "" {

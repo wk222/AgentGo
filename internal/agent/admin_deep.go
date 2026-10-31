@@ -8,12 +8,12 @@ import (
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/adk/prebuilt/deep"
 	"github.com/cloudwego/eino/compose"
-
 )
 
 const adminDeepSessionPrefix = "admin_deep:"
 
 func (r *Runner) runAdminDeep(ctx context.Context, cfg LLMSettings, sessionID, userText string) (string, error) {
+	ctx = withLLMBudget(ctx, cfg)
 	if r.cpStore == nil {
 		return "", fmt.Errorf("checkpoint store required for admin deep agent")
 	}
@@ -26,18 +26,16 @@ func (r *Runner) runAdminDeep(ctx context.Context, cfg LLMSettings, sessionID, u
 	}
 	sm := SessionModeFromContext(ctx)
 	toolList := RegistryToolsForMode(r.toolReg, sm)
-	// deep.New has no ADK handlers: compose mount is the single mount point.
-	toolMW := r.composeToolMiddlewares(r.effectivePolicy(), toolMounts{})
 
 	deepAgent, err := deep.New(ctx, &deep.Config{
 		Name:        "agentgo_admin",
 		Description: "Persistent admin task executor with decomposition and re-planning",
 		ChatModel:   chatModel,
+		Handlers:    r.toolExecutionHandlers(ctx).all(),
 		Instruction: "你是 AgentGo 管理员智能体。将用户目标拆解为可执行步骤，调用工具完成，并输出最终执行报告。遇到失败时调整计划并重试。",
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{
-				Tools:               toolList,
-				ToolCallMiddlewares: toolMW,
+				Tools: toolList,
 			},
 		},
 		MaxIteration:           32,

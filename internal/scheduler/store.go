@@ -133,6 +133,24 @@ func (s *Store) BumpNext(id string, intervalSec int64) error {
 	return err
 }
 
+func (s *Store) SetEnabled(id string, enabled bool) error {
+	en := 0
+	if enabled {
+		en = 1
+	}
+	_, err := s.db.Exec(`UPDATE scheduled_jobs SET enabled=? WHERE id=?`, en, id)
+	return err
+}
+
+func (s *Store) Get(id string) (Job, error) {
+	var j Job
+	var en int
+	err := s.db.QueryRow(`SELECT id, title, spec, prompt, session_id, next_run_at, interval_sec, enabled, last_run_at, created_at FROM scheduled_jobs WHERE id=?`, id).
+		Scan(&j.ID, &j.Title, &j.Spec, &j.Prompt, &j.SessionID, &j.NextRunAt, &j.IntervalSec, &en, &j.LastRunAt, &j.CreatedAt)
+	j.Enabled = en == 1
+	return j, err
+}
+
 func (s *Store) Delete(id string) error {
 	_, err := s.db.Exec(`DELETE FROM scheduled_jobs WHERE id=?`, id)
 	return err

@@ -3,6 +3,7 @@ package bridge
 import (
 	"agentgo/internal/core"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -12,6 +13,7 @@ import (
 	"agentgo/internal/capability"
 	"agentgo/internal/engine"
 	"agentgo/internal/governance"
+	"agentgo/internal/interactive"
 	"agentgo/internal/workflow"
 )
 
@@ -33,6 +35,36 @@ import (
 // returns the chat message that represents it. Used for the first pause of a
 // turn and for any later pause of a resumed run.
 func (s *AppService) registerPending(sessionID, userText string, p *agent.PendingApproval) ChatMessageDTO {
+	m := s.rt.registerPending(sessionID, userText, p)
+	s.emitPendingMessages(sessionID, []ChatMessageDTO{m})
+	return m
+}
+
+// Desktop notifications adapt stored results; registering a pause belongs to Runtime.
+func (s *AppService) emitPendingMessages(sessionID string, messages []ChatMessageDTO) {
+	if !s.eventsOn() {
+		return
+	}
+	for _, m := range messages {
+		if m.Status != "pending" {
+			continue
+		}
+		if m.Type == "question" {
+			var q interactive.QuestionPayload
+			if err := json.Unmarshal([]byte(m.Arguments), &q); err != nil || q.Prompt == "" {
+				q.Prompt = m.Content
+			}
+			s.emitQuestion(&q, m.ApprovalID, sessionID)
+		} else if m.Type == "approval" {
+			s.emit("approval:pending", map[string]any{
+				"session_id": sessionID, "approval_id": m.ApprovalID,
+				"tool_name": m.ToolName, "arguments": m.Arguments, "prompt": m.Content,
+			})
+		}
+	}
+}
+
+func (rt *Runtime) registerPending(sessionID, userText string, p *agent.PendingApproval) ChatMessageDTO {
 	interruptID := p.InterruptID
 	if interruptID == "" {
 		interruptID = p.ApprovalID
@@ -41,35 +73,57 @@ func (s *AppService) registerPending(sessionID, userText string, p *agent.Pendin
 	if approvalID == "" {
 		approvalID = interruptID
 	}
-	s.rt.pending.Set(core.PendingRun{
+	rt.pending.Set(core.PendingRun{
 		SessionID: sessionID, UserText: userText,
 		ToolName: p.ToolName, Arguments: p.Arguments,
 		ApprovalID: approvalID, InterruptID: interruptID,
 	})
 	if p.ToolName == "ask_user" && p.Question != nil {
-		s.emitQuestion(p.Question, p.ApprovalID, sessionID)
+		qArgs := p.Arguments
+		if strings.TrimSpace(qArgs) == "" {
+			if raw, err := json.Marshal(p.Question); err == nil {
+				qArgs = string(raw)
+			}
+		}
 		return ChatMessageDTO{
 			Role: "assistant", Type: "question", ApprovalID: p.ApprovalID,
-			Content: p.Question.Prompt, ToolName: "ask_user", Status: "pending",
+			Content: p.Question.Prompt, ToolName: "ask_user", Arguments: qArgs, Status: "pending",
 		}
 	}
-	if s.app != nil {
-		payload := map[string]any{
-			"approval_id": p.ApprovalID,
-			"tool_name":   p.ToolName,
-			"arguments":   p.Arguments,
-			"prompt":      "等待审批: " + p.ToolName,
-		}
-		if sessionID != "" {
-			payload["session_id"] = sessionID
-		}
-		s.app.Event.Emit("approval:pending", payload)
+	// Say why the tool needs a decision when the policy gave a reason (for
+	// example "this reaches outside the workspace; approving opens that folder"),
+	// so the card is more than a tool name.
+	prompt := "等待审批: " + p.ToolName
+	if why := rt.approvalReason(p.ApprovalID); why != "" {
+		prompt = why
 	}
 	return ChatMessageDTO{
 		Role: "assistant", Type: "approval", ApprovalID: p.ApprovalID,
 		ToolName: p.ToolName, Arguments: p.Arguments, Status: "pending",
-		Content: "等待审批: " + p.ToolName,
+		Content: prompt,
 	}
+}
+
+// approvalReason is the policy's explanation stored with a pending approval
+// (the text after the generic "Review required." line), or "".
+func (s *AppService) approvalReason(approvalID string) string {
+	return s.rt.approvalReason(approvalID)
+}
+
+func (rt *Runtime) approvalReason(approvalID string) string {
+	if approvalID == "" || rt == nil || rt.Approvals() == nil {
+		return ""
+	}
+	req, err := rt.Approvals().GetRequest(context.Background(), approvalID)
+	if err != nil || req == nil {
+		return ""
+	}
+	const marker = "Review required."
+	i := strings.Index(req.Prompt, marker)
+	if i < 0 {
+		return ""
+	}
+	return strings.TrimSpace(req.Prompt[i+len(marker):])
 }
 
 // resumeAgent continues a paused agent run with the user's decision.
@@ -85,7 +139,7 @@ func (rt *Runtime) resumeAgent(ctx context.Context, pr core.PendingRun, resume *
 		return nil, errors.New("该审批没有对应的检查点，无法恢复")
 	}
 	if pr.ResumeKind == "matrix" {
-		return runner.ResumeMatrixSupervisor(ctx, rt.AgentLLMSettings(), pr.InterruptID, resume)
+		return runner.ResumeMatrixSupervisor(ctx, rt.AgentLLMSettings(), pr.SessionID, pr.InterruptID, resume)
 	}
 	return runner.ContinueAfterApproval(ctx, rt.AgentLLMSettings(), pr.SessionID, pr.InterruptID, pr.ToolName, pr.Arguments, true)
 }
@@ -97,6 +151,14 @@ func (rt *Runtime) resumeAgent(ctx context.Context, pr core.PendingRun, resume *
 // could not be resumed or failed), messages (what the resumed run produced,
 // including a further pending approval) and workflow_output.
 func (s *AppService) resolveApproval(ctx context.Context, approvalID string, approved bool, note, resolvedBy, finalArgs string) map[string]any {
+	if approved {
+		// A conversation that is about to carry on is at work before it leaves the
+		// pending store, and until the resumed run registers its cancel handle: the
+		// two overlap, so a reader of GetRunningWork never finds it in neither place.
+		if p, ok := s.rt.pending.Get(approvalID); ok && p.ResumeKind != "workflow" && p.ResumeKind != "matrix" {
+			defer s.rt.resuming.begin(p.SessionID)()
+		}
+	}
 	flow := core.ApprovalFlow{Approvals: s.rt.Approvals(), Pending: s.rt.pending, Relay: &s.rt.relay}
 	dec, out, complete, ok := flow.Decide(ctx, approvalID, approved, note, resolvedBy, finalArgs)
 	if !ok {
@@ -104,8 +166,8 @@ func (s *AppService) resolveApproval(ctx context.Context, approvalID string, app
 	}
 	defer complete()
 	resume, pr := dec.Resume, dec.Run
-	if s.app != nil {
-		s.app.Event.Emit("approval:resolved", map[string]any{
+	if s.eventsOn() {
+		s.emit("approval:resolved", map[string]any{
 			"approval_id": approvalID,
 			"approved":    approved,
 			"arguments":   finalArgs,
@@ -131,9 +193,9 @@ func (s *AppService) resolveApproval(ctx context.Context, approvalID string, app
 					out[k] = v
 				}
 			}
-			if s.app != nil {
+			if s.eventsOn() {
 				if next, _ := resp["approval_id"].(string); next != "" {
-					s.app.Event.Emit("approval:pending", map[string]any{
+					s.emit("approval:pending", map[string]any{
 						"approval_id": next, "tool_name": resp["tool_name"],
 						"arguments": resp["arguments"], "prompt": "等待审批: " + fmt.Sprint(resp["tool_name"]),
 					})
@@ -146,8 +208,8 @@ func (s *AppService) resolveApproval(ctx context.Context, approvalID string, app
 			return out
 		}
 		out["workflow_output"] = wfOut
-		if s.app != nil {
-			s.app.Event.Emit("workflow:resumed", map[string]any{
+		if s.eventsOn() {
+			s.emit("workflow:resumed", map[string]any{
 				"approval_id": approvalID,
 				"workflow_id": pr.WorkflowID,
 				"output":      wfOut,
@@ -190,6 +252,7 @@ func (s *AppService) resolveApproval(ctx context.Context, approvalID string, app
 	}
 	rctx, cancel := context.WithTimeout(ctx, engineRunTimeout)
 	defer cancel()
+	rctx = s.transcript().RecordEvidence(rctx, pr.SessionID)
 	if live != nil {
 		live.Status("resumed", nil)
 		rctx = bindEngineObservers(rctx, live)
@@ -210,6 +273,9 @@ func (s *AppService) resolveApproval(ctx context.Context, approvalID string, app
 
 	msgs := s.afterResume(approvalID, pr, runRes)
 	out["messages"] = msgs
+	if runRes.PendingApproval == nil && pr.ResumeKind != "matrix" {
+		s.rt.fireStopHook(pr.SessionID, runRes.Content) // the resumed turn has ended
+	}
 	final := engine.RunResult{
 		Pending: runRes.PendingApproval != nil, Messages: toEngineMessages(msgs),
 	}
@@ -223,8 +289,8 @@ func (s *AppService) resolveApproval(ctx context.Context, approvalID string, app
 		}
 		finish(final)
 	}
-	if s.app != nil && pr.ResumeKind != "matrix" {
-		s.app.Event.Emit("chat:done", map[string]any{
+	if s.eventsOn() && pr.ResumeKind != "matrix" {
+		s.emit("chat:done", map[string]any{
 			"session_id": pr.SessionID,
 			"messages":   msgs,
 			"resume":     true,
@@ -244,8 +310,8 @@ func (s *AppService) afterResume(approvalID string, pr core.PendingRun, res *age
 	if pr.ResumeKind == "matrix" {
 		ev := capability.Event{Type: "matrix.resumed", Source: pr.MatrixEvent}
 		s.rt.publishMatrixOrchestrated(ev, res.Content, "")
-		if s.app != nil {
-			s.app.Event.Emit("matrix:resumed", map[string]any{
+		if s.eventsOn() {
+			s.emit("matrix:resumed", map[string]any{
 				"approval_id": approvalID, "content": res.Content,
 			})
 		}

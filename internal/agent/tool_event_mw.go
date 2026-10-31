@@ -38,6 +38,9 @@ func (m *ToolCallEventMiddleware) WrapInvokableToolCall(
 		// start/finish by id, so one is always guaranteed.
 		callID := callID
 		if callID == "" {
+			callID = traceCallIDFrom(innerCtx)
+		}
+		if callID == "" {
 			callID = compose.GetToolCallID(innerCtx)
 		}
 		if callID == "" {

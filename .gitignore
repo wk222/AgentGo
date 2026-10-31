@@ -3,6 +3,8 @@
 !README.md
 !README_zh-CN.md
 !docs/**/*.md
+# 内置技能由 go:embed 编进二进制（internal/skills/builtin.go）；缺了它们，全新克隆无法编译
+!internal/skills/builtin/**/*.md
 # OpenSumi 本地参考（不提交 GitHub）
 frontend-opensumi/
 opensumi-reference/
@@ -36,6 +38,7 @@ go.mod.local
 # JavaScript dependencies
 node_modules/
 frontend/node_modules/
+.vite/
 
 # Local working copies, exports, and reference bundles
 .agents/
@@ -81,3 +84,38 @@ config.local.json
 
 # the agent's own task list lives in the workspace it works in
 .tasks/
+
+# 内置 PPT 模板（公司 logo 和背景图）编进二进制（internal/officedoc/builtin_tpl，go:embed），但不入库；
+# 只有目录里的 README.txt 入库，保证全新克隆能编译（没有模板时 builtin:<名字> 会说“本构建没有”）。
+/internal/officedoc/builtin_tpl/*
+!/internal/officedoc/builtin_tpl/README.txt
+
+# 私有扩展（不开源，仅本地注入）。具体目录名写在各机器的 .git/info/exclude，不入库。
+*.private.*
+/docs/private/
+/internal/bridge/*_private*.go
+
+# 移动客户端（可选组件：独立 Capacitor 工程，直连 agentgo-web --remote；不入库）
+/mobile/
+
+# 本地 MCP 客户端配置（含本机绝对路径；不入库）
+/configs/agentgo-re.mcp.json
+
+# arch 测试的机器本地豁免（指向不入库的本地包；不入库）
+/internal/arch/process_spawn_exempt.local.txt
+
+
+# Third-party terms are release inputs, not local notes.
+!licenses/
+!licenses/**/
+!licenses/**/*.md
+
+# 本地实验与审计记录（内网环境、破甲研究、公开发布审计；仅本地保留，不入库）
+/docs/harness-lab*.md
+/docs/armor-break-research.md
+/docs/publication-*
+/docs/public-release-*
+
+# 内网公开发布工具（排除清单含内部组件名；仅本地使用，不入库）
+/scripts/prepare-public-source.py
+/scripts/release-public-windows.ps1

@@ -18,7 +18,7 @@ import (
 )
 
 var (
-	ErrNotFound      = errors.New("spill: record not found")
+	ErrNotFound       = errors.New("spill: record not found")
 	ErrInvalidSpillID = errors.New("spill: invalid spill id")
 )
 
@@ -56,12 +56,21 @@ func (s *FileSpillStore) loadExistingMeta() error {
 	return nil
 }
 
-func (s *FileSpillStore) persistMetaLocked() {
+func (s *FileSpillStore) persistMetaLocked() error {
 	metaFile := filepath.Join(s.baseDir, "index.json")
 	data, err := json.MarshalIndent(s.records, "", "  ")
-	if err == nil {
-		_ = os.WriteFile(metaFile, data, 0o644)
+	if err != nil {
+		return err
 	}
+	tmp := metaFile + ".tmp"
+	if err = os.WriteFile(tmp, data, 0o600); err != nil {
+		return err
+	}
+	if err = os.Rename(tmp, metaFile); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 // Save writes raw content to a spill file and returns metadata.
@@ -71,6 +80,9 @@ func (s *FileSpillStore) Save(ctx context.Context, sessionID, toolCallID, toolNa
 	}
 	if sessionID == "" {
 		sessionID = "default"
+	}
+	if !safeSessionDirectory(sessionID) {
+		return nil, fmt.Errorf("spill: invalid session directory")
 	}
 
 	id := "spill_" + strings.ReplaceAll(uuid.NewString()[:12], "-", "")
@@ -102,7 +114,12 @@ func (s *FileSpillStore) Save(ctx context.Context, sessionID, toolCallID, toolNa
 
 	s.mu.Lock()
 	s.records[id] = record
-	s.persistMetaLocked()
+	if err := s.persistMetaLocked(); err != nil {
+		delete(s.records, id)
+		s.mu.Unlock()
+		_ = os.Remove(targetPath)
+		return nil, fmt.Errorf("spill: persist index failed: %w", err)
+	}
 	s.mu.Unlock()
 
 	return record, nil
@@ -210,12 +227,15 @@ func (s *FileSpillStore) Delete(ctx context.Context, spillID string) error {
 	}
 	_ = os.Remove(record.FilePath)
 	delete(s.records, spillID)
-	s.persistMetaLocked()
+	_ = s.persistMetaLocked()
 	return nil
 }
 
 // CleanupSession removes all spills belonging to a session.
 func (s *FileSpillStore) CleanupSession(ctx context.Context, sessionID string) error {
+	if !safeSessionDirectory(sessionID) {
+		return fmt.Errorf("spill: invalid session directory")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	sessionDir := filepath.Join(s.baseDir, sessionID)
@@ -225,6 +245,10 @@ func (s *FileSpillStore) CleanupSession(ctx context.Context, sessionID string) e
 			delete(s.records, id)
 		}
 	}
-	s.persistMetaLocked()
+	_ = s.persistMetaLocked()
 	return nil
+}
+
+func safeSessionDirectory(id string) bool {
+	return id != "" && id != "." && id != ".." && filepath.Base(id) == id && !strings.ContainsAny(id, "\\/:")
 }

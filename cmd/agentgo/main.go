@@ -27,13 +27,7 @@ func hasArg(arg string) bool {
 }
 
 func handleAgentGoAPI(appService *bridge.AppService, w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusOK)
+	if !allowDesktopAPIRequest(w, r) {
 		return
 	}
 
@@ -49,7 +43,9 @@ func handleAgentGoAPI(appService *bridge.AppService, w http.ResponseWriter, r *h
 			ModeId    string `json:"modeId"`
 			SessionId string `json:"sessionId"`
 		}
-		_ = json.NewDecoder(r.Body).Decode(&body)
+		if !decodeDesktopJSON(w, r, &body) {
+			return
+		}
 		res := appService.SwitchIDEProfile(body.ModeId)
 		_ = json.NewEncoder(w).Encode(res)
 		return
@@ -60,7 +56,9 @@ func handleAgentGoAPI(appService *bridge.AppService, w http.ResponseWriter, r *h
 			Suffix   string `json:"suffix"`
 			Language string `json:"language"`
 		}
-		_ = json.NewDecoder(r.Body).Decode(&body)
+		if !decodeDesktopJSON(w, r, &body) {
+			return
+		}
 		res := appService.GenerateCompletion(body.Prefix, body.Suffix, body.Language)
 		_ = json.NewEncoder(w).Encode(res)
 		return
@@ -72,7 +70,9 @@ func handleAgentGoAPI(appService *bridge.AppService, w http.ResponseWriter, r *h
 			SelectedText string `json:"selectedText"`
 			Instruction  string `json:"instruction"`
 		}
-		_ = json.NewDecoder(r.Body).Decode(&body)
+		if !decodeDesktopJSON(w, r, &body) {
+			return
+		}
 		res := appService.GenerateInlineEdit(body.FilePath, body.Language, body.SelectedText, "", "", body.Instruction)
 		_ = json.NewEncoder(w).Encode(res)
 		return
@@ -83,7 +83,9 @@ func handleAgentGoAPI(appService *bridge.AppService, w http.ResponseWriter, r *h
 			Code         string `json:"code"`
 			ErrorMessage string `json:"errorMessage"`
 		}
-		_ = json.NewDecoder(r.Body).Decode(&body)
+		if !decodeDesktopJSON(w, r, &body) {
+			return
+		}
 		res := appService.FixProblem(body.FilePath, body.Code, body.ErrorMessage)
 		_ = json.NewEncoder(w).Encode(res)
 		return
@@ -95,7 +97,9 @@ func handleAgentGoAPI(appService *bridge.AppService, w http.ResponseWriter, r *h
 			ExitCode int    `json:"exitCode"`
 			Cwd      string `json:"cwd"`
 		}
-		_ = json.NewDecoder(r.Body).Decode(&body)
+		if !decodeDesktopJSON(w, r, &body) {
+			return
+		}
 		res := appService.TerminalQuickFix(body.Command, body.Output, body.ExitCode, body.Cwd)
 		_ = json.NewEncoder(w).Encode(res)
 		return
@@ -120,8 +124,10 @@ func main() {
 
 	rt, err := bridge.NewRuntime()
 	if err != nil {
-		log.Fatal(err)
+		fatalStart("AgentGo 启动失败", err)
 	}
+
+	defer rt.Close()
 
 	// 自动适配环境变量中的 Azure OpenAI / GPT-6 Luna 密钥与端点
 	if key, ep := os.Getenv("AZURE_OPENAI_API_KEY"), os.Getenv("AZURE_OPENAI_API_ENDPOINT"); key != "" && ep != "" {
@@ -132,13 +138,17 @@ func main() {
 			if model == "" {
 				model = "gpt-6-luna"
 			}
+			cfg.ContextWindow, cfg.MaxOutputTokens = 0, 0
 			cfg.APIBase = strings.TrimRight(ep, "/") + "/openai/v1/"
 			cfg.APIKey = key
 			cfg.Model = model
 			_ = rt.SetLLMConfig(cfg)
 			log.Printf("[AgentGo] 已启用本地 Azure Luna: model=%s, api_base=%s", model, cfg.APIBase)
 		}
-		if !config.ReasoningEffort.IsSet() {
+		// Only Azure reasoning deployments need effort "none"; sending it to other
+		// models (e.g. a DeepSeek relay) makes them echo prompt text into the reply.
+		if m := strings.ToLower(rt.LLMConfig().Model); !config.ReasoningEffort.IsSet() &&
+			(strings.Contains(m, "luna") || strings.Contains(m, "gpt-5")) {
 			config.ReasoningEffort.Set("none")
 		}
 	}
@@ -181,9 +191,7 @@ func main() {
 			return
 		}
 		if strings.HasPrefix(r.URL.Path, "/attachments/") {
-			fileName := strings.TrimPrefix(r.URL.Path, "/attachments/")
-			filePath := filepath.Join(rt.DataDir(), "attachments", fileName)
-			http.ServeFile(w, r, filePath)
+			serveDesktopAttachment(w, r, filepath.Join(rt.DataDir(), "attachments"))
 			return
 		}
 		if strings.HasPrefix(r.URL.Path, "/api/agentgo/") {
@@ -207,13 +215,17 @@ func main() {
 		},
 	})
 
-	app.Window.NewWithOptions(application.WebviewWindowOptions{
+	win := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:                  "AgentGo",
 		Width:                  1280,
 		Height:                 850,
 		URL:                    targetURL,
 		OpenInspectorOnStartup: hasArg("--dev") || config.Dev.On(),
 		DevToolsEnabled:        true,
+		// Without this the Wails runtime shows a "no drop" cursor for every file
+		// dragged in from the file manager. With it, WebView2 hands us the real
+		// paths of whatever lands on a data-file-drop-target area (the chat).
+		EnableFileDrop: true,
 		Mac: application.MacWindow{
 			InvisibleTitleBarHeight: 50,
 			Backdrop:                application.MacBackdropTranslucent,
@@ -221,7 +233,9 @@ func main() {
 		},
 	})
 
+	bridge.ForwardFileDrops(win)
+
 	if err := app.Run(); err != nil {
-		log.Fatal(err)
+		fatalStart("桌面窗口无法打开（常见原因：缺少 WebView2 运行时；没有它的电脑请改用浏览器版 AgentGo-web.exe）", err)
 	}
 }

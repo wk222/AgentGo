@@ -21,6 +21,9 @@ import (
 // the Go walker is deterministic.
 func nativeBox(t *testing.T, dir string) coderuntime.Toolbox {
 	t.Helper()
+	// The baseline pins what the original tools produced; the pre-overwrite
+	// backup is an intentional addition covered by coderuntime/fs_guard_test.go.
+	t.Setenv("AGENTGO_OVERWRITE_BACKUP", "0")
 	search := SearchOptions{WorkDir: dir, Rg: func() string { return "" }}
 	lsp, err := codelsp.New(codelsp.Options{WorkDir: dir, Search: SymbolSearch(search)})
 	if err != nil {

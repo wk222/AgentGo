@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"agentgo/internal/admin"
 	"agentgo/internal/agent"
@@ -13,6 +14,7 @@ import (
 	"agentgo/internal/apps"
 	"agentgo/internal/capability"
 	"agentgo/internal/checkpoint"
+	"agentgo/internal/coderuntime"
 	"agentgo/internal/engine"
 	"agentgo/internal/gateway"
 	"agentgo/internal/governance"
@@ -26,12 +28,14 @@ import (
 	"agentgo/internal/taskhub"
 	"agentgo/internal/tools"
 	"agentgo/internal/trigger"
+	"agentgo/internal/userhooks"
 	"agentgo/internal/workflow"
 	"agentgo/internal/workspace"
 )
 
 type Runtime struct {
-	engineRouter     *engine.Router // set by AppService; backs the CodingAgent workflow node
+	engineRouter     *engine.Router      // runtime-owned; shared by all transports
+	codetools        coderuntime.Toolbox // current workspace toolbox, published by its plugin
 	mu               sync.RWMutex
 	dataDir          string
 	workspace        string
@@ -47,11 +51,13 @@ type Runtime struct {
 	capBus           *capability.Bus
 	kanban           *kanban.Store
 	pending          *core.PendingStore
+	resuming         resumeTracker      // turns being carried on after an approval, for GetRunningWork
 	relay            core.ApprovalRelay // decisions on approvals, for surfaces waiting on another surface
 	taskHub          *taskhub.Hub
 	sched            *scheduler.Store
 	schedRunner      *scheduler.Runner
 	triggers         *trigger.Engine
+	userHooks        atomic.Pointer[userhooks.Engine] // empty when AGENTGO_USER_HOOKS=0 or the plugin is stopped; use hooksEngine()
 	skillLoader      *skills.Loader
 	wfStore          *workflow.Store
 	cpStore          *checkpoint.SQLiteStore
@@ -62,12 +68,14 @@ type Runtime struct {
 	distillScheduler *memory.DistillScheduler
 	appStore         *apps.Store
 	innerAppSessions map[string]innerAppSession
+	previewPool      *apps.PreviewServerPool
 	appsRoot         string
 	adminRunner      *admin.AdminRunner
 	interactStore    *tools.InteractionStore
 	runTrack         *core.RunTracker
 	agentPack        *agentpack.Engine
 	workspaceReviews *workspaceReviewStore
+	turnCheckpoints  *turnCheckpointStore // per-turn workspace checkpoints (workspace_checkpoint.go)
 	supervisor       *ideruntime.ProcessSupervisor
 	workspaceFS      *ideruntime.WorkspaceFS
 	terminalSvc      *ideruntime.TerminalService
@@ -178,7 +186,7 @@ func (r *Runtime) GovernancePolicySnapshot() map[string]any {
 	}
 	p := governance.BuildPolicy(mode, ws)
 	snap := p.Control.ToMap()
-	snap["pipeline_stages"] = governance.BuildDefaultToolPolicyPipeline(p, governance.NewToolCallTracker()).Describe()
+	snap["pipeline_stages"] = governance.BuildDefaultToolPolicyPipeline().Describe()
 	snap["workspace_root"] = ws
 	return snap
 }

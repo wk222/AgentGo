@@ -22,8 +22,22 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    chunkSizeWarningLimit: 1200,
     rollupOptions: {
       external: ['/wails/runtime.js'],
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules/monaco-editor')) {
+            return 'vendor-monaco'
+          }
+          if (id.includes('node_modules/@vue-flow')) {
+            return 'vendor-vueflow'
+          }
+          if (id.includes('node_modules/lucide-vue-next')) {
+            return 'vendor-icons'
+          }
+        },
+      },
     },
   },
   server: {

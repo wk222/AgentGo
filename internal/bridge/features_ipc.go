@@ -3,6 +3,7 @@ package bridge
 import (
 	"context"
 	"encoding/json"
+	"runtime"
 	"strings"
 	"time"
 
@@ -65,10 +66,39 @@ func (s *AppService) ListScheduledJobs() []map[string]any {
 	for _, j := range jobs {
 		out = append(out, map[string]any{
 			"id": j.ID, "title": j.Title, "spec": j.Spec, "prompt": j.Prompt,
-			"next_run_at": j.NextRunAt, "interval_sec": j.IntervalSec, "enabled": j.Enabled,
+			"session_id": j.SessionID, "next_run_at": j.NextRunAt,
+			"interval_sec": j.IntervalSec, "enabled": j.Enabled,
+			"last_run_at": j.LastRunAt, "created_at": j.CreatedAt,
 		})
 	}
 	return out
+}
+
+func (s *AppService) ToggleScheduledJob(id string, enabled bool) map[string]any {
+	if s.rt.sched == nil {
+		return map[string]any{"success": false, "error": "scheduler unavailable"}
+	}
+	err := s.rt.sched.SetEnabled(strings.TrimSpace(id), enabled)
+	if err != nil {
+		return map[string]any{"success": false, "error": err.Error()}
+	}
+	return map[string]any{"success": true, "enabled": enabled}
+}
+
+func (s *AppService) TriggerScheduledJobNow(id string) map[string]any {
+	if s.rt.sched == nil || s.rt.taskHub == nil {
+		return map[string]any{"success": false, "error": "scheduler or taskhub unavailable"}
+	}
+	j, err := s.rt.sched.Get(strings.TrimSpace(id))
+	if err != nil {
+		return map[string]any{"success": false, "error": err.Error()}
+	}
+	t, err := s.rt.taskHub.Start("cron", j.SessionID, j.Prompt)
+	if err != nil {
+		return map[string]any{"success": false, "error": err.Error()}
+	}
+	_ = s.rt.sched.BumpNext(j.ID, j.IntervalSec)
+	return map[string]any{"success": true, "task": t}
 }
 
 func (s *AppService) DeleteScheduledJob(id string) map[string]any {
@@ -76,6 +106,64 @@ func (s *AppService) DeleteScheduledJob(id string) map[string]any {
 		return map[string]any{"success": false}
 	}
 	return map[string]any{"success": s.rt.sched.Delete(id) == nil}
+}
+
+// GetRuntimeThreadOverview aggregates active sessions, engine runs, goroutines, and terminals.
+func (s *AppService) GetRuntimeThreadOverview() map[string]any {
+	var mem runtime.MemStats
+	runtime.ReadMemStats(&mem)
+
+	activeAgentRuns := 0
+	if r := s.rt.AgentRunner(); r != nil {
+		activeAgentRuns = r.ActiveRuns()
+	}
+
+	var engineRuns []engine.ActiveRun
+	if s.rt.engineRouter != nil {
+		engineRuns = s.rt.engineRouter.Active()
+	}
+
+	var tracked []map[string]any
+	if s.rt.runTrack != nil {
+		tracked = s.rt.runTrack.ListAll()
+	}
+
+	// Enrich tracked runs with session titles and running state
+	titleBySession := map[string]string{}
+	if s.rt.Sessions() != nil {
+		if list, err := s.rt.Sessions().List(context.Background(), 100); err == nil {
+			for _, sess := range list {
+				titleBySession[sess.ID] = sess.Title
+			}
+		}
+	}
+	for _, tr := range tracked {
+		sid, _ := tr["session_id"].(string)
+		if t := titleBySession[sid]; t != "" {
+			tr["session_title"] = t
+		}
+		if r := s.rt.AgentRunner(); r != nil && sid != "" {
+			tr["is_running"] = r.IsSessionRunning(sid)
+		}
+	}
+
+	return map[string]any{
+		"goroutines":        runtime.NumGoroutine(),
+		"alloc_mb":          float64(mem.Alloc) / 1024.0 / 1024.0,
+		"sys_mb":            float64(mem.Sys) / 1024.0 / 1024.0,
+		"active_agent_runs": activeAgentRuns,
+		"engine_runs":       engineRuns,
+		"tracked_runs":      tracked,
+		"terminals":         s.TerminalList(),
+	}
+}
+
+func (s *AppService) ClearFinishedTrackedRuns() map[string]any {
+	if s.rt.runTrack == nil {
+		return map[string]any{"success": false}
+	}
+	n := s.rt.runTrack.ClearFinished()
+	return map[string]any{"success": true, "cleared": n}
 }
 
 // --- Interactive ask_user ---
@@ -93,7 +181,7 @@ func (s *AppService) AnswerQuestionTap(interruptID, answerJSON string, tap engin
 		return map[string]any{"success": false, "error": "runner unavailable"}
 	}
 	cfg := s.rt.LLMConfig()
-	llm := agent.LLMSettings{APIBase: cfg.APIBase, APIKey: cfg.APIKey, Model: cfg.Model}
+	llm := cfg.agentSettings()
 	p, ok := s.rt.pending.Get(interruptID)
 	if !ok {
 		p, ok = s.rt.pending.Get("interrupt:" + interruptID)
@@ -316,24 +404,16 @@ func (s *AppService) CancelAgentRun(sessionID string) map[string]any {
 	if s.rt.runTrack != nil {
 		s.rt.runTrack.Finish(sessionID, "cancelled", "")
 	}
-	if r := s.rt.AgentRunner(); r != nil {
-		return map[string]any{"success": r.CancelSessionRun(sessionID)}
-	}
-	return map[string]any{"success": false, "error": "runner unavailable"}
+	return map[string]any{"success": s.rt.cancelSessionRun(sessionID)}
 }
 
 // StopSession is the desktop stop button's compatibility endpoint. It cancels
 // the active ADK run.
 func (s *AppService) StopSession(sessionID string) map[string]any {
-	cancelled := false
 	if s.rt.runTrack != nil {
 		s.rt.runTrack.Finish(sessionID, "cancelled", "")
 	}
-	if r := s.rt.AgentRunner(); r != nil {
-		cancelled = r.CancelSessionRun(sessionID)
-		return map[string]any{"success": true, "cancelled": cancelled}
-	}
-	return map[string]any{"success": false, "error": "runner unavailable"}
+	return map[string]any{"success": true, "cancelled": s.rt.cancelSessionRun(sessionID)}
 }
 
 // StopTurnLoop stops the long-lived session loop (deprecated).
@@ -343,7 +423,7 @@ func (s *AppService) StopTurnLoop(sessionID string) map[string]any {
 
 // emitQuestion forwards ask_user interrupt to UI.
 func (s *AppService) emitQuestion(q *interactive.QuestionPayload, interruptID, sessionID string) {
-	if s.app == nil || q == nil {
+	if !s.eventsOn() || q == nil {
 		return
 	}
 	b, _ := json.Marshal(q)
@@ -354,5 +434,5 @@ func (s *AppService) emitQuestion(q *interactive.QuestionPayload, interruptID, s
 	if sessionID != "" {
 		payload["session_id"] = sessionID
 	}
-	s.app.Event.Emit("ask:pending", payload)
+	s.emit("ask:pending", payload)
 }

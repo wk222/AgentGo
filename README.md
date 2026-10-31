@@ -37,6 +37,8 @@ AgentGo is a local-first desktop Agent runtime and client built on **Go**, **Byt
 
 AgentGo's core architecture ensures agent capabilities are **visible, governable, and reusable**. A tool invocation, a workflow node, an Inner App action, and an agent-facing capability all pass through the same runtime: registration, policy, trace, recovery, and accumulation.
 
+Everything runs on your own machine. Models are reached through your own API endpoint or gateway, while conversations, memory, tools, and audit records stay in a local SQLite-backed store — no AgentGo cloud account is involved. The same governed runtime ships in three forms: a **Wails v3 desktop app**, a **browser edition** served by a single local binary (including a build that still runs on Windows 7-era machines), and a **terminal client** (`agentgo-cli`) with full-screen TUI, plain line mode, and one-shot `run "task"` execution.
+
 ### 🖥️ Screenshots
 
 <p align="center">
@@ -48,11 +50,15 @@ AgentGo's core architecture ensures agent capabilities are **visible, governable
 
 ## 🌟 Key Features
 
+*   **🖥️ Three Clients, One Runtime**: Desktop app (Wails v3), browser edition (single local binary, Windows 7 build available), and terminal client share the same sessions, tools, policy, and audit trail.
+*   **🎛️ Session Harnesses**: Pick a preset per conversation — Minimal, Standard, Ultimate, Creative, or **Reverse**, an evidence-graded reverse-engineering harness (observation → derivation → inference → unknown, static triage first, original samples never modified in place). A separate local red-team test harness for refusal/guardrail testing exists only behind an explicit environment opt-in and is off in public builds.
 *   **🎨 Visual Workflow Designer (Flowgram → Compose)**: Orchestrate complex Directed Acyclic Graph (DAG) workflows via a visual canvas. Supports loop nodes, conditional branches, parallel execution, checkpoints, and Human-in-the-Loop (HITL) manual approvals.
 *   **🔌 Dynamic CapabilityBus**: A unified runtime registry that makes tools, apps, workflows, skills, and agent capabilities discoverable and governable instantly without restarting the application.
 *   **🔗 Eino ADK Orchestration**: Agent, Workflow, memory recall, and tool execution are designed directly upon ByteDance's Eino Graph / Compose patterns instead of one-off hand-rolled chains.
 *   **🧠 Advanced Memory Console**: Features a **Truth Queue** for resolving cognitive conflicts, a **Graph View** for visual 1-hop memory links, and a **Context Injection Preview** to review exact token utilization before invoking LLMs.
 *   **🛡️ Governed Tool Runtime**: Tools, Bash, database calls, Workflow nodes, and React / ADK paths share the same middleware surface for concurrency, budget guards (e.g., token limits), self-healing, and auditing.
+*   **🧾 Audit-First Governance**: Every tool call passes policy checks and lands in a queryable audit trail with risk level, approval decision, and outcome — so "what did the agent actually do?" is answered from records, not from the model's final message. Sessions persist locally with checkpoint/resume and context compaction, and a context inspector shows what will be sent to the model before it is sent.
+*   **📊 Real Office Documents**: Built-in tools create, read, analyze, and edit actual `.docx`, `.xlsx`, and `.pptx` files in the workspace (reports, budgets, decks), paired with playbook skills — deliverables are files, not chat text.
 *   **📦 Inner App Sandbox**: Build, mock, verify, and run light mini-applications (Inner Apps) via natural language commands using the built-in app builder agent.
 *   **🗂️ Workspace Context Explorer**: A Cursor-like right panel for choosing the workspace root, previewing files safely, adding files to Agent context, and inspecting diffs without pulling unrelated large files.
 *   **🧩 Capability Center**: Tools, Skills, Workflows, Apps, Channels, and model-facing actions are surfaced as a single capability inventory instead of scattered implementation details.
@@ -74,6 +80,16 @@ AgentGo's core architecture ensures agent capabilities are **visible, governable
 *   **Seamless Integration**: Once registered, an Inner App automatically registers its capabilities as an `invoke_inner_app` tool.
 *   **Orchestration**: Other agents can programmatically invoke its UI or business logic, facilitating deep multi-agent workflow nested orchestration.
 
+#### 4. Layered Memory That Keeps Its Provenance
+*   **Layers, not a blob**: Memory is stored in typed layers — episodic (what happened in a session), journal, reflection, insight, and fact — and recalled with a hybrid strategy before each run.
+*   **Distillation with receipts**: Long transcripts are distilled into atomic memories that keep their source provenance, support correction and retraction, and stay idempotent when re-distilled; long sessions are compacted episodically instead of being silently truncated.
+*   **Inspectable, not magic**: The Memory Console resolves cognitive conflicts in a Truth Queue, visualizes 1-hop memory links in a Graph View, and previews the exact context that will be injected before the model is called. Memory can orient the model; it is never treated as execution evidence or as authorization.
+
+#### 5. Armor-Break: Governed Recovery from Mistaken Refusals
+*   **The problem**: In operator-authorized local work (for example reverse engineering), models sometimes refuse or stall for permission even though the operator already authorized the session — and a hesitant reply left in context makes the next turn refuse again.
+*   **The mechanism**: When a turn ends in a refusal / ask-permission stall with **zero tool calls**, the runner issues exactly one continuation. The default strategy rolls the hesitant turn back out of the *model view* (the durable transcript is unchanged), inserts a short fictional confirmation/ack plus a verify-then-act instruction, and runs again. Every step is written to the audit trail (`armor_break_nudge`, `armor_break_view`, fictional-dialog rows), including an audit-only `fictional_premise_accepted` flag when the answer repeats the fictional "already started" premise while its tool record is empty. Flags never intercept or rewrite answers.
+*   **The boundaries**: Armor-Break exists only in explicitly opted-in harnesses — a local red-team test harness behind an environment flag (off in public builds), and the Reverse harness where it is on by default with an environment opt-out. Host governance still decides every tool call: disabled tools stay blocked, and the final message is never accepted as evidence — the audit trail and disk state are.
+
 ---
 
 ## 🧭 Core Concepts
@@ -81,6 +97,8 @@ AgentGo's core architecture ensures agent capabilities are **visible, governable
 | Concept | Role in AgentGo |
 | --- | --- |
 | **Session Mode** | Chooses the behavior of the current conversation, such as assistant, App Matrix, admin/planning, or workflow-oriented execution. |
+| **Session Harness** | A named preset (Minimal / Standard / Ultimate / Creative / Reverse) bundling a session mode with an execution canvas, tool scope, and prompting contract. |
+| **Audit Trail** | The durable, queryable record of tool invocations, approvals, and policy decisions. It — not the chat transcript — is the evidence of what executed. |
 | **Tool** | A governed callable function. It is the lowest-level executable capability and may wrap system actions, workspace actions, app actions, or workflow runs. |
 | **Skill** | A reusable knowledge / instruction bundle that teaches the agent how to perform a class of tasks. A Skill can call tools, but is not itself a raw executor. |
 | **Workflow** | A visual, inspectable Eino-backed graph for branching, checkpoints, loops, parallelism, review gates, and repeated execution. |
@@ -108,6 +126,7 @@ L4 Consumer (Wails IPC, desktop windows, Web/SSE Gateway)
 
 ```text
 cmd/agentgo/          Wails v3 desktop entrypoint
+cmd/agentgo-web/      Browser edition served by one local binary (also the Windows 7 build)
 cmd/agentgo-cli/      Own terminal client: full-screen TUI chat on a terminal, `-plain` line mode, `run "task"`, approvals
 frontend/src/         Vue 3 TSX UI, panels, Wails bridge, mock runtime
 internal/agent/       Session orchestration, modes, ADK/Eino integration
@@ -117,6 +136,7 @@ internal/tools/       Built-in tools, dynamic tools, governed invocation
 internal/apps/        Inner App scanner, scaffold, verification, runtime metadata
 internal/memory/      Memory engine, recall, compaction, truth maintenance
 internal/governance/  Policy pipeline, approvals, audit, tool tracking
+internal/officedoc/   Office document tools: create/read/analyze/edit DOCX, XLSX, PPTX
 internal/capability/  Capability registry and event bus
 build/                Wails build config, icons, and platform packaging tasks
 ```
@@ -134,3 +154,5 @@ build/                Wails build config, icons, and platform packaging tasks
 ## 📄 License
 
 See [LICENSE](LICENSE).
+
+Third-party derived components retain their own terms. See [Crush attribution and scope](licenses/crush/NOTICE.md) and its accompanying license; the root Apache license does not relicense those components. Distribution review remains pending.

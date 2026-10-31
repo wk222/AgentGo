@@ -1,0 +1,46 @@
+/* shared/ui 原语样式：只用语义令牌，不写死颜色。 */
+.ui-toasts {
+  position: fixed; right: 12px; bottom: 36px; z-index: 1000;
+  display: flex; flex-direction: column; gap: 6px; width: min(360px, calc(100vw - 24px));
+  pointer-events: none;
+}
+.ui-toast {
+  pointer-events: auto; display: flex; align-items: flex-start; gap: 8px;
+  padding: 8px 10px; font-size: 12px; line-height: 1.45; color: var(--text);
+  background: var(--surface-2); border: 1px solid var(--border); border-left-width: 3px;
+  border-radius: var(--radius-md); box-shadow: var(--shadow-md);
+}
+.ui-toast--info { border-left-color: var(--info); }
+.ui-toast--success { border-left-color: var(--success); }
+.ui-toast--warning { border-left-color: var(--warning); }
+.ui-toast--error { border-left-color: var(--error); }
+.ui-toast-text { flex: 1; min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.ui-toast-close {
+  flex: none; display: grid; place-items: center; width: 18px; height: 18px; padding: 0;
+  color: var(--text-dim); background: transparent; border: 0; border-radius: var(--radius-sm); cursor: pointer;
+}
+.ui-toast-close:hover { color: var(--text-strong); background: var(--hover-bg); }
+
+.ui-modal-backdrop {
+  position: fixed; inset: 0; z-index: 1100; display: grid; place-items: center;
+  background: rgba(0, 0, 0, 0.45);
+}
+.ui-modal {
+  width: min(420px, calc(100vw - 32px)); padding: 14px 16px;
+  color: var(--text); background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); box-shadow: var(--shadow-xl);
+}
+.ui-modal-title { font-size: 13px; font-weight: 600; color: var(--text-strong); margin-bottom: 8px; }
+.ui-modal-body { font-size: 12.5px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ui-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+
+.ui-btn {
+  height: 28px; padding: 0 12px; font: inherit; font-size: 12px; color: var(--text);
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius-md); cursor: pointer;
+}
+.ui-btn:hover { background: var(--hover-bg); }
+.ui-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.ui-btn--primary { color: #fff; background: var(--accent); border-color: var(--accent); }
+.ui-btn--primary:hover { background: var(--accent-hover); }
+.ui-btn--danger { color: #fff; background: var(--error); border-color: var(--error); }
+.ui-btn--danger:hover { filter: brightness(1.1); }

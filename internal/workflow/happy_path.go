@@ -62,15 +62,15 @@ func HappyPathFlowgram() FlowgramDocument {
 	for i := range doc.Nodes {
 		switch doc.Nodes[i].ID {
 		case "start":
-			doc.Nodes[i].Meta.Position.X, doc.Nodes[i].Meta.Position.Y = 60, 100
+			doc.Nodes[i].Meta.Position.X, doc.Nodes[i].Meta.Position.Y = 60, 160
 		case "llm1":
-			doc.Nodes[i].Meta.Position.X, doc.Nodes[i].Meta.Position.Y = 260, 100
+			doc.Nodes[i].Meta.Position.X, doc.Nodes[i].Meta.Position.Y = 400, 140
 		case "tool1":
-			doc.Nodes[i].Meta.Position.X, doc.Nodes[i].Meta.Position.Y = 460, 100
+			doc.Nodes[i].Meta.Position.X, doc.Nodes[i].Meta.Position.Y = 740, 140
 		case "notify1":
-			doc.Nodes[i].Meta.Position.X, doc.Nodes[i].Meta.Position.Y = 660, 100
+			doc.Nodes[i].Meta.Position.X, doc.Nodes[i].Meta.Position.Y = 1080, 140
 		case "end":
-			doc.Nodes[i].Meta.Position.X, doc.Nodes[i].Meta.Position.Y = 860, 100
+			doc.Nodes[i].Meta.Position.X, doc.Nodes[i].Meta.Position.Y = 1420, 160
 		}
 	}
 	return doc

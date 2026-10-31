@@ -122,6 +122,12 @@ func (r *Runtime) SetWorkspaceRoot(path string) (WorkspaceInfo, error) {
 		}
 		return WorkspaceInfo{}, fmt.Errorf("switch workspace to %s failed, kept %s: %w", abs, prev, err)
 	}
+	if r.turnCheckpoints != nil {
+		// Checkpoints belong to the workspace they were taken in; free them now
+		// instead of leaving them to the budget. Re-applying the same folder
+		// (the !changed return above) keeps them.
+		r.turnCheckpoints.Clear()
+	}
 	return buildWorkspaceInfo(abs), nil
 }
 
@@ -130,12 +136,16 @@ func (r *Runtime) applyWorkspaceRoot(abs string) error {
 	var err error
 	wsMW := workspace.NewContextMiddleware(abs)
 	loader := skills.NewLoader(abs)
+	loader.SetCredentialFile(filepath.Join(r.dataDir, skillCredentialsFile))
 	loader.Reload()
 
 	r.mu.Lock()
 	r.workspace = abs
 	r.wsMiddleware = wsMW
 	r.skillLoader = loader
+	if r.agentPack != nil {
+		r.agentPack.Workspace = abs
+	}
 	policy := governance.BuildPolicy(r.governanceCfg.ControlMode, abs)
 	if r.toolReg != nil {
 		if err := tools.RegisterWorkspaceBoundTools(r.toolReg, abs); err != nil {

@@ -16,6 +16,7 @@ import (
 // not runtime configuration.
 var envAllowed = map[string]bool{
 	"AGENTGO_ARGS_FILE": true, // handed to generated python tool wrappers
+	"AGENTGO_IN_HOOK":   true, // set for every hook script; an agentgo that sees it runs no hooks, so a hook cannot start itself again
 }
 
 var envName = regexp.MustCompile(`^AGENTGO_[A-Z0-9_]+$`)

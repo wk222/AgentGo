@@ -42,11 +42,13 @@ func isChatModel(info *callbacks.RunInfo) bool {
 	return info != nil && (string(info.Component) == "ChatModel" || string(info.Component) == "chat_model")
 }
 
-// newUsageCallbackHandler reports chat-model token usage to obs. Streamed
-// calls (the normal path) never reach OnEnd; their usage rides on the last
+// newUsageCallbackHandler reports chat-model token usage to obs and feeds real
+// gateway prompt_tokens into the self-calibrating Pre-flight Context Gate.
+// Streamed calls (the normal path) never reach OnEnd; their usage rides on the last
 // chunk(s) of the stream copy handed to OnEndWithStreamOutput.
 func newUsageCallbackHandler(obs UsageObserver) callbacks.Handler {
-	return newUsageSinkHandler(func(_ string, tu *model.TokenUsage) {
+	return newUsageSinkHandler(func(modelName string, tu *model.TokenUsage) {
+		RecordPromptCalibration(modelName, 0, tu.PromptTokens)
 		obs.ModelUsage(tu.PromptTokens, tu.CompletionTokens)
 	}, nil)
 }
@@ -95,6 +97,7 @@ func newUsageSinkHandler(sink func(modelName string, tu *model.TokenUsage), pend
 					}
 				}
 				if last != nil {
+					RecordPromptCalibration(name, 0, last.PromptTokens)
 					sink(name, last)
 				}
 			}()

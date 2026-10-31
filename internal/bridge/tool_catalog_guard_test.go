@@ -21,7 +21,7 @@ import (
 // another fails here instead of silently hiding the tool from the model.
 
 var (
-	guardProfiles = []agent.ModeProfile{agent.ModeAssistant, agent.ModeAppMatrix, agent.ModeAdmin}
+	guardProfiles = []agent.ModeProfile{agent.ModeAssistant, agent.ModeAppMatrix, agent.ModeReverse, agent.ModeAdmin}
 	guardCanvases = []agent.ExecutionCanvas{agent.CanvasFocused, agent.CanvasBalanced, agent.CanvasDeep}
 )
 
@@ -96,7 +96,8 @@ func TestModeAllowlistsNameOnlyRegisteredTools(t *testing.T) {
 	reg := registeredToolNames(t, rt)
 	var dead []string
 	for name := range nonAdminAllowlist() {
-		if !reg[name] {
+		// computer_use is registered only when the user turns AGENTGO_COMPUTER_USE on.
+		if !reg[name] && name != "computer_use" {
 			dead = append(dead, name)
 		}
 	}

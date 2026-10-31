@@ -4,8 +4,8 @@ import "testing"
 
 func TestHarnessPresetsRoundTripThroughSessionMode(t *testing.T) {
 	hs := Harnesses()
-	if len(hs) != 4 {
-		t.Fatalf("expected 4 presets, got %d", len(hs))
+	if len(hs) != 5 {
+		t.Fatalf("expected 5 presets, got %d", len(hs))
 	}
 	seen := map[string]bool{}
 	for _, h := range hs {
@@ -35,6 +35,8 @@ func TestHarnessOfNonPresetCombinations(t *testing.T) {
 	}{
 		{SessionMode{Profile: ModeAppMatrix, Canvas: CanvasDeep}, HarnessCreative},
 		{SessionMode{Profile: ModeAppMatrix, Canvas: CanvasFocused}, HarnessCreative},
+		{SessionMode{Profile: ModeReverse, Canvas: CanvasFocused}, HarnessReverse},
+		{SessionMode{Profile: ModeReverse, Canvas: CanvasDeep}, HarnessReverse},
 		{SessionMode{Profile: ModeAdmin, Canvas: CanvasFocused}, HarnessUltimate},
 		{SessionMode{Profile: ModeAssistant, Canvas: CanvasDeep}, HarnessUltimate},
 		{SessionMode{}, HarnessStandard},
@@ -51,6 +53,7 @@ func TestResolveHarnessIsCaseInsensitiveAndKnowsLegacyIDs(t *testing.T) {
 	for in, want := range map[string]string{
 		"Ultimate": HarnessUltimate, " minimal ": HarnessMinimal,
 		"architect": HarnessUltimate, "coder": HarnessStandard, "ask": HarnessMinimal,
+		"re": HarnessReverse, "reverse-engineering": HarnessReverse, "REVERSE": HarnessReverse,
 	} {
 		h, ok := ResolveHarness(in)
 		if !ok || h.ID != want {

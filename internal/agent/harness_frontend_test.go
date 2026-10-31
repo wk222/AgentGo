@@ -7,10 +7,10 @@ import (
 	"testing"
 )
 
-// frontend/src/harness.ts keeps a copy of the presets as the offline / browser-preview
+// frontend/src/shared/harness.ts keeps a copy of the presets as the offline / browser-preview
 // fallback. The backend is the source of truth; this test fails when the copy drifts.
 func TestFrontendFallbackHarnessesMatchBackend(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join("..", "..", "frontend", "src", "harness.ts"))
+	raw, err := os.ReadFile(filepath.Join("..", "..", "frontend", "src", "shared", "harness.ts"))
 	if err != nil {
 		t.Skipf("frontend sources not available: %v", err)
 	}

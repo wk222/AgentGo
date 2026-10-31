@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"strings"
 	"sync"
@@ -10,15 +11,20 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"agentgo/internal/config"
+	"agentgo/internal/sessions"
 )
 
 // EpisodicCompressor runs MemoryDistill when the session spine needs compaction.
 type EpisodicCompressor struct {
-	pipeline *Pipeline
-	caller   LLMCaller
-	mu       sync.Mutex
-	lastRun  map[string]time.Time
-	cooldown time.Duration
+	pipeline     *Pipeline
+	caller       LLMCaller
+	mu           sync.Mutex
+	lastRun      map[string]time.Time
+	cooldown     time.Duration
+	inflight     map[string]bool
+	summaries    map[string]string
+	fingerprints map[string][32]byte
+	workers      chan struct{}
 }
 
 func NewEpisodicCompressor(pipeline *Pipeline, caller LLMCaller) *EpisodicCompressor {
@@ -27,6 +33,7 @@ func NewEpisodicCompressor(pipeline *Pipeline, caller LLMCaller) *EpisodicCompre
 		caller:   caller,
 		lastRun:  make(map[string]time.Time),
 		cooldown: 2 * time.Minute,
+		inflight: map[string]bool{}, summaries: map[string]string{}, fingerprints: map[string][32]byte{}, workers: make(chan struct{}, 2),
 	}
 }
 
@@ -60,6 +67,10 @@ func (c *EpisodicCompressor) CompressIfNeeded(ctx context.Context, scope string,
 		return ""
 	}
 
+	return c.compressTranscript(ctx, scope, conv)
+}
+
+func (c *EpisodicCompressor) compressTranscript(ctx context.Context, scope, conv string) string {
 	runCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
 
@@ -86,10 +97,71 @@ func (c *EpisodicCompressor) CompressIfNeeded(ctx context.Context, scope string,
 	return fmt.Sprintf("[episodic compress %s] %s", time.Now().Format("2006-01-02 15:04"), strings.TrimSpace(summary))
 }
 
+// CachedSummary never blocks a model call on journal/distill work. A bounded
+// worker pool refreshes changed sessions, and only successful summaries replace
+// the last known result. Cancellation still follows the active run.
+func (c *EpisodicCompressor) CachedSummary(ctx context.Context, scope string, msgs []*schema.Message, auto bool) string {
+	if c == nil || c.pipeline == nil {
+		return ""
+	}
+	scope = strings.TrimSpace(scope)
+	if scope == "" {
+		scope = "session"
+	}
+	c.mu.Lock()
+	previous := c.summaries[scope]
+	if !EpisodicCompressEnabled(auto) || c.inflight[scope] || time.Since(c.lastRun[scope]) < c.cooldown {
+		c.mu.Unlock()
+		return previous
+	}
+	c.mu.Unlock()
+	conv := transcriptForCompress(msgs, 24)
+	fingerprint := sha256.Sum256([]byte(conv))
+	c.mu.Lock()
+	cached := c.summaries[scope]
+	if !EpisodicCompressEnabled(auto) || conv == "" || c.inflight[scope] || c.fingerprints[scope] == fingerprint || time.Since(c.lastRun[scope]) < c.cooldown {
+		c.mu.Unlock()
+		return cached
+	}
+	select {
+	case c.workers <- struct{}{}:
+	default:
+		c.mu.Unlock()
+		return cached
+	}
+	if len(c.lastRun) >= 128 {
+		for key := range c.lastRun {
+			if !c.inflight[key] && key != scope {
+				delete(c.lastRun, key)
+				delete(c.summaries, key)
+				delete(c.fingerprints, key)
+				break
+			}
+		}
+	}
+	c.inflight[scope] = true
+	c.lastRun[scope] = time.Now()
+	c.mu.Unlock()
+	go func() {
+		defer func() { <-c.workers; c.mu.Lock(); delete(c.inflight, scope); c.mu.Unlock() }()
+		runCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		line := c.compressTranscript(runCtx, scope, conv)
+		if line != "" {
+			c.mu.Lock()
+			c.summaries[scope] = line
+			c.fingerprints[scope] = fingerprint
+			c.mu.Unlock()
+		}
+	}()
+	return cached
+}
+
 func transcriptForCompress(msgs []*schema.Message, maxLines int) string {
 	var lines []string
+	firstUser := ""
 	for _, msg := range msgs {
-		if msg == nil {
+		if msg == nil || sessions.IsContextMessage(msg) {
 			continue
 		}
 		c := strings.TrimSpace(msg.Content)
@@ -97,12 +169,28 @@ func transcriptForCompress(msgs []*schema.Message, maxLines int) string {
 			continue
 		}
 		switch msg.Role {
-		case schema.User, schema.Assistant:
-			lines = append(lines, string(msg.Role)+": "+c)
+		case schema.User, schema.Assistant, schema.Tool:
+			r := []rune(c)
+			if len(r) > 4000 {
+				c = string(r[:2600]) + " …[omitted]… " + string(r[len(r)-1400:])
+			}
+			line := string(msg.Role) + ": " + c
+			if msg.Role == schema.User && firstUser == "" {
+				firstUser = line
+			}
+			lines = append(lines, line)
 		}
 	}
 	if maxLines > 0 && len(lines) > maxLines {
 		lines = lines[len(lines)-maxLines:]
+		if firstUser != "" && !strings.Contains(strings.Join(lines, "\n"), firstUser) {
+			lines = append([]string{firstUser}, lines...)
+		}
 	}
-	return strings.Join(lines, "\n")
+	text := strings.Join(lines, "\n")
+	r := []rune(text)
+	if len(r) > 32000 {
+		text = string(r[:16000]) + "\n[transcript excerpt shortened]\n" + string(r[len(r)-16000:])
+	}
+	return text
 }

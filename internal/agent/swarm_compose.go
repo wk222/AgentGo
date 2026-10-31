@@ -26,6 +26,7 @@ type SwarmPart struct {
 
 // RunSwarm executes registered subagents in parallel via an Eino compose graph (fan-out / fan-in).
 func (r *Runner) RunSwarm(ctx context.Context, cfg LLMSettings, sessionID string, req SwarmRequest) (string, error) {
+	ctx = withLLMBudget(ctx, cfg)
 	if r == nil || r.subagentReg == nil {
 		return "", fmt.Errorf("swarm: subagent registry unavailable")
 	}

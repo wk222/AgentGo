@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"strings"
+
+	"agentgo/internal/pathgrant"
 )
 
 // ToolPolicyContext carries per-invocation state for staged evaluation.
@@ -37,7 +39,7 @@ func (p *ToolPolicyPipeline) Evaluate(ctx ToolPolicyContext) ToolControlDecision
 	if p == nil || len(p.stages) == 0 {
 		return ctx.Control.EvaluateToolCall(ctx.ToolName, ctx.IsDynamic)
 	}
-	var tags []string
+	var tags, grantDirs []string
 	risk := RiskLow
 	approvalRequired := false
 	var approvalReason string
@@ -52,6 +54,7 @@ func (p *ToolPolicyPipeline) Evaluate(ctx ToolPolicyContext) ToolControlDecision
 		}
 		risk = maxRisk(risk, dec.Risk)
 		tags = append(tags, dec.ControlTags...)
+		grantDirs = append(grantDirs, dec.GrantDirs...)
 		if !dec.Allowed {
 			dec.ControlTags = dedupeTags(append(tags, dec.ControlTags...))
 			dec.Risk = risk
@@ -81,6 +84,7 @@ func (p *ToolPolicyPipeline) Evaluate(ctx ToolPolicyContext) ToolControlDecision
 		RequiresApproval: approvalRequired,
 		Reason:           approvalReason,
 		ControlTags:      tags,
+		GrantDirs:        dedupeTags(grantDirs),
 	}
 }
 
@@ -94,7 +98,12 @@ func (p *ToolPolicyPipeline) Describe() []string {
 	return out
 }
 
-// PathPolicyStage blocks path traversal and paths outside workspace root.
+// PathPolicyStage keeps tool calls inside the workspace. A path with ".." is
+// refused outright. An absolute path outside the workspace is held for the
+// user's approval (balanced and open modes), because people do keep their files
+// elsewhere: approving the call grants that folder for the rest of the run, and
+// the tools' own path jails then accept it (see internal/pathgrant). Strict mode
+// and system, credential and application-data folders are always refused.
 type PathPolicyStage struct{}
 
 func (PathPolicyStage) Name() string { return "path_policy" }
@@ -108,6 +117,7 @@ func (PathPolicyStage) Evaluate(ctx ToolPolicyContext) *ToolControlDecision {
 	if err != nil {
 		return nil
 	}
+	var outside, grants []string
 	args := parseToolArgsJSON(ctx.Arguments)
 	for key, val := range args {
 		if !isPathArgKey(key) {
@@ -126,25 +136,67 @@ func (PathPolicyStage) Evaluate(ctx ToolPolicyContext) *ToolControlDecision {
 				p = filepath.Join(absRoot, p)
 			}
 			abs, err := filepath.Abs(p)
-			if err != nil {
+			if err != nil || pathUnderRoot(abs, absRoot) || pathgrant.Default.Allowed(absRoot, abs) {
 				continue
 			}
-			if !pathUnderRoot(abs, absRoot) {
+			if why := pathgrant.Default.Forbidden(abs); why != "" || ctx.Control.Mode == ControlStrict {
+				if why == "" {
+					why = "严格模式下不允许访问工作区以外的路径"
+				}
 				return &ToolControlDecision{
 					Allowed: false, Risk: RiskCritical,
-					Reason:      "路径超出工作区根目录: " + item,
+					Reason:      "路径超出工作区根目录且不可授权（" + why + "）: " + item,
 					ControlTags: []string{"path-policy", "path-outside-root"},
 				}
 			}
+			outside = append(outside, abs)
+			grants = append(grants, pathgrant.DirFor(abs, isDirArgKey(key)))
 		}
 	}
-	return nil
+	if len(outside) == 0 {
+		return nil
+	}
+	return &ToolControlDecision{
+		Allowed: true, Risk: RiskHigh, RequiresApproval: true,
+		Reason: "访问工作区以外的路径: " + strings.Join(dedupeTags(outside), "；") +
+			"。同意后，本次运行期间可读写这些位置所在的文件夹: " + strings.Join(dedupeTags(grants), "；"),
+		ControlTags: []string{"path-policy", "path-outside-root", "needs-grant"},
+		GrantDirs:   dedupeTags(grants),
+	}
+}
+
+// GrantOutsideDirs records the folders outside the workspace that a call's
+// arguments name, as approved by the user. It is called only once the call has
+// been approved (or needs no approval), and only for folders the path policy
+// allows to be granted.
+func GrantOutsideDirs(workspaceRoot, arguments string) {
+	root := strings.TrimSpace(workspaceRoot)
+	if root == "" {
+		return
+	}
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return
+	}
+	for key, val := range parseToolArgsJSON(arguments) {
+		if !isPathArgKey(key) {
+			continue
+		}
+		for _, item := range iterPathValues(val) {
+			if strings.Contains(item, "..") || !filepath.IsAbs(filepath.Clean(item)) {
+				continue
+			}
+			abs, err := filepath.Abs(filepath.Clean(item))
+			if err != nil || pathUnderRoot(abs, absRoot) {
+				continue
+			}
+			pathgrant.Default.Grant(absRoot, pathgrant.DirFor(abs, isDirArgKey(key)))
+		}
+	}
 }
 
 // RateLimitStage enforces per-session per-tool call caps.
-type RateLimitStage struct {
-	Tracker *ToolCallTracker
-}
+type RateLimitStage struct{}
 
 func (RateLimitStage) Name() string { return "rate_limit" }
 
@@ -154,9 +206,6 @@ func (s RateLimitStage) Evaluate(ctx ToolPolicyContext) *ToolControlDecision {
 		return nil
 	}
 	recent := ctx.RecentCalls
-	if s.Tracker != nil {
-		recent = s.Tracker.RecentCount(ctx.SessionID, ctx.ToolName)
-	}
 	if recent < max {
 		return nil
 	}
@@ -168,18 +217,16 @@ func (s RateLimitStage) Evaluate(ctx ToolPolicyContext) *ToolControlDecision {
 }
 
 // StuckLoopStage blocks when the same tool repeats too often in one session.
-type StuckLoopStage struct {
-	Tracker *ToolCallTracker
-}
+type StuckLoopStage struct{}
 
 func (StuckLoopStage) Name() string { return "stuck_loop" }
 
 func (s StuckLoopStage) Evaluate(ctx ToolPolicyContext) *ToolControlDecision {
 	kill := ctx.Control.StuckLoopKillThreshold
-	if kill <= 0 || s.Tracker == nil {
+	if kill <= 0 {
 		return nil
 	}
-	n := s.Tracker.RecentCount(ctx.SessionID, ctx.ToolName)
+	n := ctx.RecentCalls
 	if n < kill {
 		return nil
 	}
@@ -210,16 +257,40 @@ func (BashPatternStage) Evaluate(ctx ToolPolicyContext) *ToolControlDecision {
 			}
 		}
 	}
-	return nil
+	command := ctx.Arguments
+	if c, ok := parseToolArgsJSON(ctx.Arguments)["command"].(string); ok {
+		command = c
+	}
+	deletes := shellDeletes(command, 0)
+	if len(deletes) == 0 {
+		return nil
+	}
+	if d, bad := catastrophicDelete(deletes); bad {
+		return &ToolControlDecision{
+			Allowed: false, Risk: RiskCritical,
+			Reason:      "递归删除受保护位置（盘符根目录、用户目录或系统目录）: " + d.String(),
+			ControlTags: []string{"bash-pattern", "shell-delete-protected"},
+		}
+	}
+	shown := make([]string, 0, len(deletes))
+	for _, d := range deletes {
+		shown = append(shown, d.String())
+	}
+	return &ToolControlDecision{
+		Allowed: true, Risk: RiskHigh, RequiresApproval: true,
+		Reason:      "命令包含删除操作，请核对目标: " + strings.Join(shown, "；"),
+		ControlTags: []string{"shell-delete"},
+	}
 }
 
 // BuildDefaultToolPolicyPipeline constructs the standard multi-stage pipeline.
-func BuildDefaultToolPolicyPipeline(policy Policy, tracker *ToolCallTracker) *ToolPolicyPipeline {
+func BuildDefaultToolPolicyPipeline() *ToolPolicyPipeline {
 	return NewToolPolicyPipeline(
 		PathPolicyStage{},
 		BashPatternStage{},
-		RateLimitStage{Tracker: tracker},
-		StuckLoopStage{Tracker: tracker},
+		ElevatedStage{},
+		RateLimitStage{},
+		StuckLoopStage{},
 	)
 }
 
@@ -246,11 +317,22 @@ func dedupeTags(in []string) []string {
 
 func isPathArgKey(key string) bool {
 	switch strings.ToLower(key) {
-	case "path", "file_path", "target_path", "directory", "dir", "workspace_dir", "cwd":
+	case "path", "file_path", "target_path", "directory", "dir", "workspace_dir", "cwd",
+		// Office tools name their files relative_path, save_as and template.
+		"relative_path", "save_as", "template":
 		return true
 	default:
 		return false
 	}
+}
+
+// isDirArgKey reports argument names that hold a folder rather than a file.
+func isDirArgKey(key string) bool {
+	switch strings.ToLower(key) {
+	case "directory", "dir", "workspace_dir", "cwd":
+		return true
+	}
+	return false
 }
 
 func parseToolArgsJSON(raw string) map[string]any {

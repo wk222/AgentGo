@@ -1,0 +1,41 @@
+<html><body><pre id="result">RUNNING</pre><div id="app"></div><script type="module">
+import {createApp,nextTick} from 'vue'
+import App from '/src/App.tsx'
+import {useLayout} from '/src/stores/useLayout.ts'
+import {togglePinnedPage,pinnedPages} from '/src/stores/generatedPages.ts'
+import '/src/style.css'
+import '/src/styles/refined-ui.css'
+const result=document.querySelector('#result')
+const check=(value,message)=>{if(!value)throw Error(message)}
+try {
+ const layout=useLayout()
+ layout.state.sidebarOpen=true
+ layout.focusAgent()
+ createApp(App).mount('#app')
+ await new Promise(r=>setTimeout(r,1800))
+ check(!document.querySelector('.activitybar'),'duplicate icon navigation')
+ check(!document.querySelector('.center-workspace-pane'),'workbench mounted on first conversation')
+ layout.setView('workflow');await nextTick()
+ check(layout.state.agent==='hidden','workflow did not enter independent space')
+ layout.setAgent('docked');await nextTick()
+ const agent=document.querySelector('.agent-console-pane').getBoundingClientRect()
+ const canvas=document.querySelector('.center-workspace-pane').getBoundingClientRect()
+ check(agent.left>canvas.left,'workflow assistant was not on the right')
+ layout.setView('create');await new Promise(r=>setTimeout(r,1200))
+ check(!document.querySelector('.agent-console-pane'),'creation center squeezed by chat')
+ check(!document.querySelector('.scene-tabbar'),'unrelated scene tabs visible in creation center')
+ if(!pinnedPages.value.includes('demo'))togglePinnedPage('demo')
+ layout.setView('app:demo');await new Promise(r=>setTimeout(r,1200))
+ check(document.querySelector('.generated-page-header')?.textContent.includes('demo'),'pinned generated page missing')
+ layout.setView('create');await new Promise(r=>setTimeout(r,600))
+ const input=document.querySelector('#extension-requirement')
+ input.value='创建一个 CSV 汇总工具'
+ input.dispatchEvent(new Event('input',{bubbles:true}))
+ await nextTick()
+ document.querySelector('.creation-submit').click()
+ await nextTick()
+ check(layout.state.agent==='maximized','creation did not open conversation')
+ check(document.querySelector('.msg-row.user')?.textContent.includes('CSV 汇总工具'),'creation request not handed to conversation')
+ result.textContent='PASS: unified navigation; conversation first; independent workflow; right assistant; independent creation center; pinned page; creation handoff'
+} catch(e) {result.textContent='FAIL: '+e.message}
+</script></body></html>

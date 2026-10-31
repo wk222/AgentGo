@@ -74,6 +74,9 @@ func TestSetDefaultDoesNotOverrideUser(t *testing.T) {
 
 func TestSnapshotMasksSecretsAndIsSorted(t *testing.T) {
 	t.Setenv("AGENTGO_API_KEY", "sk-super-secret")
+	if APIKey.Get() != "sk-super-secret" {
+		t.Fatal("a secret flag must still read back its real value")
+	}
 	snap := Snapshot()
 	if len(snap) < 50 {
 		t.Fatalf("snapshot has %d flags", len(snap))

@@ -169,7 +169,7 @@ func TestToolHooksOnlySeeCallsThatActuallyRun(t *testing.T) {
 		if l.joined() != "" {
 			t.Fatalf("hooks ran while the call was only waiting for approval: %s", l.joined())
 		}
-		ctx := context.Background()
+		ctx := WithSessionID(context.Background(), "sess-1")
 		pending, err := r.queue.ListPending(ctx, nil)
 		if err != nil || len(pending) != 1 {
 			t.Fatalf("pending=%d err=%v", len(pending), err)

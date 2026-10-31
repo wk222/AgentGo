@@ -66,7 +66,7 @@ func (s *AppService) RunSwarm(sessionID, topic, agentIDsJSON string) map[string]
 		_ = json.Unmarshal([]byte(agentIDsJSON), &ids)
 	}
 	cfg := s.rt.LLMConfig()
-	llm := agent.LLMSettings{APIBase: cfg.APIBase, APIKey: cfg.APIKey, Model: cfg.Model}
+	llm := cfg.agentSettings()
 	out, err := runner.RunSwarm(context.Background(), llm, sessionID, agent.SwarmRequest{
 		Topic: topic, AgentIDs: ids,
 	})

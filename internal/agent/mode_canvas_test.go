@@ -7,7 +7,7 @@ func TestCanvasEinoTriggers(t *testing.T) {
 		t.Fatal("focused should summarize earlier than deep")
 	}
 	m := SessionMode{Canvas: CanvasFocused}
-	if m.SummarizationTokenTrigger() != 60_000 {
+	if m.SummarizationTokenTrigger() != 12_000 {
 		t.Fatalf("got %d", m.SummarizationTokenTrigger())
 	}
 	if m.MaxIterations() != 6 {

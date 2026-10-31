@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"agentgo/internal/processutil"
 	"context"
 	"fmt"
 	"os/exec"
@@ -14,6 +15,7 @@ func IsDockerAvailable(ctx context.Context) bool {
 	cctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(cctx, "docker", "info")
+	processutil.HideWindow(cmd)
 	err := cmd.Run()
 	return err == nil
 }
@@ -42,7 +44,8 @@ func RunInContainer(ctx context.Context, image string, hostDir string, container
 	args = append(args, cmdArgs...)
 
 	cmd := exec.CommandContext(ctx, "docker", args...)
-	var stdout, stderr strings.Builder
+	processutil.HideWindow(cmd)
+	var stdout, stderr processutil.OutputBuffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 

@@ -44,7 +44,10 @@ func (m Message) meta() map[string]any {
 // Transcript owns the conversation record of a session: it loads the history a
 // run starts from and stores what the user and the agent said. Every entry
 // point must go through it, otherwise a session forgets its earlier turns.
-type Transcript struct{ log Log }
+type Transcript struct {
+	log         Log
+	artifactDir string // see WithArtifactDir
+}
 
 // NewTranscript returns a Transcript over log. A nil log disables persistence.
 func NewTranscript(log Log) *Transcript { return &Transcript{log: log} }
@@ -70,15 +73,41 @@ func (t *Transcript) Begin(ctx context.Context, sessionID, userText string, imag
 		return ctx
 	}
 	_ = t.log.EnsureSession(context.Background(), sessionID)
-	ctx = agent.WithHistory(ctx, t.History(ctx, sessionID))
+	// Capture before writing the current user message: migration must not import it twice.
+	source, historyErr := t.log.GetMessages(ctx, sessionID, 500)
+	ctx = agent.WithHistory(ctx, BuildHistory(source, HistoryMaxMessages, HistoryMaxRunes))
+	ctx = agent.WithMigrationHistory(ctx, func(loadCtx context.Context) ([]*schema.Message, error) {
+		if historyErr != nil {
+			return nil, historyErr
+		}
+		return BuildMigrationHistory(loadCtx, source)
+	})
 	var meta map[string]any
-	if len(images) > 0 {
-		meta = map[string]any{"images": images}
+	if extra := TurnMetaFrom(ctx); len(images) > 0 || len(extra) > 0 {
+		meta = make(map[string]any, len(extra)+1)
+		for k, v := range extra {
+			meta[k] = v
+		}
+		if len(images) > 0 {
+			meta["images"] = images
+		}
 	}
 	pctx := context.Background() // the record must survive cancellation of the run
 	_ = t.log.AppendMessage(pctx, sessionID, "user", userText, "text", meta)
 	_ = t.log.AutoTitleFromUserMessage(pctx, sessionID, userText)
-	return ctx
+	return t.RecordEvidence(ctx, sessionID)
+}
+
+// Note stores a line about something that happened to the workspace between
+// turns (a rollback, say). It is stored as an assistant text message, so the
+// model reads it as part of the history on the next turn; the UI can draw it as a
+// divider through meta["kind"].
+func (t *Transcript) Note(sessionID, text string, meta map[string]any) {
+	sessionID = strings.TrimSpace(sessionID)
+	if t == nil || t.log == nil || sessionID == "" || strings.TrimSpace(text) == "" {
+		return
+	}
+	_ = t.log.AppendMessage(context.Background(), sessionID, "assistant", text, "text", meta)
 }
 
 // Finish stores the reply messages of a turn.

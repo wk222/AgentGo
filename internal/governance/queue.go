@@ -94,7 +94,7 @@ func initSchema(db *sql.DB) error {
 	);
 	CREATE INDEX IF NOT EXISTS idx_gov_audit_session ON governance_audit_log(session_id);
 	`
-	_, err := db.Exec(query)
+	_, err := db.Exec(query + executionSchema)
 	if err != nil {
 		return err
 	}
@@ -120,6 +120,17 @@ func (q *ApprovalQueue) CreateRequest(ctx context.Context, req *ApprovalRequest)
 		req.ID = fmt.Sprintf("appr_%s", uuid.New().String()[:12])
 	}
 
+	if req.Kind == string(KindToolApproval) {
+		if req.Metadata == nil {
+			req.Metadata = map[string]interface{}{}
+		}
+		if _, ok := req.Metadata["session_id"]; !ok {
+			req.Metadata["session_id"] = SessionIDFromContext(ctx)
+		}
+		if _, ok := req.Metadata["call_id"]; !ok {
+			req.Metadata["call_id"] = callIDFrom(ctx)
+		}
+	}
 	metaJSON, _ := json.Marshal(req.Metadata)
 	labelsJSON, _ := json.Marshal(req.Labels)
 	policyTagsJSON, _ := json.Marshal(req.PolicyTags)
@@ -384,10 +395,36 @@ func (q *ApprovalQueue) Consume(ctx context.Context, id string) error {
 	return nil
 }
 
-func (q *ApprovalQueue) findApprovedUnconsumed(ctx context.Context, fingerprint string) (string, bool) {
-	row := q.db.QueryRowContext(ctx,
-		`SELECT id FROM approvals WHERE fingerprint = ? AND status = 'approved' AND consumed_at IS NULL LIMIT 1`,
-		fingerprint)
+const approvalBindingPredicate = `kind='tool_approval' AND COALESCE(json_extract(CASE WHEN json_valid(metadata) THEN metadata ELSE '{}' END,'$.session_id'),'desktop')=? AND COALESCE(json_extract(CASE WHEN json_valid(metadata) THEN metadata ELSE '{}' END,'$.workspace'),'')=? AND COALESCE(json_extract(CASE WHEN json_valid(metadata) THEN metadata ELSE '{}' END,'$.call_id'),'')=? AND COALESCE(json_extract(CASE WHEN json_valid(metadata) THEN metadata ELSE '{}' END,'$.execution_id'),?)=? AND COALESCE(json_extract(CASE WHEN json_valid(metadata) THEN metadata ELSE '{}' END,'$.tool_definition'),'')=?`
+
+// A successful conditional UPDATE is the sole authority to execute an approved
+// call. Lookup followed by an unchecked Consume permits concurrent double use.
+type approvalExecutor interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+func consumeBoundApproval(ctx context.Context, db approvalExecutor, id, fingerprint, workspace string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	root := executionID(ctx, workspace)
+	res, err := db.ExecContext(ctx, `UPDATE approvals SET consumed_at=? WHERE id=? AND fingerprint=? AND status='approved' AND consumed_at IS NULL AND `+approvalBindingPredicate, time.Now().Unix(), id, fingerprint, SessionIDFromContext(ctx), workspace, callIDFrom(ctx), root, root, ToolDefinitionFromContext(ctx))
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return fmt.Errorf("governance: approval unavailable, outside this invocation, or already consumed; execution was not started")
+	}
+	return nil
+}
+
+func (q *ApprovalQueue) findApprovedUnconsumed(ctx context.Context, fingerprint, workspace string) (string, bool) {
+	root := executionID(ctx, workspace)
+	row := q.db.QueryRowContext(ctx, `SELECT id FROM approvals WHERE fingerprint=? AND status='approved' AND consumed_at IS NULL AND `+approvalBindingPredicate+` LIMIT 1`, fingerprint, SessionIDFromContext(ctx), workspace, callIDFrom(ctx), root, root, ToolDefinitionFromContext(ctx))
 	var id string
 	if err := row.Scan(&id); err != nil {
 		return "", false
@@ -395,10 +432,9 @@ func (q *ApprovalQueue) findApprovedUnconsumed(ctx context.Context, fingerprint 
 	return id, true
 }
 
-func (q *ApprovalQueue) findPending(ctx context.Context, fingerprint string) (string, bool) {
-	row := q.db.QueryRowContext(ctx,
-		`SELECT id FROM approvals WHERE fingerprint = ? AND status = 'pending' LIMIT 1`,
-		fingerprint)
+func (q *ApprovalQueue) findPending(ctx context.Context, fingerprint, workspace string) (string, bool) {
+	root := executionID(ctx, workspace)
+	row := q.db.QueryRowContext(ctx, `SELECT id FROM approvals WHERE fingerprint=? AND status='pending' AND `+approvalBindingPredicate+` LIMIT 1`, fingerprint, SessionIDFromContext(ctx), workspace, callIDFrom(ctx), root, root, ToolDefinitionFromContext(ctx))
 	var id string
 	if err := row.Scan(&id); err != nil {
 		return "", false

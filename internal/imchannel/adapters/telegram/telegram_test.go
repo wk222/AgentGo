@@ -1,0 +1,454 @@
+package telegram
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"agentgo/internal/imchannel"
+)
+
+// fakeBotAPI is a minimal Telegram Bot API server. It serves getMe, one batch
+// of updates, and records sendMessage calls.
+type fakeBotAPI struct {
+	mu        sync.Mutex
+	updates   []tgUpdate
+	served    bool
+	sent      []map[string]any
+	edited    []map[string]any
+	sendFail  int // fail the first N sendMessage calls with a parse error
+	rateLimit int // return 429 for the first N sendMessage calls
+	srv       *httptest.Server
+	botUserID int64
+}
+
+func newFakeBotAPI(t *testing.T) *fakeBotAPI {
+	f := &fakeBotAPI{botUserID: 42}
+	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var params map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&params)
+
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/getMe"):
+			writeResult(w, map[string]any{"id": f.botUserID, "username": "octo_bot"})
+		case strings.HasSuffix(r.URL.Path, "/getUpdates"):
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			if f.served {
+				// Hold like a long poll, then return empty.
+				time.Sleep(50 * time.Millisecond)
+				writeResult(w, []any{})
+				return
+			}
+			f.served = true
+			writeResult(w, f.updates)
+		case strings.HasSuffix(r.URL.Path, "/sendMessage"):
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			if f.rateLimit > 0 {
+				f.rateLimit--
+				writeRateLimited(w, 1)
+				return
+			}
+			if f.sendFail > 0 && params["parse_mode"] != nil {
+				f.sendFail--
+				writeError(w, 400, "Bad Request: can't parse entities")
+				return
+			}
+			f.sent = append(f.sent, params)
+			writeResult(w, map[string]any{"message_id": 100 + len(f.sent)})
+		case strings.HasSuffix(r.URL.Path, "/editMessageText"):
+			f.mu.Lock()
+			f.edited = append(f.edited, params)
+			f.mu.Unlock()
+			writeResult(w, map[string]any{"message_id": 7})
+		case strings.HasSuffix(r.URL.Path, "/sendChatAction"):
+			writeResult(w, true)
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	t.Cleanup(f.srv.Close)
+	return f
+}
+
+func writeResult(w http.ResponseWriter, result any) {
+	json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": result})
+}
+
+func writeError(w http.ResponseWriter, code int, desc string) {
+	json.NewEncoder(w).Encode(map[string]any{"ok": false, "error_code": code, "description": desc})
+}
+
+func writeRateLimited(w http.ResponseWriter, retryAfter int) {
+	json.NewEncoder(w).Encode(map[string]any{
+		"ok":          false,
+		"error_code":  429,
+		"description": "Too Many Requests: retry after",
+		"parameters":  map[string]any{"retry_after": retryAfter},
+	})
+}
+
+func newTestAdapter(t *testing.T, f *fakeBotAPI, extra map[string]any) *Adapter {
+	cfg := channel.PlatformConfig{"bot_token": "tok", "base_url": f.srv.URL}
+	for k, v := range extra {
+		cfg[k] = v
+	}
+	ad, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ad.(*Adapter)
+}
+
+func update(chatType string, chatID, fromID int64, text string) tgUpdate {
+	var msg tgMessage
+	msg.MessageID = 1
+	msg.Chat.ID = chatID
+	msg.Chat.Type = chatType
+	msg.From.ID = fromID
+	msg.Text = text
+	return tgUpdate{UpdateID: 1, Message: &msg}
+}
+
+// collectEvents runs Start until one event arrives or the timeout elapses.
+func collectEvents(t *testing.T, a *Adapter, want int) []channel.InboundEvent {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	var mu sync.Mutex
+	var events []channel.InboundEvent
+	done := make(chan struct{})
+	go func() {
+		_ = a.Start(ctx, func(ev channel.InboundEvent) {
+			mu.Lock()
+			events = append(events, ev)
+			if len(events) >= want {
+				cancel()
+			}
+			mu.Unlock()
+		})
+		close(done)
+	}()
+	<-done
+	mu.Lock()
+	defer mu.Unlock()
+	return events
+}
+
+func TestNew_RequiresToken(t *testing.T) {
+	if _, err := New(channel.PlatformConfig{}); err == nil {
+		t.Fatal("expected error for missing bot_token")
+	}
+}
+
+func TestStart_DeliversDirectMessage(t *testing.T) {
+	f := newFakeBotAPI(t)
+	f.updates = []tgUpdate{update("private", 1001, 2002, "hello octo")}
+	a := newTestAdapter(t, f, nil)
+
+	events := collectEvents(t, a, 1)
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	ev := events[0]
+	if ev.Platform != "telegram" || ev.ChatID != "1001" || ev.UserID != "2002" ||
+		ev.Text != "hello octo" || ev.ChatType != "direct" {
+		t.Fatalf("unexpected event: %+v", ev)
+	}
+}
+
+func TestStart_GroupRequiresMention(t *testing.T) {
+	f := newFakeBotAPI(t)
+	f.updates = []tgUpdate{
+		update("supergroup", 1, 2, "ambient chatter"),
+		update("supergroup", 1, 2, "@octo_bot do the thing"),
+	}
+	a := newTestAdapter(t, f, nil)
+
+	events := collectEvents(t, a, 1)
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	if events[0].Text != "do the thing" {
+		t.Fatalf("mention not stripped: %q", events[0].Text)
+	}
+}
+
+func TestStart_GroupReplyToBot(t *testing.T) {
+	f := newFakeBotAPI(t)
+	upd := update("group", 1, 2, "continue please")
+	upd.Message.ReplyToMessage = &struct {
+		From struct {
+			ID int64 `json:"id"`
+		} `json:"from"`
+	}{}
+	upd.Message.ReplyToMessage.From.ID = f.botUserID
+	f.updates = []tgUpdate{upd}
+	a := newTestAdapter(t, f, nil)
+
+	events := collectEvents(t, a, 1)
+	if len(events) != 1 || events[0].ChatType != "group" {
+		t.Fatalf("expected reply-to-bot group event, got %+v", events)
+	}
+}
+
+func TestStart_AllowedUsersFilters(t *testing.T) {
+	f := newFakeBotAPI(t)
+	f.updates = []tgUpdate{
+		update("private", 1, 999, "stranger"),
+		update("private", 1, 2002, "friend"),
+	}
+	a := newTestAdapter(t, f, map[string]any{"allowed_users": "2002"})
+
+	events := collectEvents(t, a, 1)
+	if len(events) != 1 || events[0].Text != "friend" {
+		t.Fatalf("allowed_users not enforced: %+v", events)
+	}
+}
+
+// #1118: a 429 used to fail SendText outright — with a multi-chunk message
+// that meant chunk 1 arrives and chunk 2 silently vanishes. It should now
+// honor retry_after and retry instead of dropping the chunk.
+func TestSendText_RetriesOnRateLimit(t *testing.T) {
+	f := newFakeBotAPI(t)
+	f.rateLimit = 1
+	a := newTestAdapter(t, f, nil)
+
+	res := a.SendText("123", "hello", "")
+	if !res.OK {
+		t.Fatalf("expected retry to succeed, got %+v", res)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.sent) != 1 {
+		t.Fatalf("expected exactly one delivered message after the retry, got %d", len(f.sent))
+	}
+}
+
+// #1118: retries are bounded — a chat that's rate-limited past the retry
+// budget must still surface a real error, not hang or silently swallow it.
+func TestSendText_GivesUpAfterMaxRateLimitRetries(t *testing.T) {
+	f := newFakeBotAPI(t)
+	f.rateLimit = maxRateLimitRetries + 1
+	a := newTestAdapter(t, f, nil)
+
+	res := a.SendText("123", "hello", "")
+	if res.OK {
+		t.Fatalf("expected send to fail after exhausting retries, got %+v", res)
+	}
+}
+
+func TestSendText_ParseErrorFallsBackToPlain(t *testing.T) {
+	f := newFakeBotAPI(t)
+	f.sendFail = 1
+	a := newTestAdapter(t, f, nil)
+
+	res := a.SendText("123", "broken *markdown", "")
+	if !res.OK {
+		t.Fatalf("expected fallback success, got %+v", res)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.sent) != 1 || f.sent[0]["parse_mode"] != nil {
+		t.Fatalf("expected one plain-text send, got %+v", f.sent)
+	}
+}
+
+func TestSendText_SplitsLongMessages(t *testing.T) {
+	f := newFakeBotAPI(t)
+	a := newTestAdapter(t, f, nil)
+
+	long := strings.Repeat("word ", 1200) // ~6000 chars
+	res := a.SendText("123", long, "")
+	if !res.OK {
+		t.Fatalf("send failed: %+v", res)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.sent) < 2 {
+		t.Fatalf("expected split into >=2 messages, got %d", len(f.sent))
+	}
+	for _, p := range f.sent {
+		if len(p["text"].(string)) > maxMessageBytes {
+			t.Fatalf("chunk exceeds cap: %d bytes", len(p["text"].(string)))
+		}
+	}
+}
+
+// #1119: HTML is now the default parse_mode, and outgoing text is rendered
+// through the goldmark-based converter before it's sent.
+func TestSendText_DefaultsToRenderedHTML(t *testing.T) {
+	f := newFakeBotAPI(t)
+	a := newTestAdapter(t, f, nil)
+
+	res := a.SendText("123", "**bold** and _italic_", "")
+	if !res.OK {
+		t.Fatalf("send failed: %+v", res)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.sent) != 1 {
+		t.Fatalf("expected one message, got %d", len(f.sent))
+	}
+	if f.sent[0]["parse_mode"] != "HTML" {
+		t.Fatalf("expected parse_mode=HTML, got %v", f.sent[0]["parse_mode"])
+	}
+	want := "<b>bold</b> and <i>italic</i>"
+	if f.sent[0]["text"] != want {
+		t.Fatalf("text = %q, want %q", f.sent[0]["text"], want)
+	}
+}
+
+// An explicit parse_mode override (legacy Markdown, MarkdownV2, or "" for
+// plain text) must bypass the HTML renderer entirely and go out unchanged,
+// same as before #1119.
+func TestSendText_ExplicitParseModeBypassesRenderer(t *testing.T) {
+	f := newFakeBotAPI(t)
+	a := newTestAdapter(t, f, map[string]any{"parse_mode": ""})
+
+	res := a.SendText("123", "**not rendered**", "")
+	if !res.OK {
+		t.Fatalf("send failed: %+v", res)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.sent[0]["parse_mode"] != nil {
+		t.Fatalf("expected no parse_mode, got %v", f.sent[0]["parse_mode"])
+	}
+	if f.sent[0]["text"] != "**not rendered**" {
+		t.Fatalf("text was rendered despite explicit plain parse_mode: %v", f.sent[0]["text"])
+	}
+}
+
+// If tag overhead pushes a rendered chunk past Telegram's real 4096-char hard
+// cap, renderForSend must fall back to the plain chunk rather than send an
+// oversized (or truncated) request.
+func TestRenderForSend_FallsBackWhenRenderedExceedsHardCap(t *testing.T) {
+	a := &Adapter{parseMode: "HTML"}
+
+	// Each word individually bolded inflates size well past the plain length.
+	var sb strings.Builder
+	for i := 0; i < 600; i++ {
+		sb.WriteString("**w** ")
+	}
+	chunk := sb.String()
+
+	body, mode := a.renderForSend(chunk)
+	if mode != "" {
+		t.Fatalf("expected fallback to drop parse_mode, got %q", mode)
+	}
+	if body != chunk {
+		t.Fatalf("expected fallback to send the original plain chunk unchanged")
+	}
+}
+
+func TestValidateConfig(t *testing.T) {
+	a := &Adapter{}
+	if errs := a.ValidateConfig(channel.PlatformConfig{}); len(errs) != 1 {
+		t.Fatalf("expected 1 error, got %v", errs)
+	}
+	if errs := a.ValidateConfig(channel.PlatformConfig{"bot_token": "x"}); len(errs) != 0 {
+		t.Fatalf("expected no errors, got %v", errs)
+	}
+}
+
+func TestUpdateMessage(t *testing.T) {
+	f := newFakeBotAPI(t)
+	a := newTestAdapter(t, f, nil)
+	if !a.UpdateMessage("1", "7", "edited") {
+		t.Fatal("expected update to succeed")
+	}
+	if !a.SupportsMessageUpdates() {
+		t.Fatal("telegram supports message updates")
+	}
+}
+
+// #1119: streamed edits go through the same HTML renderer as SendText.
+func TestUpdateMessage_RendersHTML(t *testing.T) {
+	f := newFakeBotAPI(t)
+	a := newTestAdapter(t, f, nil)
+	if !a.UpdateMessage("1", "7", "**bold** edit") {
+		t.Fatal("expected update to succeed")
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.edited) != 1 {
+		t.Fatalf("expected one edit, got %d", len(f.edited))
+	}
+	if f.edited[0]["parse_mode"] != "HTML" {
+		t.Fatalf("expected parse_mode=HTML, got %v", f.edited[0]["parse_mode"])
+	}
+	if f.edited[0]["text"] != "<b>bold</b> edit" {
+		t.Fatalf("text = %v, want rendered HTML", f.edited[0]["text"])
+	}
+}
+
+func TestSendTyping(t *testing.T) {
+	f := newFakeBotAPI(t)
+	a := newTestAdapter(t, f, nil)
+	if err := a.SendTyping("1", ""); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// #1123: a voice/video/sticker/location-only message used to be a bare drop
+// — the user got no signal it was even received. It should now get a text
+// acknowledgement instead, and not be forwarded as an agent turn.
+func TestProcessUpdate_UnsupportedMediaAcknowledged(t *testing.T) {
+	f := newFakeBotAPI(t)
+	a := newTestAdapter(t, f, nil)
+
+	var msg tgMessage
+	msg.MessageID = 1
+	msg.Chat.ID = 123
+	msg.Chat.Type = "private"
+	msg.From.ID = 42
+	msg.Voice = json.RawMessage(`{}`)
+
+	gotEvent := false
+	a.processUpdate(tgUpdate{UpdateID: 1, Message: &msg}, func(ev channel.InboundEvent) {
+		gotEvent = true
+	})
+
+	if gotEvent {
+		t.Fatal("expected no InboundEvent for an unsupported-media-only message")
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.sent) != 1 {
+		t.Fatalf("expected one acknowledgement to be sent, got %d", len(f.sent))
+	}
+	if f.sent[0]["text"] != unsupportedMediaNotice {
+		t.Fatalf("unexpected ack text: %v", f.sent[0]["text"])
+	}
+}
+
+// A legitimately empty message (no text, no attachment, no unsupported-media
+// marker) must keep dropping silently — the ack is specifically for
+// unsupported media, not every no-op update.
+func TestProcessUpdate_EmptyMessageStaysSilent(t *testing.T) {
+	f := newFakeBotAPI(t)
+	a := newTestAdapter(t, f, nil)
+
+	var msg tgMessage
+	msg.MessageID = 1
+	msg.Chat.ID = 123
+	msg.From.ID = 42
+
+	a.processUpdate(tgUpdate{UpdateID: 1, Message: &msg}, func(ev channel.InboundEvent) {
+		t.Fatal("unexpected event for an empty message")
+	})
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.sent) != 0 {
+		t.Fatalf("expected no acknowledgement for a legitimately empty message, got %d", len(f.sent))
+	}
+}

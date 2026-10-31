@@ -1,0 +1,17 @@
+<html><body><pre id="result">RUNNING</pre><script type="module">
+import {nextTick} from 'vue'; import {useChat} from '/src/stores/useChat.ts';
+const result=document.querySelector('#result');
+try {
+ const chat=useChat(); let release; let entered=false;
+ const gate=new Promise(r=>release=r);
+ const pending=chat.sendMessage('即时显示回归验证',[],async()=>{entered=true;await gate});
+ if(!chat.sending.value||chat.messages.value[0]?.content!=='即时显示回归验证')throw Error('message did not appear synchronously');
+ await chat.sendMessage('重复发送');
+ if(chat.messages.value.filter(m=>m.role==='user').length!==1)throw Error('duplicate send admitted');
+ for(let i=0;i<30&&!entered;i++)await new Promise(r=>setTimeout(r,100));
+ if(!entered)throw Error('preflight not entered');
+ const stop=chat.stopGeneration();release();await pending;await stop;
+ if(chat.sending.value)throw Error('cancelled preflight restarted generation');
+ result.textContent='PASS: immediate message before session creation; duplicate send blocked; cancellation during preflight preserved';
+}catch(e){result.textContent='FAIL: '+e.message}
+</script></body></html>

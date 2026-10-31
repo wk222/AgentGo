@@ -38,7 +38,9 @@ func resumePayloadFrom(ctx context.Context) (isResume, hasData bool, data Resume
 
 // ToolApprovalPause is persisted across ADK StatefulInterrupt resume.
 type ToolApprovalPause struct {
-	ApprovalID string
-	ToolName   string
-	Arguments  string
+	DefinitionID string
+	ExecutionID  string
+	ApprovalID   string
+	ToolName     string
+	Arguments    string
 }

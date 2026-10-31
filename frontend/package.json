@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "typecheck": "tsc --noEmit",
+    "test": "node --test scripts/runtime-client.test.cjs scripts/layout.test.cjs scripts/ipc-call.test.cjs scripts/workbench-header.test.mjs scripts/memory-tree-model.test.cjs scripts/memory-graph-model.test.cjs scripts/usage-model.test.cjs scripts/hooks-model.test.cjs scripts/im-model.test.cjs scripts/fork-model.test.cjs scripts/turn-checkpoint-model.test.cjs scripts/user-text.test.cjs scripts/running-work-model.test.cjs scripts/evidence-model.test.cjs scripts/artifact-model.test.cjs scripts/call-trace-model.test.cjs",
     "build": "vite build",
     "preview": "vite preview"
   },
@@ -19,7 +20,6 @@
     "lucide-vue-next": "^0.469.0",
     "marked": "^12.0.0",
     "monaco-editor": "^0.56.0",
-    "naive-ui": "^2.44.1",
     "vue": "^3.5.0"
   },
   "devDependencies": {

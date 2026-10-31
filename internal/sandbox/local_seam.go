@@ -1,18 +1,20 @@
 package sandbox
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"agentgo/internal/shellcmd"
 )
+
+// localOutputCap bounds how much of one stream's output is kept: start and end,
+// with the gap counted (see shellcmd.Capture).
+const localOutputCap = 8 << 20
 
 // LocalExecutionSeam runs commands on the host OS with strict workspace boundary checks.
 type LocalExecutionSeam struct{}
@@ -51,6 +53,23 @@ func (s *LocalExecutionSeam) Execute(ctx context.Context, req CommandRequest) (*
 	return s.ExecuteStreaming(ctx, req, nil)
 }
 
+// streamWriter hands each piece of a stream to the live handler and keeps a
+// bounded copy for the final result.
+type streamWriter struct {
+	kind    string
+	onChunk StreamHandler
+	capture *shellcmd.Capture
+}
+
+func (w *streamWriter) Write(p []byte) (int, error) {
+	if w.onChunk != nil && len(p) > 0 {
+		chunk := make([]byte, len(p)) // the handler may keep it
+		copy(chunk, p)
+		w.onChunk(w.kind, chunk)
+	}
+	return w.capture.Write(p)
+}
+
 func (s *LocalExecutionSeam) ExecuteStreaming(ctx context.Context, req CommandRequest, onChunk StreamHandler) (*CommandResult, error) {
 	cmdStr := strings.TrimSpace(req.Command)
 	if cmdStr == "" {
@@ -71,89 +90,38 @@ func (s *LocalExecutionSeam) ExecuteStreaming(ctx context.Context, req CommandRe
 	}
 
 	if len(req.Env) > 0 {
-		cmd.Env = os.Environ()
+		cmd.Env = shellcmd.WithUTF8Env(os.Environ())
 		for k, v := range req.Env {
 			cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
 		}
 	}
 
-	stdoutPipe, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, err
-	}
-	stderrPipe, err := cmd.StderrPipe()
-	if err != nil {
-		return nil, err
-	}
+	stdout := &streamWriter{kind: "stdout", onChunk: onChunk, capture: shellcmd.NewCapture(localOutputCap)}
+	stderr := &streamWriter{kind: "stderr", onChunk: onChunk, capture: shellcmd.NewCapture(localOutputCap)}
+	cmd.Stdout, cmd.Stderr = stdout, stderr
 
+	// The command and what it starts are one process tree: the timeout or a
+	// cancelled context ends all of it, not just the shell, and it runs under
+	// the memory and process limits.
 	start := time.Now()
-	if err := cmd.Start(); err != nil {
-		return nil, err
+	code, err := shellcmd.Run(cmd, shellcmd.TreeOptions{Detachable: true, BestEffort: true})
+	if cmd.Process == nil {
+		return nil, err // never started
 	}
-
-	var stdoutBuf, stderrBuf bytes.Buffer
-	doneStdout := make(chan struct{})
-	doneStderr := make(chan struct{})
-
-	go func() {
-		buf := make([]byte, 2048)
-		for {
-			n, err := stdoutPipe.Read(buf)
-			if n > 0 {
-				chunk := make([]byte, n)
-				copy(chunk, buf[:n])
-				stdoutBuf.Write(chunk)
-				if onChunk != nil {
-					onChunk("stdout", chunk)
-				}
-			}
-			if err != nil {
-				break
-			}
-		}
-		close(doneStdout)
-	}()
-
-	go func() {
-		buf := make([]byte, 2048)
-		for {
-			n, err := stderrPipe.Read(buf)
-			if n > 0 {
-				chunk := make([]byte, n)
-				copy(chunk, buf[:n])
-				stderrBuf.Write(chunk)
-				if onChunk != nil {
-					onChunk("stderr", chunk)
-				}
-			}
-			if err != nil {
-				break
-			}
-		}
-		close(doneStderr)
-	}()
-
-	<-doneStdout
-	<-doneStderr
-
-	waitErr := cmd.Wait()
 	durationMS := time.Since(start).Milliseconds()
 
-	exitCode := 0
 	errStr := ""
-	if waitErr != nil {
-		if ee, ok := waitErr.(*exec.ExitError); ok {
-			exitCode = ee.ExitCode()
-		} else {
-			exitCode = 1
-		}
-		errStr = waitErr.Error()
+	switch {
+	case err != nil:
+		code, errStr = 1, err.Error()
+	case code != 0:
+		errStr = fmt.Sprintf("exit status %d", code)
 	}
 
 	return &CommandResult{
-		Stdout:     stdoutBuf.String(),
-		Stderr:     stderrBuf.String(),
-		ExitCode:   exitCode,
+		Stdout:     stdout.capture.String(),
+		Stderr:     stderr.capture.String(),
+		ExitCode:   code,
 		DurationMS: durationMS,
 		Error:      errStr,
 	}, nil

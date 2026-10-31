@@ -5,12 +5,17 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+
+	"agentgo/internal/cli"
 )
 
 const helpText = `Commands
   /new               start a new conversation
   /sessions          pick a saved conversation (↑/↓, Enter)
   /resume N|ID       switch to a saved conversation
+  /fork              copy this conversation into a new one and continue there
+  /review [focus]    review the uncommitted changes (what to look at is optional)
+  /undo [all|call]   undo the files the agent changed in this conversation (latest step by default)
   /yolo [on|off]     approve every tool call without asking
   /thinking [on|off] show the model's reasoning
   /plugins           list plugins
@@ -58,6 +63,33 @@ func (m *Model) slash(line string) tea.Cmd {
 			return nil
 		}
 		return m.switchTo(id)
+	case "/fork":
+		f, ok := m.be.(cli.Forker)
+		switch {
+		case !ok:
+			m.tl.notice("this backend cannot fork a conversation")
+		case m.session == "":
+			m.tl.notice("nothing to fork yet: send a message first")
+		default:
+			from := m.session
+			id, err := f.Fork(from)
+			if err != nil {
+				m.tl.fail("fork: " + err.Error())
+				return nil
+			}
+			cmd := m.switchTo(id)
+			note := "forked from " + from + " (the original is unchanged)"
+			if cmd == nil { // no history to wait for
+				m.tl.notice(note)
+			} else {
+				m.afterLoad = note
+			}
+			return cmd
+		}
+	case "/review", "/undo":
+		// Not handled here: the backend turns "/review ..." and "/undo ..." into
+		// instructions (core.ExpandCommand), so the line is sent as a message.
+		return m.startRun(line)
 	case "/yolo":
 		m.yolo = toggle(arg, m.yolo)
 		m.tl.notice("yolo " + onOff(m.yolo))

@@ -31,6 +31,12 @@ func Bootstrap(ctx context.Context, r *Registry, workspaceRoot string) error {
 	if err := registerBingSearch(r); err != nil {
 		_ = err
 	}
+	if err := registerWebFetch(r); err != nil {
+		return err
+	}
+	if err := registerReadEvidence(r); err != nil {
+		return err
+	}
 
 	// Auto load standard MCP config files (e.g. mcp_servers.json / agentgo_mcp.json)
 	AutoLoadMCPServers(ctx, r, workspaceRoot)
@@ -56,6 +62,9 @@ func RegisterWorkspaceBoundTools(r *Registry, workspaceRoot string) error {
 	if err := registerExecuteBash(r, workspaceRoot); err != nil {
 		return err
 	}
+	if err := registerRunElevated(r, workspaceRoot); err != nil {
+		return err
+	}
 	if err := registerParseFile(r, workspaceRoot); err != nil {
 		_ = err
 	}
@@ -68,10 +77,28 @@ func RegisterWorkspaceBoundTools(r *Registry, workspaceRoot string) error {
 	if err := RegisterSkillEvolveTool(r, workspaceRoot); err != nil {
 		_ = err
 	}
+	if err := RegisterMCPManagerTool(r, workspaceRoot); err != nil {
+		_ = err
+	}
+	if err := RegisterChannelManagerTool(r, workspaceRoot); err != nil {
+		_ = err
+	}
+	if err := RegisterSendFileTool(r, workspaceRoot); err != nil {
+		_ = err
+	}
+	if err := RegisterDeliverFileTool(r, workspaceRoot); err != nil {
+		_ = err
+	}
+	if err := RegisterAdapterManagerTool(r, workspaceRoot); err != nil {
+		_ = err
+	}
 	if err := RegisterJobMonitorTool(r, workspaceRoot); err != nil {
 		_ = err
 	}
 	if err := RegisterWatchEventTool(r); err != nil {
+		_ = err
+	}
+	if err := RegisterComputerUseTool(r); err != nil { // opt-in: AGENTGO_COMPUTER_USE
 		_ = err
 	}
 	if rt, err := coderuntime.NewLocalProcessRuntime(workspaceRoot); err == nil && rt != nil {

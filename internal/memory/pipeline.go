@@ -1,21 +1,28 @@
 package memory
 
 import (
+	"agentgo/internal/promptbudget"
 	"context"
-	"fmt"
+	"database/sql"
+	"errors"
 	"strings"
+	"sync"
 	"time"
 )
 
 // Pipeline wraps SQLiteStore with PyBot-style DISTILL / GC / feedback weighting.
 type Pipeline struct {
+	learningMu        sync.Mutex
+	learningCallerMu  sync.RWMutex
+	learningCaller    LLMCaller
+	forest            *SummaryForest
 	store             *SQLiteStore
 	ingestHook        func(context.Context, Record) error
 	contextPromptHook func(context.Context, string) (string, error)
 }
 
 func NewPipeline(store *SQLiteStore) *Pipeline {
-	return &Pipeline{store: store}
+	return &Pipeline{store: store, forest: NewSummaryForest(store)}
 }
 
 // Store exposes the underlying SQLite store.
@@ -132,25 +139,35 @@ func (p *Pipeline) Distill(ctx context.Context, scope string, limit int) (string
 	b.WriteString("## Distilled session summary\n")
 	for _, r := range rows {
 		line := strings.TrimSpace(r.Content)
-		if len(line) > 200 {
-			line = line[:200] + "..."
-		}
+		line = promptbudget.Excerpt(line, 100)
 		b.WriteString("- ")
 		b.WriteString(line)
 		b.WriteString("\n")
 	}
 	summary := b.String()
 	rec := Record{
-		ID:         fmt.Sprintf("distill_%d", time.Now().Unix()),
-		Content:    summary,
-		Scope:      scope,
-		Modality:   "reflection",
-		Status:     "active",
-		Importance: 1.2,
-		CreatedAt:  time.Now().Unix(),
-		UpdatedAt:  time.Now().Unix(),
+		ID:          stableDerivedMemoryID("distill", scope, summary),
+		Content:     summary,
+		Scope:       scope,
+		Modality:    "reflection",
+		Status:      "active",
+		Importance:  0.4,
+		SourceTrust: 0.35,
+		Metadata:    map[string]interface{}{"verification": "derived_unverified"},
+		CreatedAt:   time.Now().Unix(),
+		UpdatedAt:   time.Now().Unix(),
 	}
-	_ = p.Ingest(ctx, rec)
+	if existing, err := p.store.GetRecord(ctx, rec.ID); err == nil {
+		if existing.Status != "active" || existing.SupersedesID != "" || existing.ContradictedBy != "" {
+			return "", nil
+		}
+		return existing.Content, nil
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return "", err
+	}
+	if err := p.Ingest(ctx, rec); err != nil {
+		return "", err
+	}
 	return summary, nil
 }
 
@@ -158,22 +175,24 @@ func (p *Pipeline) ContextPrompt(ctx context.Context, sessionID string) (string,
 	if p.contextPromptHook != nil {
 		return p.contextPromptHook(ctx, sessionID)
 	}
-	recs, err := p.Recall(ctx, "session context preferences", RecallOptions{Scope: sessionID, Limit: 5})
-	if err != nil || len(recs) == 0 {
-		recs, err = p.Recall(ctx, "user preference", RecallOptions{Scope: "global", Limit: 3})
+	query := RecallQueryFromContext(ctx)
+	if query == "" {
+		query = "session context preferences"
 	}
-	if err != nil || len(recs) == 0 {
-		return "", nil
+	recs, err := collectContextRecords(ctx, p.Recall, query, sessionID)
+	if err != nil {
+		return "", err
 	}
-	var b strings.Builder
-	for _, r := range recs {
-		b.WriteString("- ")
-		b.WriteString(r.Content)
-		b.WriteString("\n")
-	}
-	return b.String(), nil
+	return p.forest.ContextPrompt(ctx, sessionID, recs, PromptTokenBudget(ctx)), nil
 }
 
 func (p *Pipeline) List(ctx context.Context, limit int) ([]Record, error) {
 	return p.store.ListActive(ctx, limit)
+}
+
+func (p *Pipeline) SummaryForest() *SummaryForest {
+	if p == nil {
+		return nil
+	}
+	return p.forest
 }

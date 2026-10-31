@@ -55,3 +55,23 @@ func TestRunControl_SteerInbox(t *testing.T) {
 		t.Fatal("session should not be running after clear")
 	}
 }
+
+func TestRunControlUsesSameKeyForDesktopAndAgenticRuns(t *testing.T) {
+	rc := NewRunControl()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	rc.SetCtxCancel("agentic:chat", cancel)
+	if !rc.IsRunning("chat") || !rc.AddSteer("chat", "new instruction") {
+		t.Fatal("transport prefix hid the active run")
+	}
+	if got := rc.DrainSteers("agentic:chat"); len(got) != 1 {
+		t.Fatal(got)
+	}
+	if !rc.CancelSession("chat") || ctx.Err() != context.Canceled {
+		t.Fatal("stop did not reach active run")
+	}
+	rc.Clear("agentic:chat")
+	if rc.IsRunning("chat") || rc.Active() != 0 {
+		t.Fatal("completed run left stale handles")
+	}
+}

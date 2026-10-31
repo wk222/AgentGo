@@ -53,6 +53,15 @@ func TestContextBudgetInspector(t *testing.T) {
 		t.Error("expected to find history segment in budget report")
 	}
 
+	if len(report.TopItems) == 0 || len(report.Turns) != 1 || report.Turns[0].Messages != 2 {
+		t.Errorf("missing item/turn detail: items=%d turns=%+v", len(report.TopItems), report.Turns)
+	}
+	for i := 1; i < len(report.TopItems); i++ {
+		if report.TopItems[i].TokenCount > report.TopItems[i-1].TokenCount {
+			t.Error("top items not sorted by size")
+		}
+	}
+
 	// Save and retrieve
 	SaveContextBudgetReport(sessionID, report)
 	retrieved, exists := GetContextBudgetReport(sessionID)

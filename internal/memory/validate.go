@@ -57,7 +57,7 @@ func validateLayerSemantics(rec Record, layer string) error {
 	}
 	if mp, ok := rec.Metadata["mode_profile"].(string); ok && strings.TrimSpace(mp) != "" {
 		switch strings.ToLower(strings.TrimSpace(mp)) {
-		case "assistant", "app_matrix", "admin":
+		case "assistant", "app_matrix", "admin", "reverse":
 		default:
 			return fmt.Errorf("memory: invalid mode_profile %q", mp)
 		}

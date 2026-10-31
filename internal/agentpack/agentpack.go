@@ -6,7 +6,9 @@ package agentpack
 import (
 	"archive/zip"
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -43,13 +45,15 @@ type ManifestItem struct {
 
 // Engine packages and installs shareable artifacts against the local stores.
 type Engine struct {
-	WF        *workflow.Store
-	Dyn       *tools.DynamicStore
-	Apps      *apps.Store
-	Reg       *tools.Registry // optional: live-register imported tools
-	AppsRoot  string
-	Workspace string
-	OutDir    string // default directory for exported packs
+	WF          *workflow.Store
+	Dyn         *tools.DynamicStore
+	Apps        *apps.Store
+	Reg         *tools.Registry // optional: live-register imported tools
+	AppsRoot    string
+	Workspace   string
+	OutDir      string // default directory for exported packs
+	VersionsDir string
+	OnReload    func() error
 }
 
 // ExportRequest selects the artifacts to bundle.
@@ -58,6 +62,7 @@ type ExportRequest struct {
 	Workflows           []string // ids or names
 	Tools               []string // dynamic tool names
 	InnerApps           []string // inner app names
+	Skills              []string // workspace skill directory names
 	IncludeDependencies bool     // pull an inner app's referenced workflow too
 	OutPath             string   // optional explicit output path
 }
@@ -198,6 +203,26 @@ func (e *Engine) Export(ctx context.Context, req ExportRequest) (string, *Manife
 		}
 	}
 
+	for _, name := range req.Skills {
+		if name == "" {
+			continue
+		}
+		if safeFile(name) != name {
+			return abort(fmt.Errorf("invalid skill name %q", name))
+		}
+		content, err := os.ReadFile(filepath.Join(e.Workspace, "skills", name, "SKILL.md"))
+		if err != nil {
+			return abort(err)
+		}
+		p := "skills/" + name + "/SKILL.md"
+		if strings.TrimSpace(string(content)) == "" {
+			return abort(fmt.Errorf("empty skill"))
+		}
+		if err := addDirToZip(zw, filepath.Join(e.Workspace, "skills", name), "skills/"+name); err != nil {
+			return abort(err)
+		}
+		man.Items = append(man.Items, ManifestItem{Type: "skill", Name: name, Description: "Workspace skill", Path: p})
+	}
 	if len(man.Items) == 0 {
 		return abort(fmt.Errorf("agentpack: nothing to export (no valid workflows/tools/innerapps selected)"))
 	}
@@ -282,6 +307,10 @@ func (e *Engine) Import(ctx context.Context, path string, confirm, overwrite boo
 		}
 		switch it.Type {
 		case "workflow":
+			if e.WF == nil {
+				skip(it, "workflow store unavailable")
+				continue
+			}
 			var def workflow.Definition
 			if err := readZipJSON(zf, &def); err != nil {
 				skip(it, "invalid workflow payload")
@@ -302,16 +331,34 @@ func (e *Engine) Import(ctx context.Context, path string, confirm, overwrite boo
 			}
 			res.Installed = append(res.Installed, it)
 		case "tool":
+			if e.Dyn == nil {
+				skip(it, "dynamic tool store unavailable")
+				continue
+			}
 			var def tools.DynamicToolDef
 			if err := readZipJSON(zf, &def); err != nil {
 				skip(it, "invalid tool payload")
 				continue
 			}
-			if !overwrite {
-				if _, err := e.Dyn.Get(def.Name); err == nil {
-					skip(it, "a tool named "+def.Name+" already exists (set overwrite=true to replace)")
+			if e.Reg != nil {
+				if _, exists := e.Reg.Get(def.Name); exists && !e.Reg.IsDynamicCompiled(def.Name) {
+					skip(it, "cannot replace a built-in tool")
 					continue
 				}
+			}
+			previous, previousErr := e.Dyn.Get(def.Name)
+			if previousErr != nil && !errors.Is(previousErr, sql.ErrNoRows) {
+				skip(it, "cannot read previous tool: "+previousErr.Error())
+				continue
+			}
+			hadPrevious := previousErr == nil
+			if !overwrite && hadPrevious {
+				skip(it, "a tool named "+def.Name+" already exists (set overwrite=true to replace)")
+				continue
+			}
+			if err := tools.ValidateDynamicToolDef(ctx, def); err != nil {
+				skip(it, "invalid tool definition: "+err.Error())
+				continue
 			}
 			if def.CreatedAt == 0 {
 				def.CreatedAt = time.Now().Unix()
@@ -321,7 +368,20 @@ func (e *Engine) Import(ctx context.Context, path string, confirm, overwrite boo
 				continue
 			}
 			if e.Reg != nil {
-				_ = e.Reg.RegisterDynamicTool(def)
+				if err := e.Reg.RegisterDynamicTool(def); err != nil {
+					var rollbackErr error
+					if hadPrevious {
+						rollbackErr = e.Dyn.Save(previous)
+					} else {
+						rollbackErr = e.Dyn.Delete(def.Name)
+					}
+					reason := "tool registration failed: " + err.Error()
+					if rollbackErr != nil {
+						reason += "; rollback failed: " + rollbackErr.Error()
+					}
+					skip(it, reason)
+					continue
+				}
 			}
 			res.Installed = append(res.Installed, it)
 		case "innerapp":
@@ -346,8 +406,19 @@ func (e *Engine) Import(ctx context.Context, path string, confirm, overwrite boo
 				continue
 			}
 			res.Installed = append(res.Installed, it)
+		case "skill":
+			if err := e.installSkill(it, files, overwrite); err != nil {
+				skip(it, err.Error())
+				continue
+			}
+			res.Installed = append(res.Installed, it)
 		default:
 			skip(it, "unknown item type: "+it.Type)
+		}
+	}
+	if len(res.Installed) > 0 && e.OnReload != nil {
+		if err := e.OnReload(); err != nil {
+			return res, fmt.Errorf("installed but reload failed: %w", err)
 		}
 	}
 	res.Message = fmt.Sprintf("installed %d item(s), skipped %d", len(res.Installed), len(res.Skipped))
@@ -375,18 +446,24 @@ func (e *Engine) installInnerApp(ctx context.Context, it ManifestItem, app apps.
 	if localName == "" {
 		return fmt.Errorf("invalid inner app name")
 	}
-	bundlePrefix := strings.TrimSuffix(it.Path, "/meta.json") + "/bundle/"
-	destDir := filepath.Join(e.AppsRoot, localName)
+	if err := os.MkdirAll(e.AppsRoot, 0755); err != nil {
+		return err
+	}
+	stage, err := os.MkdirTemp(e.AppsRoot, ".import-")
+	if err != nil {
+		return err
+	}
+	prefix := strings.TrimSuffix(it.Path, "/meta.json") + "/bundle/"
 	wrote := false
 	for name, f := range files {
-		if !strings.HasPrefix(name, bundlePrefix) {
+		if !strings.HasPrefix(name, prefix) {
 			continue
 		}
-		rel := strings.TrimPrefix(name, bundlePrefix)
+		rel := strings.TrimPrefix(name, prefix)
 		if rel == "" || strings.HasSuffix(name, "/") {
 			continue
 		}
-		dest, err := safeJoin(destDir, rel)
+		dest, err := safeJoin(stage, rel)
 		if err != nil {
 			return err
 		}
@@ -395,15 +472,54 @@ func (e *Engine) installInnerApp(ctx context.Context, it ManifestItem, app apps.
 		}
 		wrote = true
 	}
-	if wrote {
-		app.BundlePath = localName
-	} else {
-		app.BundlePath = ""
+	if e.Apps == nil {
+		return fmt.Errorf("app store unavailable")
 	}
 	if app.CreatedAt == 0 {
 		app.CreatedAt = time.Now().Unix()
 	}
-	return e.Apps.Upsert(ctx, app)
+	if !wrote {
+		app.BundlePath = ""
+		return e.Apps.Upsert(ctx, app)
+	}
+	dest := filepath.Join(e.AppsRoot, localName)
+	realRoot, err := filepath.EvalSymlinks(e.AppsRoot)
+	if err != nil {
+		return err
+	}
+	if fi, err := os.Lstat(dest); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("refusing symlink app directory")
+	}
+	if _, err := safeJoin(realRoot, localName); err != nil {
+		return err
+	}
+	backup := stage + "-previous"
+	hadPrevious := false
+	if _, err := os.Stat(dest); err == nil {
+		if err := os.Rename(dest, backup); err != nil {
+			return err
+		}
+		hadPrevious = true
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.Rename(stage, dest); err != nil {
+		if hadPrevious {
+			if re := os.Rename(backup, dest); re != nil {
+				return fmt.Errorf("install failed: %v; recovery failed: %v", err, re)
+			}
+		}
+		return err
+	}
+	app.BundlePath = localName
+	if err := e.Apps.Upsert(ctx, app); err != nil {
+		re := os.Rename(dest, stage)
+		if hadPrevious && re == nil {
+			re = os.Rename(backup, dest)
+		}
+		return fmt.Errorf("app metadata failed: %v; file recovery: %v", err, re)
+	}
+	return nil
 }
 
 func (e *Engine) resolveWorkflow(idOrName string) (workflow.Definition, error) {
@@ -448,6 +564,9 @@ func addDirToZip(zw *zip.Writer, srcDir, destPrefix string) error {
 	return filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("symlinks cannot be packaged: %s", path)
 		}
 		if info.IsDir() {
 			return nil
@@ -536,4 +655,69 @@ func safeFile(s string) string {
 		return ""
 	}
 	return mapped
+}
+
+func (e *Engine) installSkill(it ManifestItem, files map[string]*zip.File, overwrite bool) error {
+	if e.Workspace == "" || it.Name == "" || safeFile(it.Name) != it.Name {
+		return fmt.Errorf("invalid skill name or workspace")
+	}
+	prefix := "skills/" + it.Name + "/"
+	if it.Path != prefix+"SKILL.md" {
+		return fmt.Errorf("invalid skill payload path")
+	}
+	root := filepath.Join(e.Workspace, "skills")
+	if err := os.MkdirAll(root, 0755); err != nil {
+		return err
+	}
+	dest := filepath.Join(root, it.Name)
+	if fi, err := os.Lstat(dest); err == nil {
+		if !overwrite {
+			return fmt.Errorf("skill already exists")
+		}
+		if fi.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("refusing symlink skill directory")
+		}
+	}
+	stageRoot := filepath.Join(e.Workspace, ".agentgo", "extension-staging")
+	if err := os.MkdirAll(stageRoot, 0700); err != nil {
+		return err
+	}
+	stage, err := os.MkdirTemp(stageRoot, "skill-")
+	if err != nil {
+		return err
+	}
+	for name, f := range files {
+		if !strings.HasPrefix(name, prefix) || strings.HasSuffix(name, "/") {
+			continue
+		}
+		target, err := safeJoin(stage, strings.TrimPrefix(name, prefix))
+		if err != nil {
+			return err
+		}
+		if err := extractZipFile(f, stageRoot, target); err != nil {
+			return err
+		}
+	}
+	if _, err := os.Stat(filepath.Join(stage, "SKILL.md")); err != nil {
+		return err
+	}
+	backup := stage + "-previous"
+	previous := false
+	if _, err := os.Stat(dest); err == nil {
+		if err := os.Rename(dest, backup); err != nil {
+			return err
+		}
+		previous = true
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.Rename(stage, dest); err != nil {
+		if previous {
+			if re := os.Rename(backup, dest); re != nil {
+				return fmt.Errorf("skill restore failed: %v; recovery: %v", err, re)
+			}
+		}
+		return err
+	}
+	return nil
 }

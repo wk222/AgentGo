@@ -39,8 +39,13 @@ func optionalPlugin(name string, provides, inject, optional []string, apply func
 func (rt *Runtime) runtimePlugins() []plugin.Plugin {
 	var ps []plugin.Plugin
 	ps = append(ps, rt.dataPlugins()...)
+	if p, ok := chunkerPlugin(); ok {
+		ps = append(ps, p)
+	}
 	ps = append(ps, rt.agentPlugins()...)
+	ps = append(ps, einoPlugin(rt))
 	ps = append(ps, rt.featurePlugins()...)
+	ps = append(ps, rt.imPlugins()...)
 	return ps
 }
 
@@ -82,6 +87,7 @@ func (rt *Runtime) dataPlugins() []plugin.Plugin {
 			}
 			pipeline := memory.NewEnrichedEngine(hybrid)
 			rt.hybrid, rt.mem = hybrid, pipeline
+			c.Effect("stop memory summary workers", hybrid.Pipeline().SummaryForest().Close)
 			return c.Provide(svcMemory, memory.Engine(pipeline))
 		}),
 
@@ -158,19 +164,18 @@ func (rt *Runtime) dataPlugins() []plugin.Plugin {
 			if wsRoot == "" {
 				var err error
 				if wsRoot, err = os.Getwd(); err != nil {
-					wsRoot = rt.dataDir
+					wsRoot = ""
 				}
 			}
-			if normalized, err := normalizeWorkspaceRoot(wsRoot); err == nil {
-				wsRoot = normalized
-			} else {
-				log.Printf("[agentgo] workspace_root=%q invalid: %v; falling back to data dir", wsRoot, err)
-				wsRoot = rt.dataDir
+			wsRoot, err := initialWorkspaceRoot(wsRoot, rt.dataDir)
+			if err != nil {
+				return err
 			}
 			rt.workspace = wsRoot
 			rt.policy = governance.BuildPolicy(rt.governanceCfg.ControlMode, wsRoot)
 			rt.wsMiddleware = workspace.NewContextMiddleware(wsRoot)
 			rt.skillLoader = skills.NewLoader(wsRoot)
+			rt.skillLoader.SetCredentialFile(filepath.Join(rt.dataDir, skillCredentialsFile))
 			rt.skillLoader.Reload()
 			return c.Provide(svcWorkspace, rt.wsMiddleware)
 		}),
@@ -181,6 +186,10 @@ func (rt *Runtime) dataPlugins() []plugin.Plugin {
 				return err
 			}
 			reg := tools.NewRegistry()
+			if err := reg.SetMCPStateDB(db); err != nil {
+				return err
+			}
+			c.Effect("close MCP clients", reg.CloseMCPServers)
 			if err := tools.Bootstrap(context.Background(), reg, rt.workspace); err != nil {
 				return err
 			}

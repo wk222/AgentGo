@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"sync"
+	"time"
 
 	"agentgo/internal/sessions"
 )
@@ -21,6 +22,9 @@ type PendingRun struct {
 	MatrixEvent  string
 	WorkflowID   string
 	CheckPointID string
+	// CreatedAt is when the run stopped to wait, in unix seconds. PendingStore.Set
+	// fills it in; it is zero only for rows saved before the field existed.
+	CreatedAt int64
 }
 
 // PendingBacking makes pending runs survive a restart. *sessions.Store
@@ -78,6 +82,9 @@ func (s *PendingStore) unpersist(approvalID string) {
 }
 
 func (s *PendingStore) Set(p PendingRun) {
+	if p.CreatedAt == 0 {
+		p.CreatedAt = time.Now().Unix()
+	}
 	s.mu.Lock()
 	s.byID[p.ApprovalID] = p
 	s.mu.Unlock()

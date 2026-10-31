@@ -152,7 +152,11 @@ func (t *ModelUsageTracer) Flush() error {
 func (t *ModelUsageTracer) GetDailySummary(dateStr string) (map[string]*DailyModelUsage, error) {
 	// First flush memory deltas
 	_ = t.Flush()
+	return t.readDay(dateStr)
+}
 
+// readDay reads one day's rollup from disk without flushing first.
+func (t *ModelUsageTracer) readDay(dateStr string) (map[string]*DailyModelUsage, error) {
 	if dateStr == "" {
 		dateStr = time.Now().Format("2006-01-02")
 	}

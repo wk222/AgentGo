@@ -1,11 +1,9 @@
 package agent
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os/exec"
 	"path/filepath"
 	"sync"
@@ -19,11 +17,12 @@ import (
 	backgroundtaskmw "github.com/cloudwego/eino/adk/middlewares/backgroundtask"
 	"github.com/cloudwego/eino/schema"
 
+	"agentgo/internal/processutil"
 	"agentgo/internal/shellcmd"
 )
 
-// BackgroundTaskCoordinator manages durable background tasks, recoverable tools,
-// and process execution for AgentGo.
+// BackgroundTaskCoordinator manages runtime background tasks and local processes.
+// Local task records are process-local; an unknown execution is never replayed.
 type BackgroundTaskCoordinator struct {
 	manager         *backgroundtask.Manager
 	store           *backgroundtask.InMemoryStore
@@ -64,7 +63,7 @@ func (c *BackgroundTaskCoordinator) Close() error {
 	return err
 }
 
-// NewBackgroundTaskCoordinator creates and initializes a complete durable background task coordinator.
+// NewBackgroundTaskCoordinator initializes the runtime task coordinator.
 func NewBackgroundTaskCoordinator(workspaceRoot, dataDir string) (*BackgroundTaskCoordinator, error) {
 	store := backgroundtask.NewInMemoryStore(nil)
 	executors := backgroundtask.NewExecutorRegistry()
@@ -222,6 +221,9 @@ func NewOSRecoverableShell(workspaceRoot string) *OSRecoverableShell {
 }
 
 func (s *OSRecoverableShell) StartCommand(ctx context.Context, req *backgroundshell.StartCommandRequest) (backgroundtool.Run, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if req == nil || req.TaskID == "" {
 		return nil, errors.New("os_shell: task_id is required")
 	}
@@ -232,7 +234,13 @@ func (s *OSRecoverableShell) StartCommand(ctx context.Context, req *backgroundsh
 	if s.closed {
 		return nil, errors.New("os_shell: shut down, not starting new commands")
 	}
-	if existing, ok := s.runs[req.TaskID]; ok && !existing.isTerminal() {
+	if existing, ok := s.runs[req.TaskID]; ok {
+		if existing.command != req.Command {
+			return nil, errors.New("os_shell: task_id already belongs to a different command")
+		}
+		// Failed and cancelled commands can also have external side effects.
+		// The same execution ID is idempotent for every terminal outcome;
+		// intentional retry requires an explicit new task ID.
 		return existing, nil
 	}
 
@@ -244,6 +252,9 @@ func (s *OSRecoverableShell) StartCommand(ctx context.Context, req *backgroundsh
 }
 
 func (s *OSRecoverableShell) RecoverCommand(ctx context.Context, req *backgroundshell.RecoverCommandRequest) (backgroundtool.Run, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if req == nil || req.TaskID == "" {
 		return nil, errors.New("os_shell: task_id is required")
 	}
@@ -253,15 +264,15 @@ func (s *OSRecoverableShell) RecoverCommand(ctx context.Context, req *background
 	s.mu.RUnlock()
 
 	if ok {
+		if req.Command != "" && req.Command != run.command {
+			return nil, errors.New("os_shell: recovery command does not match the original execution")
+		}
 		return run, nil
 	}
 
-	// Re-attach or create a reconstituted run if lost
-	return s.StartCommand(ctx, &backgroundshell.StartCommandRequest{
-		TaskID:  req.TaskID,
-		Command: req.Command,
-		Attempt: req.Attempt,
-	})
+	// Process/task state is not persisted. Re-executing an unknown command could
+	// repeat external side effects after a restart, so recovery must fail closed.
+	return nil, fmt.Errorf("os_shell: cannot recover task %q: prior execution and side effects are unknown; verify actual state before explicitly retrying", req.TaskID)
 }
 
 type osCommandRun struct {
@@ -270,17 +281,18 @@ type osCommandRun struct {
 	workspaceRoot string
 
 	cmd      *exec.Cmd
+	tree     shellcmd.ProcessTree
 	cancelFn context.CancelFunc
 
 	doneCh chan struct{}
 	pipeR  *schema.StreamReader[*backgroundtool.Update]
 	pipeW  *schema.StreamWriter[*backgroundtool.Update]
 
-	mu       sync.Mutex
-	output   bytes.Buffer
-	exitCode *int
-	execErr  error
-	status   backgroundtask.Status
+	mu        sync.Mutex
+	output    processutil.OutputBuffer
+	exitCode  *int
+	execErr   error
+	status    backgroundtask.Status
 	updateSeq int64
 	terminal  int32
 
@@ -288,8 +300,12 @@ type osCommandRun struct {
 	stopReason string // recorded as the error when set
 }
 
+// Preview updates are bounded even when no caller drains Updates(). The final
+// Wait snapshot remains independently available, capped at 1 MiB.
+const maxCommandPreviewUpdates = 512
+
 func newOSCommandRun(taskID, command, workspaceRoot string) *osCommandRun {
-	sr, sw := schema.Pipe[*backgroundtool.Update](64)
+	sr, sw := schema.Pipe[*backgroundtool.Update](maxCommandPreviewUpdates)
 	return &osCommandRun{
 		taskID:        taskID,
 		command:       command,
@@ -313,36 +329,22 @@ func (r *osCommandRun) start() {
 	if r.workspaceRoot != "" {
 		cmd.Dir = r.workspaceRoot
 	}
-	shellcmd.Prepare(cmd)
 	r.cmd = cmd
 
-	stdoutPipe, err := cmd.StdoutPipe()
+	// Let exec drain stdout/stderr before Wait returns. With StdoutPipe followed
+	// by Wait, a quick command could have its unread output pipes closed early.
+	cmd.Stdout = &commandOutputWriter{run: r, kind: "stdout"}
+	cmd.Stderr = &commandOutputWriter{run: r, kind: "stderr"}
+	cmd.WaitDelay = 2 * time.Second
+	tree, err := shellcmd.StartTree(cmd)
 	if err != nil {
 		r.finishWith(nil, err, backgroundtask.StatusFailed)
 		return
 	}
-	stderrPipe, err := cmd.StderrPipe()
-	if err != nil {
-		r.finishWith(nil, err, backgroundtask.StatusFailed)
-		return
-	}
 
-	if err := cmd.Start(); err != nil {
-		r.finishWith(nil, err, backgroundtask.StatusFailed)
-		return
-	}
-
-	// finishWith closes the update stream, so no pump may still be sending when
-	// it runs. cmd.Wait closes the pipes, which makes a pump's pending Read fail
-	// and the pump return, so waiting for the pumps cannot hang.
-	var pumps sync.WaitGroup
-	pumps.Add(2)
-	go func() { defer pumps.Done(); r.pumpStream("stdout", stdoutPipe) }()
-	go func() { defer pumps.Done(); r.pumpStream("stderr", stderrPipe) }()
-
+	r.tree = tree
 	go func() {
-		waitErr := cmd.Wait()
-		pumps.Wait()
+		waitErr := tree.Wait()
 		code := 0
 		if waitErr != nil {
 			if ee, ok := waitErr.(*exec.ExitError); ok {
@@ -355,52 +357,52 @@ func (r *osCommandRun) start() {
 		if code != 0 {
 			status = backgroundtask.StatusFailed
 		}
-		r.mu.Lock()
-		stopped, reason := r.stopped, r.stopReason
-		r.mu.Unlock()
-		if stopped { // killed on purpose: say so, not "exit status 1"
-			status = backgroundtask.StatusCanceled
-			if reason != "" {
-				waitErr = errors.New(reason)
-			}
-		}
 		r.finishWith(&code, waitErr, status)
 	}()
 }
 
-func (r *osCommandRun) pumpStream(kind string, reader io.Reader) {
-	buf := make([]byte, 2048)
-	for {
-		n, err := reader.Read(buf)
-		if n > 0 {
-			chunk := make([]byte, n)
-			copy(chunk, buf[:n])
+type commandOutputWriter struct {
+	run  *osCommandRun
+	kind string
+}
 
-			r.mu.Lock()
-			r.output.Write(chunk)
-			seq := atomic.AddInt64(&r.updateSeq, 1)
-			r.mu.Unlock()
-
-			r.pipeW.Send(&backgroundtool.Update{
-				EventID: fmt.Sprintf("%s-%d", r.taskID, seq),
-				Kind:    kind,
-				Data:    chunk,
-			}, nil)
+func (w *commandOutputWriter) Write(data []byte) (int, error) {
+	r := w.run
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.output.Write(data)
+	// Progress is a bounded preview, independent from the final output snapshot.
+	// At most 512 chunks of 2 KiB can queue, so Wait/Close work without a reader.
+	for offset := 0; offset < len(data); offset += 2048 {
+		seq := atomic.AddInt64(&r.updateSeq, 1)
+		if seq > maxCommandPreviewUpdates {
+			continue
 		}
-		if err != nil {
-			break
-		}
+		chunk := append([]byte(nil), data[offset:min(offset+2048, len(data))]...)
+		r.pipeW.Send(&backgroundtool.Update{EventID: fmt.Sprintf("%s-%d", r.taskID, seq), Kind: w.kind, Data: chunk}, nil)
 	}
+	return len(data), nil
 }
 
 func (r *osCommandRun) finishWith(code *int, err error, status backgroundtask.Status) {
 	r.mu.Lock()
+	// Publish the stop decision and final outcome under the same lock. Otherwise
+	// cancellation racing with normal exit could be overwritten by "completed".
+	if r.stopped {
+		status = backgroundtask.StatusCanceled
+		if r.stopReason != "" {
+			err = errors.New(r.stopReason)
+		}
+	}
 	r.exitCode = code
 	r.execErr = err
 	r.status = status
-	r.mu.Unlock()
-
 	atomic.StoreInt32(&r.terminal, 1)
+	r.mu.Unlock()
+	if r.cancelFn != nil {
+		r.cancelFn()
+	}
+
 	r.pipeW.Close()
 	close(r.doneCh)
 }
@@ -413,7 +415,7 @@ func (r *osCommandRun) Wait(ctx context.Context) (*backgroundtool.Outcome, error
 		r.mu.Lock()
 		defer r.mu.Unlock()
 
-		outBytes := r.output.Bytes()
+		outBytes := []byte(r.output.String())
 		errStr := ""
 		if r.execErr != nil {
 			errStr = r.execErr.Error()
@@ -432,20 +434,24 @@ func (r *osCommandRun) Stop(ctx context.Context) error {
 	return nil
 }
 
-// halt ends the command and everything it started. The tree is killed before
-// the context is cancelled: cancelling kills only the shell, and once the shell
-// is gone its children can no longer be found.
+// halt ends the owned process tree and marks its eventual outcome as cancelled.
 func (r *osCommandRun) halt(reason string) {
 	if r.isTerminal() {
 		return
 	}
 	r.mu.Lock()
+	if r.isTerminal() {
+		r.mu.Unlock()
+		return
+	}
 	r.stopped = true
 	if reason != "" && r.stopReason == "" {
 		r.stopReason = reason
 	}
 	r.mu.Unlock()
-	shellcmd.KillTree(r.cmd)
+	if r.tree != nil {
+		r.tree.Kill()
+	}
 	if r.cancelFn != nil {
 		r.cancelFn()
 	}

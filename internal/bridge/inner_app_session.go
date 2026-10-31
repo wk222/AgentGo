@@ -52,6 +52,10 @@ func (r *Runtime) openInnerAppSession(ctx context.Context, appName string) (map[
 	if r.innerAppSessions == nil {
 		r.innerAppSessions = make(map[string]innerAppSession)
 	}
+	if r.previewPool == nil {
+		r.previewPool = apps.NewPreviewServerPool(apps.MaxConcurrentPreviewServers)
+	}
+	pool := r.previewPool
 	for id, s := range r.innerAppSessions {
 		if s.ExpiresAt <= now.Unix() {
 			delete(r.innerAppSessions, id)
@@ -60,15 +64,30 @@ func (r *Runtime) openInnerAppSession(ctx context.Context, appName string) (map[
 	r.innerAppSessions[sessionID] = sess
 	r.mu.Unlock()
 
-	return map[string]any{
+	manifest := apps.ManifestFor(app)
+	out := map[string]any{
 		"success":    true,
 		"session_id": sessionID,
 		"nonce":      nonce,
 		"created_at": sess.CreatedAt,
 		"expires_at": sess.ExpiresAt,
 		"ttl_sec":    int(innerAppSessionTTL.Seconds()),
-		"manifest":   apps.ManifestFor(app),
-	}, nil
+		"manifest":   manifest,
+	}
+	if dir, ok := apps.ResolveBundleDir(r.appsRoot, r.workspace, app); ok && pool != nil {
+		if lease, err := pool.AcquirePanelPreview(dir, apps.PreviewSessionBinding{
+			AppName:   app.Name,
+			SessionID: sessionID,
+			Nonce:     nonce,
+			Manifest:  manifest,
+		}); err == nil && lease != nil {
+			out["preview_url"] = lease.EntryURL
+			out["preview_origin"] = lease.Origin
+			out["preview_port"] = lease.Port
+			out["preview_handle"] = lease.Handle
+		}
+	}
+	return out, nil
 }
 
 func (r *Runtime) validateInnerAppSession(appName, sessionID, nonce string) error {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"sort"
 	"strings"
 	"time"
 
@@ -23,11 +24,28 @@ func NewSQLiteStore(dsn string) (*SQLiteStore, error) {
 	if err != nil {
 		return nil, err
 	}
+	// First, before any pragma, CREATE or ALTER: a database a newer build wrote stays exactly as it is.
+	if err := db.CheckSchemaVersion(conn); err != nil {
+		conn.Close()
+		return nil, err
+	}
 	if err := db.Configure(conn); err != nil {
 		conn.Close()
 		return nil, err
 	}
 	if err := initSchema(conn); err != nil {
+		conn.Close()
+		return nil, err
+	}
+	if err := initSummaryTreeSchema(conn); err != nil {
+		conn.Close()
+		return nil, err
+	}
+	if err := initLearningSchema(conn); err != nil {
+		conn.Close()
+		return nil, err
+	}
+	if err := db.StampSchemaVersion(conn); err != nil {
 		conn.Close()
 		return nil, err
 	}
@@ -48,7 +66,9 @@ func initSchema(db *sql.DB) error {
 		created_at INTEGER,
 		updated_at INTEGER
 	);
-	CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
+	CREATE INDEX IF NOT EXISTS idx_memories_scope_layer ON memories(scope,status,modality,updated_at);
+CREATE INDEX IF NOT EXISTS idx_memories_scope_time ON memories(scope,status,created_at);
+ CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
 		content, content='memories', content_rowid='rowid'
 	);
 	CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN
@@ -88,7 +108,20 @@ func initSchema(db *sql.DB) error {
 		);
 		CREATE INDEX IF NOT EXISTS idx_mem_links_target ON memory_links(target_id);
 	`)
-	return nil
+	_, err := db.Exec(`
+ CREATE TABLE IF NOT EXISTS memory_source_revisions(scope TEXT PRIMARY KEY,revision INTEGER NOT NULL DEFAULT 0);
+ CREATE TRIGGER IF NOT EXISTS memory_revision_insert AFTER INSERT ON memories WHEN NEW.modality='fact' BEGIN
+ INSERT INTO memory_source_revisions(scope,revision) VALUES(NEW.scope,1) ON CONFLICT(scope) DO UPDATE SET revision=revision+1;
+ END;
+ CREATE TRIGGER IF NOT EXISTS memory_revision_update AFTER UPDATE OF content,metadata,status,supersedes_id,contradicted_by,is_canonical,source_trust ON memories
+ WHEN NEW.content IS NOT OLD.content OR NEW.status IS NOT OLD.status OR NEW.supersedes_id IS NOT OLD.supersedes_id OR NEW.contradicted_by IS NOT OLD.contradicted_by OR NEW.is_canonical IS NOT OLD.is_canonical OR (NEW.modality='fact' AND (NEW.metadata IS NOT OLD.metadata OR NEW.source_trust IS NOT OLD.source_trust)) BEGIN
+ INSERT INTO memory_source_revisions(scope,revision) VALUES(NEW.scope,1) ON CONFLICT(scope) DO UPDATE SET revision=revision+1;
+ END;
+ CREATE TRIGGER IF NOT EXISTS memory_revision_delete AFTER DELETE ON memories BEGIN
+ INSERT INTO memory_source_revisions(scope,revision) VALUES(OLD.scope,1) ON CONFLICT(scope) DO UPDATE SET revision=revision+1;
+ END;
+ `)
+	return err
 }
 
 func (s *SQLiteStore) Link(ctx context.Context, sourceID, targetID, relation string) error {
@@ -118,6 +151,15 @@ func (s *SQLiteStore) GetPipelineState(ctx context.Context, stage string) (int64
 }
 
 func (s *SQLiteStore) Ingest(ctx context.Context, record Record) error {
+	if record.Metadata["source"] == "personal_learning" {
+		return s.ingestLearnedRecord(ctx, record)
+	}
+	return ingestMemoryRecord(ctx, s.db, record)
+}
+
+func ingestMemoryRecord(ctx context.Context, writer interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}, record Record) error {
 	if err := ApplyTaxonomy(&record); err != nil {
 		return err
 	}
@@ -146,6 +188,7 @@ func (s *SQLiteStore) Ingest(ctx context.Context, record Record) error {
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			content = excluded.content,
+metadata = excluded.metadata,
 			status = excluded.status,
 			importance = excluded.importance,
 			recall_count = excluded.recall_count,
@@ -155,7 +198,7 @@ func (s *SQLiteStore) Ingest(ctx context.Context, record Record) error {
 			contradicted_by = excluded.contradicted_by,
 			updated_at = excluded.updated_at
 	`
-	_, err := s.db.ExecContext(ctx, query,
+	_, err := writer.ExecContext(ctx, query,
 		record.ID, record.Content, record.Scope, record.Modality, string(metaJSON),
 		record.Status, record.Importance, record.LastRecallAt, record.RecallCount,
 		record.SupersedesID, isCanonicalVal, record.SourceTrust, record.ContradictedBy, record.CreatedAt, record.UpdatedAt)
@@ -272,7 +315,7 @@ func (s *SQLiteStore) recallFTSMATCH(ctx context.Context, matchExpr string, opts
 		SELECT ` + selectCols + `
 		FROM memories m
 		JOIN memories_fts f ON m.rowid = f.rowid
-		WHERE memories_fts MATCH ? AND m.status = 'active'
+		WHERE memories_fts MATCH ? AND m.status = 'active' AND COALESCE(json_extract(m.metadata,'$.source'),'')<>'personal_learning_evidence'
 	`
 	args := []interface{}{matchExpr}
 	if opts.Scope != "" {
@@ -346,7 +389,7 @@ func (s *SQLiteStore) recallFTSMATCH(ctx context.Context, matchExpr string, opts
 			FROM memories m
 			JOIN memory_links l ON (m.id = l.target_id OR m.id = l.source_id)
 			WHERE (l.source_id IN (` + placeholders + `) OR l.target_id IN (` + placeholders + `))
-			  AND m.status = 'active'
+			  AND m.status = 'active' AND COALESCE(json_extract(m.metadata,'$.source'),'')<>'personal_learning_evidence'
 		`
 
 		hopRows, err := s.db.QueryContext(ctx, hopQuery, hopArgs...)
@@ -391,7 +434,7 @@ func (s *SQLiteStore) RecallLikeFallback(ctx context.Context, query string, opts
 	if len(clauses) == 0 {
 		return nil, nil
 	}
-	sqlQuery := `SELECT ` + selectCols + ` FROM memories m WHERE m.status = 'active' AND (` + strings.Join(clauses, " OR ") + `)`
+	sqlQuery := `SELECT ` + selectCols + ` FROM memories m WHERE m.status = 'active' AND COALESCE(json_extract(m.metadata,'$.source'),'')<>'personal_learning_evidence' AND (` + strings.Join(clauses, " OR ") + `)`
 	if opts.Scope != "" {
 		sqlQuery += " AND m.scope = ?"
 		args = append(args, opts.Scope)
@@ -408,8 +451,16 @@ func (s *SQLiteStore) RecallLikeFallback(ctx context.Context, query string, opts
 		sqlQuery += " AND COALESCE(m.importance, 1.0) >= ?"
 		args = append(args, opts.MinImportance)
 	}
+	// A Chinese query is matched by many short pieces, so "importance first" would let one weak
+	// piece on an important memory beat a memory that matches most of them: take a wider
+	// candidate set and order it by how much of the query each memory contains.
+	chinese := hasHan(query)
+	fetch := limit
+	if chinese {
+		fetch = min(limit*6, 300)
+	}
 	sqlQuery += " ORDER BY m.importance DESC, m.updated_at DESC LIMIT ?"
-	args = append(args, limit)
+	args = append(args, fetch)
 
 	rows, err := s.db.QueryContext(ctx, sqlQuery, args...)
 	if err != nil {
@@ -423,6 +474,14 @@ func (s *SQLiteStore) RecallLikeFallback(ctx context.Context, query string, opts
 			return nil, err
 		}
 		results = append(results, r)
+	}
+	if chinese && len(results) > 1 {
+		sort.SliceStable(results, func(i, j int) bool {
+			return bm25LiteScore(tokens, results[i].Content) > bm25LiteScore(tokens, results[j].Content)
+		})
+		if len(results) > limit {
+			results = results[:limit]
+		}
 	}
 	s.touchRecalledRecords(ctx, results)
 	return results, nil

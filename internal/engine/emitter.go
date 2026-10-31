@@ -164,6 +164,9 @@ func (e *emitter) done(res RunResult) {
 	p := map[string]any{
 		"messages": res.Messages, "error": res.Error, "pending": res.Pending,
 	}
+	if res.Degraded != "" {
+		p["degraded"] = res.Degraded
+	}
 	if res.Reason != "" {
 		p["reason"] = res.Reason
 	}

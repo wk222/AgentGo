@@ -1,0 +1,13 @@
+/* 交付文件卡。只用 Chrome 109 能认的写法。 */
+.artifact-card{display:flex;align-items:center;gap:12px;margin:6px 0 2px;padding:10px 12px;border:1px solid var(--border);border-radius:9px;background:var(--surface)}
+.artifact-card.removed{opacity:.6}
+.artifact-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.artifact-name{font-size:12px;font-weight:600;color:var(--text-strong);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.artifact-card.removed .artifact-name{text-decoration:line-through}
+.artifact-meta{font-size:11px;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.artifact-actions{display:flex;gap:6px;flex-shrink:0}
+.artifact-btn{padding:4px 10px;border:1px solid var(--border);border-radius:6px;background:transparent;color:var(--text-strong);font-size:11px;text-decoration:none;cursor:pointer}
+.artifact-btn:hover{border-color:var(--settings-accent)}
+.artifact-btn.primary{background:var(--settings-accent);border-color:var(--settings-accent);color:#fff}
+.artifact-btn.danger:hover{border-color:var(--error);color:var(--error)}
+.artifact-btn:disabled{opacity:.5;cursor:default}

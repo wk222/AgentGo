@@ -11,6 +11,7 @@ const replHelp = `Commands:
   /new              start a new conversation
   /sessions         list saved conversations
   /resume N|ID      switch to a saved conversation (N = number from /sessions)
+  /fork             copy this conversation into a new one and continue there
   /yolo [on|off]    approve every tool call without asking
   /thinking [on|off] show the model's reasoning
   /plugins          list plugins
@@ -150,6 +151,22 @@ func slash(c *Chat, line string, env IO, sessions *[]SessionInfo) bool {
 		}
 		c.Session = id
 		fmt.Fprintln(env.Err, "session", id)
+	case "/fork":
+		f, ok := c.B.(Forker)
+		switch {
+		case !ok:
+			fmt.Fprintln(env.Err, "this backend cannot fork a conversation")
+		case c.Session == "":
+			fmt.Fprintln(env.Err, "nothing to fork yet: send a message first")
+		default:
+			id, err := f.Fork(c.Session)
+			if err != nil {
+				fmt.Fprintln(env.Err, "error:", err)
+				break
+			}
+			fmt.Fprintf(env.Err, "forked %s -> session %s (the original is unchanged)\n", c.Session, id)
+			c.Session = id
+		}
 	case "/yolo":
 		c.Yolo = toggle(arg, c.Yolo)
 		fmt.Fprintln(env.Err, "yolo", onOff(c.Yolo))

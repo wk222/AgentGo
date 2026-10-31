@@ -79,7 +79,7 @@ func (e *Engine) Add(t Trigger) (Trigger, error) {
 	return created, nil
 }
 
-func (e *Engine) List() ([]Trigger, error)      { return e.store.List() }
+func (e *Engine) List() ([]Trigger, error)       { return e.store.List() }
 func (e *Engine) Get(id string) (Trigger, error) { return e.store.Get(id) }
 
 // Cancel disarms a trigger. Cancelling one that already fired reports ErrNotArmed.

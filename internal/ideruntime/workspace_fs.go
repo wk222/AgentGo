@@ -70,6 +70,10 @@ type WorkspaceFS struct {
 	batchCbs     []func(batch FSChangeBatch)
 	watchDirs    map[string]bool
 	isWatching   bool
+	maxWatchDirs int
+	syncBudget   time.Duration
+	capLogged    bool
+	walkWG       sync.WaitGroup
 }
 
 // NewWorkspaceFS creates a workspace file service rooted at the specified directory.
@@ -81,11 +85,13 @@ func NewWorkspaceFS(rootDir string) (*WorkspaceFS, error) {
 	absRoot = filepath.Clean(absRoot)
 
 	fs := &WorkspaceFS{
-		rootPath:    absRoot,
-		rootURI:     PathToURI(absRoot),
-		changeQueue: make(map[string]FSChangeType),
-		watchDirs:   make(map[string]bool),
-		watcherStop: make(chan struct{}),
+		rootPath:     absRoot,
+		rootURI:      PathToURI(absRoot),
+		changeQueue:  make(map[string]FSChangeType),
+		watchDirs:    make(map[string]bool),
+		watcherStop:  make(chan struct{}),
+		maxWatchDirs: defaultMaxWatchDirs,
+		syncBudget:   defaultWatchSyncBudget,
 	}
 	return fs, nil
 }
@@ -113,13 +119,13 @@ func (fs *WorkspaceFS) SetRoot(rootDir string) error {
 	absRoot = filepath.Clean(absRoot)
 
 	fs.mu.Lock()
-	defer fs.mu.Unlock()
-
 	fs.rootPath = absRoot
 	fs.rootURI = PathToURI(absRoot)
+	watching := fs.isWatching
+	fs.mu.Unlock()
 
-	if fs.isWatching {
-		fs.restartWatcherLocked()
+	if watching {
+		fs.restartWatcher()
 	}
 	return nil
 }
@@ -421,79 +427,78 @@ func (fs *WorkspaceFS) OnFilesChanged(cb func(batch FSChangeBatch)) {
 	fs.batchCbs = append(fs.batchCbs, cb)
 }
 
-// StartWatcher starts recursive directory watching on workspace root.
+// StartWatcher starts directory watching on the workspace root. Registration is breadth-first and
+// capped; only a short synchronous budget is spent here, the rest continues in the background so a
+// broad workspace can never block application startup.
 func (fs *WorkspaceFS) StartWatcher() error {
 	fs.mu.Lock()
-	defer fs.mu.Unlock()
-
 	if fs.isWatching {
+		fs.mu.Unlock()
 		return nil
 	}
-
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
+		fs.mu.Unlock()
 		return fmt.Errorf("new fsnotify watcher: %w", err)
 	}
 	fs.watcher = w
 	fs.isWatching = true
+	fs.watchDirs = make(map[string]bool)
+	fs.capLogged = false
+	root, budget := fs.rootPath, fs.syncBudget
+	fs.mu.Unlock()
 
-	fs.addWatchDirsRecursiveLocked(fs.rootPath)
-	go fs.watcherLoop()
-
+	go fs.watcherLoop(w)
+	rest := fs.walkWatch(w, []string{root}, time.Now().Add(budget))
+	fs.continueWalk(w, rest)
 	return nil
 }
 
-// StopWatcher terminates the filesystem watcher.
+// StopWatcher terminates the filesystem watcher. The watcher is closed without fs.mu held:
+// Close waits for fsnotify's reader goroutine, which may be blocked delivering an event to
+// watcherLoop, and watcherLoop needs fs.mu — closing under the lock deadlocks.
 func (fs *WorkspaceFS) StopWatcher() {
 	fs.mu.Lock()
-	defer fs.mu.Unlock()
-
 	if !fs.isWatching {
+		fs.mu.Unlock()
 		return
 	}
 	fs.isWatching = false
-	if fs.watcher != nil {
-		_ = fs.watcher.Close()
+	w := fs.watcher
+	fs.watcher = nil
+	fs.mu.Unlock()
+
+	if w != nil {
+		_ = w.Close()
 	}
 }
 
-func (fs *WorkspaceFS) restartWatcherLocked() {
-	if fs.watcher != nil {
-		_ = fs.watcher.Close()
-	}
+// restartWatcher swaps in a fresh watcher for the current root. Called without fs.mu held.
+func (fs *WorkspaceFS) restartWatcher() {
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
 		return
 	}
+	fs.mu.Lock()
+	old := fs.watcher
 	fs.watcher = w
 	fs.watchDirs = make(map[string]bool)
-	fs.addWatchDirsRecursiveLocked(fs.rootPath)
+	fs.capLogged = false
+	root := fs.rootPath
+	fs.mu.Unlock()
+
+	if old != nil {
+		_ = old.Close()
+	}
+	go fs.watcherLoop(w)
+	// never walk while holding fs.mu: SetRoot must stay instantaneous
+	fs.continueWalk(w, []string{root})
 }
 
-func (fs *WorkspaceFS) addWatchDirsRecursiveLocked(root string) {
-	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil || !d.IsDir() {
-			return nil
-		}
-		base := d.Name()
-		if base == ".git" || base == "node_modules" || base == "dist" || base == ".idea" {
-			return filepath.SkipDir
-		}
-		if fs.watcher != nil && !fs.watchDirs[path] {
-			if err := fs.watcher.Add(path); err == nil {
-				fs.watchDirs[path] = true
-			}
-		}
-		return nil
-	})
-}
-
-func (fs *WorkspaceFS) watcherLoop() {
+func (fs *WorkspaceFS) watcherLoop(w *fsnotify.Watcher) {
 	for {
 		select {
-		case <-fs.watcherStop:
-			return
-		case err, ok := <-fs.watcher.Errors:
+		case err, ok := <-w.Errors:
 			if !ok {
 				return
 			}
@@ -504,17 +509,19 @@ func (fs *WorkspaceFS) watcherLoop() {
 					Overflow:     true,
 				})
 			}
-		case event, ok := <-fs.watcher.Events:
+		case event, ok := <-w.Events:
 			if !ok {
 				return
 			}
 
-			// If new directory created, recursively watch it
+			// If new directory created, watch it and its subtree. Registration must run in the
+			// background: walking synchronously here stalls event draining, and fsnotify's
+			// reader goroutine then cannot answer the Add calls the walk itself makes.
 			if event.Has(fsnotify.Create) {
 				if fi, err := os.Stat(event.Name); err == nil && fi.IsDir() {
-					fs.mu.Lock()
-					fs.addWatchDirsRecursiveLocked(event.Name)
-					fs.mu.Unlock()
+					if !watchSkipDirs[filepath.Base(event.Name)] {
+						fs.continueWalk(w, []string{event.Name})
+					}
 				}
 			}
 

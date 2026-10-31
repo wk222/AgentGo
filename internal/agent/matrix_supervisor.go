@@ -8,8 +8,6 @@ import (
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
-
-	"agentgo/internal/governance"
 )
 
 func (r *Runner) buildChatModelAgentWithTools(
@@ -24,14 +22,10 @@ func (r *Runner) buildChatModelAgentWithTools(
 	if err != nil {
 		return nil, err
 	}
-	policy := r.effectivePolicy()
-	// Governance is mounted once as an ADK handler below; tool-heal has no handler here.
-	toolMW := r.composeToolMiddlewares(policy, toolMounts{GovernanceInHandlers: true})
 	toolsCfg := adk.ToolsConfig{
 		EmitInternalEvents: emitInternal,
 		ToolsNodeConfig: compose.ToolsNodeConfig{
-			Tools:               toolList,
-			ToolCallMiddlewares: toolMW,
+			Tools: toolList,
 		},
 	}
 	failover, err := r.modelFailoverConfig(ctx, cfg)
@@ -41,17 +35,13 @@ func (r *Runner) buildChatModelAgentWithTools(
 	if maxIter <= 0 {
 		maxIter = 12
 	}
-	var handlers []adk.ChatModelAgentMiddleware
-	if r.queue != nil {
-		handlers = append(handlers, governance.NewGovernanceMiddleware(r.queue, policy))
-	}
 	agentCfg := &adk.ChatModelAgentConfig{
 		Name:                name,
 		Description:         description,
 		Instruction:         instruction,
 		Model:               chatModel,
 		ToolsConfig:         toolsCfg,
-		Handlers:            handlers,
+		Handlers:            r.toolExecutionHandlers(ctx).all(),
 		MaxIterations:       maxIter,
 		ModelRetryConfig:    DefaultModelRetryConfig(),
 		ModelFailoverConfig: failover,
@@ -99,6 +89,7 @@ func (r *Runner) innerAppSpecialistTools() []tool.BaseTool {
 }
 
 func (r *Runner) buildWorkflowSpecialistAgent(ctx context.Context, cfg LLMSettings) (adk.Agent, error) {
+	ctx = withLLMBudget(ctx, cfg)
 	toolList := r.workflowSpecialistTools()
 	if len(toolList) == 0 {
 		return nil, fmt.Errorf("no workflow tools registered")
@@ -115,6 +106,7 @@ func (r *Runner) buildWorkflowSpecialistAgent(ctx context.Context, cfg LLMSettin
 }
 
 func (r *Runner) buildInnerAppSpecialistAgent(ctx context.Context, cfg LLMSettings) (adk.Agent, error) {
+	ctx = withLLMBudget(ctx, cfg)
 	toolList := r.innerAppSpecialistTools()
 	if len(toolList) == 0 {
 		return nil, fmt.Errorf("no inner app tools registered")
@@ -132,6 +124,7 @@ func (r *Runner) buildInnerAppSpecialistAgent(ctx context.Context, cfg LLMSettin
 
 // BuildMatrixCoordinatorAgent wraps workflow_agent and inner_app_agent as AgentTools (Eino 推荐协作模式).
 func (r *Runner) BuildMatrixCoordinatorAgent(ctx context.Context, cfg LLMSettings) (adk.Agent, error) {
+	ctx = withLLMBudget(ctx, cfg)
 	wfAgent, err := r.buildWorkflowSpecialistAgent(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("workflow_agent: %w", err)
@@ -164,10 +157,15 @@ func (r *Runner) BuildMatrixCoordinatorAgent(ctx context.Context, cfg LLMSetting
 
 // RunMatrixSupervisor runs the AgentTool-based coordinator (Eino agent_collaboration 推荐路径).
 func (r *Runner) RunMatrixSupervisor(ctx context.Context, cfg LLMSettings, sessionID, userText string) (*RunResult, error) {
+	ctx = withLLMBudget(ctx, cfg)
 	if r.cpStore == nil {
 		return nil, fmt.Errorf("checkpoint store unavailable")
 	}
-	ctx = WithSessionMode(WithSessionID(ctx, sessionID), SessionMode{
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		sessionID = MatrixCoordinatorSession
+	}
+	ctx = WithSessionMode(BindRunContext(ctx, sessionID), SessionMode{
 		Profile: ModeAppMatrix, Canvas: CanvasDeep,
 	})
 
@@ -205,18 +203,23 @@ func (r *Runner) RunMatrixSupervisor(ctx context.Context, cfg LLMSettings, sessi
 }
 
 // ResumeMatrixSupervisor continues a paused App Matrix coordinator run after HITL approval.
-func (r *Runner) ResumeMatrixSupervisor(ctx context.Context, cfg LLMSettings, interruptID string, resumeData any) (*RunResult, error) {
+func (r *Runner) ResumeMatrixSupervisor(ctx context.Context, cfg LLMSettings, sessionID, interruptID string, resumeData any) (*RunResult, error) {
+	ctx = withLLMBudget(ctx, cfg)
 	if r.cpStore == nil {
 		return nil, fmt.Errorf("checkpoint store unavailable")
 	}
-	ctx = WithSessionMode(WithSessionID(ctx, MatrixCoordinatorSession), SessionMode{
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		sessionID = MatrixCoordinatorSession
+	}
+	ctx = WithSessionMode(BindRunContext(ctx, sessionID), SessionMode{
 		Profile: ModeAppMatrix, Canvas: CanvasDeep,
 	})
 	coordinator, err := r.BuildMatrixCoordinatorAgent(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
-	return r.resumeADKAgent(ctx, cfg, MatrixCoordinatorSession, interruptID, resumeData, coordinator, nil)
+	return r.resumeADKAgent(ctx, cfg, sessionID, interruptID, resumeData, coordinator, nil)
 }
 
 // MatrixEventPrompt formats a capability bus event for the coordinator.

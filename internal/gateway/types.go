@@ -19,9 +19,10 @@ type HarnessLister interface {
 
 // ChatResult is the final assistant payload after SSE stream ends.
 type ChatResult struct {
-	Content string      `json:"content"`
-	Error   string      `json:"error,omitempty"`
-	Usage   *UsageStats `json:"usage,omitempty"`
+	Content  string      `json:"content"`
+	Error    string      `json:"error,omitempty"`
+	Degraded string      `json:"degraded,omitempty"`
+	Usage    *UsageStats `json:"usage,omitempty"`
 }
 
 // UsageStats is what one chat run consumed. It rides on the final "done" event so

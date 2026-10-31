@@ -29,6 +29,7 @@ func defaultRiskTable() map[string]RiskLevel {
 		"execute_bash":              RiskCritical,
 		"run_uv_skill":              RiskCritical,
 		"run_batch_script":          RiskCritical,
+		ElevatedTool:                RiskCritical,
 		"replace_workspace_text":    RiskMedium,
 		"create_workspace_file":     RiskMedium,
 		"create_tool":               RiskHigh,
@@ -39,35 +40,41 @@ func defaultRiskTable() map[string]RiskLevel {
 		"run_swarm":                 RiskHigh,
 		"workflow_trigger":          RiskMedium,
 		"send_email":                RiskMedium,
+		"manage_mcp_server":         RiskHigh,
+		"manage_channel":            RiskMedium,
+		"send_file":                 RiskHigh,
+		"run_skill_script":          RiskHigh,
+		"deliver_file":              RiskMedium,
+		"manage_adapter":            RiskHigh,
 		// Plugin tools (e.g. the codetools plugin's code_* / lsp_*) are NOT listed
 		// here: a plugin declares the risk of the tools it contributes through
 		// RegisterToolTraits, and StaticRisk / EffectiveRisk read it from there.
 		// OpenIPA Distributed RPA & Automation Tools (5 大领域分层治理策略)
-		"open_ipa_list_projects":         RiskLow,
-		"open_ipa_inspect_project":       RiskLow,
-		"open_ipa_validate_project":      RiskLow,
-		"open_ipa_inspect_ipa_project":   RiskLow,
-		"open_ipa_list_workers":          RiskLow,
-		"open_ipa_list_cluster_workers":  RiskLow,
-		"open_ipa_get_worker_health":     RiskLow,
-		"open_ipa_get_job_detail":        RiskLow,
+		"open_ipa_list_projects":           RiskLow,
+		"open_ipa_inspect_project":         RiskLow,
+		"open_ipa_validate_project":        RiskLow,
+		"open_ipa_inspect_ipa_project":     RiskLow,
+		"open_ipa_list_workers":            RiskLow,
+		"open_ipa_list_cluster_workers":    RiskLow,
+		"open_ipa_get_worker_health":       RiskLow,
+		"open_ipa_get_job_detail":          RiskLow,
 		"open_ipa_get_cluster_task_status": RiskLow,
-		"open_ipa_get_logs":              RiskLow,
-		"open_ipa_get_trace":             RiskLow,
-		"open_ipa_diagnose_failure":      RiskLow,
-		"open_ipa_desktop_screenshot":    RiskLow,
-		"open_ipa_window_list":           RiskLow,
-		"open_ipa_window_focus":          RiskLow,
-		"open_ipa_step_flow":             RiskMedium,
-		"open_ipa_run_flow":              RiskMedium,
-		"open_ipa_run_ipa_flow":          RiskMedium,
-		"open_ipa_cancel_flow":           RiskMedium,
-		"open_ipa_execute_step":          RiskMedium,
-		"open_ipa_execute_rpa_step":      RiskMedium,
-		"open_ipa_desktop_click":         RiskMedium,
-		"open_ipa_desktop_type":          RiskMedium,
-		"open_ipa_dispatch_job":          RiskMedium,
-		"open_ipa_dispatch_cluster_task": RiskMedium,
+		"open_ipa_get_logs":                RiskLow,
+		"open_ipa_get_trace":               RiskLow,
+		"open_ipa_diagnose_failure":        RiskLow,
+		"open_ipa_desktop_screenshot":      RiskLow,
+		"open_ipa_window_list":             RiskLow,
+		"open_ipa_window_focus":            RiskLow,
+		"open_ipa_step_flow":               RiskMedium,
+		"open_ipa_run_flow":                RiskMedium,
+		"open_ipa_run_ipa_flow":            RiskMedium,
+		"open_ipa_cancel_flow":             RiskMedium,
+		"open_ipa_execute_step":            RiskMedium,
+		"open_ipa_execute_rpa_step":        RiskMedium,
+		"open_ipa_desktop_click":           RiskMedium,
+		"open_ipa_desktop_type":            RiskMedium,
+		"open_ipa_dispatch_job":            RiskMedium,
+		"open_ipa_dispatch_cluster_task":   RiskMedium,
 	}
 }
 
@@ -99,6 +106,11 @@ func applyControlToRiskLevels(p *Policy, ctrl ControlPolicy) {
 
 // RequiresApprovalFor decides HITL after pipeline + static policy.
 func (p Policy) RequiresApprovalFor(toolName string, pipeline ToolControlDecision) bool {
+	// A session that waives approval (local red-team runs) still asks before
+	// anything gets administrator rights.
+	if p.SessionAutoApprove && toolName != ElevatedTool {
+		return false
+	}
 	if p.BlockedTools != nil && p.BlockedTools[toolName] {
 		return true
 	}

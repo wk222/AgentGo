@@ -46,7 +46,11 @@ func (r *Runtime) triggerEngine() (*trigger.Engine, error) {
 
 // --- tools.WatchHandler: lets the agent arm triggers that wake its own session ---
 
-const maxArmedPerSession = 20
+const (
+	maxArmedPerSession = 20
+	minTimerSec        = int64(5)
+	maxTimerSec        = int64(24 * 3600)
+)
 
 func (r *Runtime) CreateWatch(_ context.Context, req tools.WatchRequest) (any, error) {
 	e, err := r.triggerEngine()
@@ -72,6 +76,15 @@ func (r *Runtime) CreateWatch(_ context.Context, req tools.WatchRequest) (any, e
 	}
 	if req.ExpiresInSec > 0 {
 		t.ExpiresAt = time.Now().Add(time.Duration(req.ExpiresInSec) * time.Second).Unix()
+	}
+	if t.Kind == trigger.KindTimer {
+		if strings.TrimSpace(req.Prompt) == "" {
+			return nil, fmt.Errorf("a timer needs a prompt: what should you do when you wake up?")
+		}
+		// Clamp rather than reject so a slightly-off value never costs a retry.
+		delay := min(max(req.DelaySec, minTimerSec), maxTimerSec)
+		t.FireAt = time.Now().Add(time.Duration(delay) * time.Second).Unix()
+		t.ExpiresAt = t.FireAt + 3600 // the watch timeout must not pre-empt the timer
 	}
 	return e.Add(t)
 }

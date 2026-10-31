@@ -19,6 +19,12 @@ type Session struct {
 	CreatedAt    int64  `json:"created_at"`
 	UpdatedAt    int64  `json:"updated_at"`
 	MessageCount int    `json:"message_count"`
+	// ParentID/ParentTitle name the conversation this one was forked from (see
+	// ForkSession); ParentGone is set once that original has been deleted, in
+	// which case ParentTitle is the title it had at fork time.
+	ParentID    string `json:"parent_id,omitempty"`
+	ParentTitle string `json:"parent_title,omitempty"`
+	ParentGone  bool   `json:"parent_gone,omitempty"`
 }
 
 type Message struct {
@@ -55,6 +61,10 @@ func NewStore(db *sql.DB) error {
 		);
 		CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id);
 
+		-- chat_entries and chat_lanes are legacy conversation-tree tables. Nothing writes them any
+		-- more because the model context lives in chat_context_events. They stay so existing
+		-- databases keep valid foreign keys and session deletion still clears old rows. Drop them
+		-- in a future migration once no database has rows left.
 		CREATE TABLE IF NOT EXISTS chat_entries (
 			id TEXT PRIMARY KEY,
 			parent_id TEXT,
@@ -89,6 +99,12 @@ func NewStore(db *sql.DB) error {
 	if _, err = db.Exec(sessionModesSchema); err != nil {
 		return err
 	}
+	if _, err = db.Exec(contextEventsSchema); err != nil {
+		return err
+	}
+	if _, err = db.Exec(sessionForksSchema); err != nil {
+		return err
+	}
 	_, err = db.Exec(pendingRunsSchema)
 	return err
 }
@@ -104,10 +120,17 @@ func (s *Store) List(ctx context.Context, limit int) ([]Session, error) {
 	if limit <= 0 {
 		limit = 100
 	}
+	// The original's live title wins over the one recorded at fork time, so a
+	// rename shows up in the lineage line; once it is gone the record is all
+	// that is left.
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT s.id, s.title, s.created_at, s.updated_at,
-			(SELECT COUNT(*) FROM chat_messages m WHERE m.session_id = s.id) AS msg_count
-		FROM chat_sessions s ORDER BY s.updated_at DESC LIMIT ?
+			(SELECT COUNT(*) FROM chat_messages m WHERE m.session_id = s.id) AS msg_count,
+			COALESCE(f.parent_id, ''),
+			COALESCE((SELECT p.title FROM chat_sessions p WHERE p.id = f.parent_id), f.parent_title, ''),
+			CASE WHEN f.parent_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM chat_sessions p WHERE p.id = f.parent_id) THEN 1 ELSE 0 END
+		FROM chat_sessions s LEFT JOIN chat_session_forks f ON f.session_id = s.id
+		ORDER BY s.updated_at DESC LIMIT ?
 	`, limit)
 	if err != nil {
 		return nil, err
@@ -116,12 +139,14 @@ func (s *Store) List(ctx context.Context, limit int) ([]Session, error) {
 	var out []Session
 	for rows.Next() {
 		var x Session
-		if err := rows.Scan(&x.ID, &x.Title, &x.CreatedAt, &x.UpdatedAt, &x.MessageCount); err != nil {
+		var gone int
+		if err := rows.Scan(&x.ID, &x.Title, &x.CreatedAt, &x.UpdatedAt, &x.MessageCount, &x.ParentID, &x.ParentTitle, &gone); err != nil {
 			return nil, err
 		}
+		x.ParentGone = gone != 0
 		out = append(out, x)
 	}
-	return out, nil
+	return out, rows.Err()
 }
 
 func (s *Store) Create(ctx context.Context, title string) (Session, error) {
@@ -200,24 +225,128 @@ func (s *Store) AppendMessage(ctx context.Context, sessionID, role, content, msg
 
 // Delete removes a session and all its messages.
 func (s *Store) Delete(ctx context.Context, sessionID string) error {
-	sessionID = strings.TrimSpace(sessionID)
-	if sessionID == "" {
+	if strings.TrimSpace(sessionID) == "" {
 		return fmt.Errorf("empty session id")
 	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM chat_messages WHERE session_id = ?`, sessionID); err != nil {
-		return err
-	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM chat_run_events WHERE session_id = ?`, sessionID); err != nil {
-		return err
-	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM pending_runs WHERE session_id = ?`, sessionID); err != nil {
-		return err
-	}
-	if err := s.DeleteMode(ctx, sessionID); err != nil {
-		return err
-	}
-	_, err := s.db.ExecContext(ctx, `DELETE FROM chat_sessions WHERE id = ?`, sessionID)
+	_, err := s.DeleteBatch(ctx, []string{sessionID})
 	return err
+}
+
+// deleteSessionRows runs inside the caller's transaction; suffix is a fixed SQL
+// predicate supplied only by the methods below. Delete children before parents.
+func deleteSessionRows(ctx context.Context, tx *sql.Tx, suffix string, args ...any) (int, error) {
+	for _, table := range []string{"chat_lanes", "chat_entries", "chat_messages", "chat_context_events", "chat_run_events", "chat_session_forks", "pending_runs", "session_modes"} {
+		query := "DELETE FROM " + table + " WHERE session_id" + suffix
+		values := append([]any(nil), args...)
+		if table == "session_modes" {
+			query += " AND session_id != ?"
+			values = append(values, DefaultModeKey)
+		}
+		if _, err := tx.ExecContext(ctx, query, values...); err != nil {
+			return 0, fmt.Errorf("delete %s: %w", table, err)
+		}
+	}
+	result, err := tx.ExecContext(ctx, "DELETE FROM chat_sessions WHERE id"+suffix, args...)
+	if err != nil {
+		return 0, err
+	}
+	count, err := result.RowsAffected()
+	return int(count), err
+}
+
+// DeleteBatch atomically removes transcripts, native events, tree branches,
+// modes and pending approvals. Any failed delete rolls back the entire batch.
+func (s *Store) DeleteBatch(ctx context.Context, sessionIDs []string) (int, error) {
+	var clean []string
+	seen := map[string]bool{}
+	for _, raw := range sessionIDs {
+		id := strings.TrimSpace(raw)
+		if id != "" && !seen[id] {
+			seen[id] = true
+			clean = append(clean, id)
+		}
+	}
+	if len(clean) == 0 {
+		return 0, nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	deleted := 0
+	for _, id := range clean {
+		n, err := deleteSessionRows(ctx, tx, " = ?", id)
+		if err != nil {
+			return 0, err
+		}
+		deleted += n
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return deleted, nil
+}
+
+// DeleteAllExcept preserves the runner-wide default mode when clearing chats.
+func (s *Store) DeleteAllExcept(ctx context.Context, keepSessionID string) (int, error) {
+	keepSessionID = strings.TrimSpace(keepSessionID)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	suffix := " IS NOT NULL"
+	var args []any
+	if keepSessionID != "" {
+		suffix = " != ?"
+		args = []any{keepSessionID}
+	}
+	n, err := deleteSessionRows(ctx, tx, suffix, args...)
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+// DeleteByTitle removes all sessions matching the given title across the entire database.
+func (s *Store) DeleteByTitle(ctx context.Context, title string, keepSessionID string) (int, error) {
+	title = strings.TrimSpace(title)
+	keepSessionID = strings.TrimSpace(keepSessionID)
+	if title == "" {
+		return 0, fmt.Errorf("empty title")
+	}
+
+	var rows *sql.Rows
+	var err error
+	if title == "新对话" || strings.EqualFold(title, "new chat") {
+		rows, err = s.db.QueryContext(ctx, `SELECT id FROM chat_sessions WHERE (TRIM(title) = '' OR TRIM(title) = '新对话' OR LOWER(TRIM(title)) = 'new chat') AND id != ?`, keepSessionID)
+	} else {
+		rows, err = s.db.QueryContext(ctx, `SELECT id FROM chat_sessions WHERE TRIM(title) = ? AND id != ?`, title, keepSessionID)
+	}
+	if err != nil {
+		return 0, err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		if id != "" {
+			ids = append(ids, id)
+		}
+	}
+	readErr := rows.Err()
+	_ = rows.Close()
+	if readErr != nil {
+		return 0, readErr
+	}
+	return s.DeleteBatch(ctx, ids)
 }
 
 func (s *Store) GetMessages(ctx context.Context, sessionID string, limit int) ([]Message, error) {
@@ -251,5 +380,5 @@ func (s *Store) GetMessages(ctx context.Context, sessionID string, limit int) ([
 		}
 		out = append(out, m)
 	}
-	return out, nil
+	return out, rows.Err()
 }

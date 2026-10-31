@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    name: frontend (typecheck / test / build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          retention-days: 3
+
+  go-windows:
+    name: go (windows, full)
+    needs: frontend
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      # frontend/dist 被 gitignore，go:embed 需要它存在
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+      - run: go build ./...
+      - run: go vet ./...
+      - run: go build -tags web ./cmd/agentgo-web
+      - name: test
+        run: go test -timeout 30m ./...
+
+  go-portable:
+    name: go (linux/macOS, 可移植包)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    env:
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      # 桌面壳依赖 Wails(需要 CGO/GTK)，这里只验证不依赖它的包与命令
+      - run: go build ./cmd/agentgo-cua ./cmd/agentgo-eval ./internal/computeruse/... ./internal/sandbox/... ./internal/coderuntime/... ./internal/governance/... ./internal/trigger/...
+      - run: go test -timeout 15m ./internal/computeruse/... ./internal/sandbox/... ./internal/coderuntime/... ./internal/governance/... ./internal/trigger/...
+      # 终端客户端带 -tags web 不依赖 Wails，Linux 与 macOS 上都应当能编译
+      - run: go build -tags web -o "$RUNNER_TEMP/agentgo-cli" ./cmd/agentgo-cli
+
+  gofmt-new-files:
+    name: gofmt (仅本次改动的文件)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gofmt changed files
+        run: |
+          files=$(git diff --name-only --diff-filter=AM origin/${{ github.base_ref }}...HEAD -- '*.go')
+          [ -z "$files" ] && exit 0
+          bad=$(gofmt -l $files)
+          if [ -n "$bad" ]; then echo "未格式化:"; echo "$bad"; exit 1; fi

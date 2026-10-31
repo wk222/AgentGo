@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -13,7 +12,6 @@ import (
 
 	"agentgo/internal/config"
 	"agentgo/internal/sandbox"
-	"agentgo/internal/shellcmd"
 )
 
 type getTimeInput struct{}
@@ -97,7 +95,8 @@ func registerEcho(r *Registry) error {
 }
 
 type bashInput struct {
-	Command string `json:"command" jsonschema:"required,description=Shell command to run in workspace"`
+	Command        string `json:"command" jsonschema:"required,description=Shell command to run in workspace"`
+	TimeoutSeconds int    `json:"timeout_seconds,omitempty" jsonschema:"description=Optional time limit for this command in seconds. The maximum is 1800."`
 }
 
 type bashOutput struct {
@@ -109,7 +108,7 @@ type bashOutput struct {
 func registerExecuteBash(r *Registry, workspaceRoot string) error {
 	root := workspaceRoot
 	t, err := utils.InferTool("execute_bash",
-		"Run a shell command in the workspace directory. HIGH RISK — requires user approval.",
+		"Run a shell command in the workspace directory. HIGH RISK — requires user approval. "+shellTimeoutNote(),
 		func(ctx context.Context, in bashInput) (bashOutput, error) {
 			cmdStr := strings.TrimSpace(in.Command)
 			if cmdStr == "" {
@@ -137,33 +136,15 @@ func registerExecuteBash(r *Registry, workspaceRoot string) error {
 					return bashOutput{}, err
 				}
 				return bashOutput{
-					Stdout:   stdout,
-					Stderr:   stderr,
+					Stdout:   stripANSIString(stdout),
+					Stderr:   stripANSIString(stderr),
 					ExitCode: exitCode,
 				}, nil
 			} else if config.SandboxDocker.On() {
 				fmt.Println("[sandbox] WARNING: Docker Sandbox Mode requested but Docker daemon is unreachable. Falling back to local execution.")
 			}
 
-			cmd := shellcmd.Command(context.Background(), cmdStr)
-			cmd.Dir = root
-			var stdout, stderr strings.Builder
-			cmd.Stdout = &stdout
-			cmd.Stderr = &stderr
-			err := cmd.Run()
-			code := 0
-			if err != nil {
-				if ee, ok := err.(*exec.ExitError); ok {
-					code = ee.ExitCode()
-				} else {
-					return bashOutput{}, err
-				}
-			}
-			return bashOutput{
-				Stdout:   stdout.String(),
-				Stderr:   stderr.String(),
-				ExitCode: code,
-			}, nil
+			return cleanBashOutput(runShell(ctx, root, cmdStr, shellTimeout(in.TimeoutSeconds)))
 		})
 	if err != nil {
 		return err

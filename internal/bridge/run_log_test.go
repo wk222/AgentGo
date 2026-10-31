@@ -57,8 +57,8 @@ func newLoggedService(t *testing.T, eng engine.AgentEngine) (*AppService, string
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = conn.Close() })
-	s := &AppService{rt: &Runtime{sessions: st}, engines: engine.NewRouter()}
-	s.engines.Register(eng)
+	s := &AppService{rt: &Runtime{sessions: st, engineRouter: engine.NewRouter()}}
+	s.rt.engineRouter.Register(eng)
 	sess, err := st.Create(context.Background(), "t")
 	if err != nil {
 		t.Fatal(err)

@@ -7,9 +7,8 @@ import (
 	"agentgo/internal/engine"
 )
 
-// EinoEngine adapts the existing Eino agent chat path (sendMessageCore) to the
-// unified engine.AgentEngine contract. Behaviour is unchanged; it only maps
-// streamed deltas and the final result onto engine events.
+// EinoEngine adapts Runtime's native chat operation to engine.AgentEngine.
+// The outer Runtime turn boundary owns transcript persistence and completion.
 type EinoEngine struct {
 	svc chatBackend
 }
@@ -49,7 +48,7 @@ func (t toolEvents) ToolFinished(id, name, output string, isErr bool) {
 // sendResultToEngine converts the legacy result into the unified shape and
 // emits approval requests for any pending approval/question messages.
 func sendResultToEngine(res SendMessageResult, em engine.Emitter) engine.RunResult {
-	out := engine.RunResult{Error: res.Error}
+	out := engine.RunResult{Error: res.Error, Degraded: res.Degraded}
 	for _, m := range res.Messages {
 		t := m.Type
 		if t == "" {
@@ -64,6 +63,17 @@ func sendResultToEngine(res SendMessageResult, em engine.Emitter) engine.RunResu
 			out.Pending = true
 			em.ApprovalRequest(m.ApprovalID, m.ToolName, m.Arguments, m.Content)
 		}
+	}
+	return out
+}
+
+func sendResultFromEngine(res engine.RunResult) SendMessageResult {
+	out := SendMessageResult{Error: res.Error, Degraded: res.Degraded}
+	for _, m := range res.Messages {
+		out.Messages = append(out.Messages, ChatMessageDTO{
+			Role: m.Role, Type: m.Type, Content: m.Content, ApprovalID: m.ApprovalID,
+			ToolName: m.ToolName, Arguments: m.Arguments, Status: m.Status,
+		})
 	}
 	return out
 }

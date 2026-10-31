@@ -76,23 +76,7 @@ func TestBuildADKHandlers_OrderAndDedup(t *testing.T) {
 	require.Equal(t, 0, mode, "mode hint middleware must be outermost: %v", names)
 	require.Less(t, gov, mono, names)
 	require.Less(t, mono, spine, names)
-	require.Equal(t, len(names)-2, spine, "spine must sit immediately before safe-tool: %v", names)
-}
-
-// TestComposeToolMiddlewares_SingleMount makes sure a guard installed as an ADK
-// handler is never installed again on the tool node.
-func TestComposeToolMiddlewares_SingleMount(t *testing.T) {
-	r := newPipelineTestRunner(t)
-	pol := r.effectivePolicy()
-
-	// Main agent / matrix supervisor style: both guards live in handlers -> tool node adds none.
-	require.Len(t, r.composeToolMiddlewares(pol, toolMounts{GovernanceInHandlers: true, HealInHandlers: true}), 0)
-	// Governance in handlers, heal not: only heal on the tool node.
-	require.Len(t, r.composeToolMiddlewares(pol, toolMounts{GovernanceInHandlers: true}), 1)
-	// No handlers (deep / planexecute): governance + heal on the tool node, once each.
-	require.Len(t, r.composeToolMiddlewares(pol, toolMounts{}), 2)
-
-	// Without an approval queue governance cannot be mounted at all.
-	nq := &Runner{}
-	require.Len(t, nq.composeToolMiddlewares(pol, toolMounts{}), 1)
+	require.Equal(t, len(names)-1, spine, "spine must be the final context projection: %v", names)
+	require.Less(t, indexOfType(names, "safeToolMiddleware"), indexOfType(names, "ADKToolHealMiddleware"), names)
+	require.Less(t, indexOfType(names, "ADKToolHealMiddleware"), gov, names)
 }

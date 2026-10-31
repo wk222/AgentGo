@@ -4,4 +4,9 @@
 @import './styles/rightpanel-panels.css';
 @import './styles/workflow.css';
 @import './styles/desktop-chrome.css';
-@import './styles/polish.css';
+@import './shared/styles/ui.css';
+@import './app/shell.css';
+@import './features/chat/chat.css';
+@import './features/settings/settings.css';
+@import './features/workspace/workspace.css';
+@import './features/extensions/inner-app.css';

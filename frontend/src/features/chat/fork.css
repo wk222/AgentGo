@@ -1,0 +1,58 @@
+/* 会话分叉：侧栏里分叉对话的小图标、聊天顶栏的「分叉自…」标签、顶栏分叉按钮的不可用态。
+   只用 Chrome 109 能识别的写法（无 color-mix / 嵌套 / :has），配色全部走主题变量。 */
+
+.sb-session-item.forked .sb-session-icon {
+  color: var(--accent-text);
+  opacity: 0.9;
+}
+
+/* 顶栏：标题右侧的来处标签（短版文字，全文在悬浮提示里）。窄屏下让位给标题。 */
+.chat-fork-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 280px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-dim);
+  font-size: 11.5px;
+  line-height: 18px;
+  font-family: inherit;
+  cursor: default;
+}
+button.chat-fork-chip { cursor: pointer; }
+button.chat-fork-chip:hover,
+button.chat-fork-chip:focus-visible {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  color: var(--accent-text);
+  outline: none;
+}
+.chat-fork-chip.gone {
+  border-style: dashed;
+  opacity: 0.85;
+}
+.chat-fork-chip svg {
+  flex-shrink: 0;
+}
+.chat-fork-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 顶栏分叉按钮：现在不能分叉时变淡（仍可点，点了会说明原因，而不是毫无反应）。 */
+.topbar-btn.is-blocked {
+  opacity: 0.45;
+}
+.topbar-btn.is-blocked:hover {
+  opacity: 0.7;
+}
+
+@media (max-width: 600px) {
+  .chat-fork-chip { max-width: 120px; }
+}

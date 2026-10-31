@@ -5,7 +5,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const Module = require('node:module')
 const ts = require('typescript')
-const file = path.resolve(__dirname, '../../frontend-shared/runtime-client.ts')
+const file = path.resolve(__dirname, '../src/shared/runtime-client.ts')
 const compiled = ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText
 const mod = new Module(file)
 mod._compile(compiled, file)
@@ -23,6 +23,17 @@ test('session isolation, duplicates, late delivery and resumed segments', () => 
   sid = 'two'; emit(6, 'token'); emit(1, 'token', 'two', 'next')
   assert.deepEqual(got, ['token', 'done', 'status', 'token', 'done', 'token'])
   stop(); assert.equal(disposed, true)
+})
+
+test('subscribing without a session filter delivers every session once', () => {
+  let listener
+  const client = new RuntimeClient({ call: async () => {}, on: (_, fn) => { listener = fn; return () => {} } })
+  const got = []
+  client.subscribe(null, ev => got.push(`${ev.session_id}:${ev.type}`))
+  const emit = (seq, type, session_id, run_id) => listener({ run_id, session_id, seq, type })
+  emit(1, 'token', 'a', 'ra'); emit(1, 'token', 'b', 'rb'); emit(1, 'token', 'a', 'ra'); emit(2, 'done', 'b', 'rb')
+  listener({ session_id: 'a', seq: 3, type: 'token' }) // no run id: dropped
+  assert.deepEqual(got, ['a:token', 'b:token', 'b:done'])
 })
 
 test('failed starts reject and cancellation uses unified endpoint', async () => {

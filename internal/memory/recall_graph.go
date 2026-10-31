@@ -8,7 +8,6 @@ import (
 	"log"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/cloudwego/eino/compose"
@@ -129,7 +128,7 @@ func BuildRecallGraph(ctx context.Context) (compose.Runnable[RecallInput, []Reco
 
 	// Node 0: query rewrite & self-query metadata parsing
 	rewriteLambda := compose.InvokableLambda(func(ctx context.Context, in RecallInput) (RecallInput, error) {
-		if in.Engine == nil || in.Engine.apiKey == "" || in.Opts.Scope == "" {
+		if automaticRecall(ctx) || in.Engine == nil || in.Engine.apiKey == "" || in.Opts.Scope == "" {
 			return in, nil
 		}
 
@@ -195,38 +194,48 @@ func BuildRecallGraph(ctx context.Context) (compose.Runnable[RecallInput, []Reco
 		rctx, cancel := context.WithTimeout(ctx, in.Config.Timeout)
 		defer cancel()
 
-		var (
-			ftsRows    []Record
-			milvusRows []Record
-			ftsErr     error
-			wg         sync.WaitGroup
-		)
-
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			ftsRows, ftsErr = in.Engine.recallFTS(rctx, in.Query, fetchOpts)
-		}()
-
+		type retrievalResult struct {
+			vector bool
+			rows   []Record
+			err    error
+		}
+		pending := 1
 		if in.Engine.milvus != nil {
-			wg.Add(1)
+			pending++
+		}
+		// Each worker owns its result and sends once. A timeout never reads slices
+		// still being written by a late worker, and the buffered send cannot leak.
+		results := make(chan retrievalResult, pending)
+		go func() {
+			rows, err := in.Engine.recallFTS(rctx, in.Query, fetchOpts)
+			results <- retrievalResult{rows: rows, err: err}
+		}()
+		if in.Engine.milvus != nil {
 			go func() {
-				defer wg.Done()
-				milvusRows, _ = in.Engine.milvus.Recall(rctx, in.Query, fetchOpts)
+				rows, err := in.Engine.milvus.Recall(rctx, in.Query, fetchOpts)
+				results <- retrievalResult{vector: true, rows: rows, err: err}
 			}()
 		}
-
-		done := make(chan struct{})
-		go func() {
-			wg.Wait()
-			close(done)
-		}()
-
+		var ftsRows, milvusRows []Record
+		var ftsErr error
 		timedOut := false
-		select {
-		case <-done:
-		case <-rctx.Done():
-			timedOut = true
+	collect:
+		for pending > 0 {
+			select {
+			case result := <-results:
+				pending--
+				if result.vector {
+					milvusRows = result.rows
+				} else {
+					ftsRows, ftsErr = result.rows, result.err
+				}
+			case <-rctx.Done():
+				timedOut = true
+				break collect
+			}
+		}
+		if err := ctx.Err(); err != nil {
+			return RecallResult{}, err
 		}
 
 		degraded := false
@@ -239,10 +248,13 @@ func BuildRecallGraph(ctx context.Context) (compose.Runnable[RecallInput, []Reco
 			}
 			log.Printf("[memory] DEGRADE: %s — falling back to SQLite LIKE scan (no embedding/vector, weaker relevance) query=%q scope=%q", reason, in.Query, in.Opts.Scope)
 			degraded = true
-			fbCtx := context.WithoutCancel(ctx)
+			fbCtx, fbCancel := context.WithTimeout(ctx, 250*time.Millisecond)
+			defer fbCancel()
 			if rows, err := in.Engine.sqlite.RecallLikeFallback(fbCtx, in.Query, in.Opts); err != nil {
+				ftsErr = err
 				log.Printf("[memory] DEGRADE: LIKE fallback also failed: %v", err)
 			} else if len(rows) > 0 {
+				ftsErr = nil
 				if in.Engine.pipeline != nil {
 					ftsRows = in.Engine.pipeline.RankRecords(in.Query, rows)
 				} else {
@@ -250,6 +262,7 @@ func BuildRecallGraph(ctx context.Context) (compose.Runnable[RecallInput, []Reco
 				}
 				log.Printf("[memory] DEGRADE: LIKE fallback recovered %d row(s)", len(ftsRows))
 			} else {
+				ftsErr = nil
 				log.Printf("[memory] DEGRADE: LIKE fallback returned 0 rows")
 			}
 		} else if timedOut {
@@ -271,6 +284,12 @@ func BuildRecallGraph(ctx context.Context) (compose.Runnable[RecallInput, []Reco
 
 	// Node 2: merge
 	mergeLambda := compose.InvokableLambda(func(ctx context.Context, res RecallResult) ([]Record, error) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if len(res.FTSRows) == 0 && len(res.MilvusRows) == 0 && res.FTSErr != nil {
+			return nil, fmt.Errorf("memory retrieval unavailable: %w", res.FTSErr)
+		}
 		lists := [][]Record{res.FTSRows, res.MilvusRows}
 		weights := []float64{res.Input.Config.FTSWeight, res.Input.Config.MilvusWeight}
 		merged := mergeHybridRRF(lists, weights, res.Input.Opts.Limit)
