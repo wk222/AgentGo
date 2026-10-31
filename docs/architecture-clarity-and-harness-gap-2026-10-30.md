@@ -189,7 +189,7 @@ $env:GOOS='linux'; $env:CGO_ENABLED='0'; go list -deps -tags web ./cmd/agentgo-c
 | 文档 | 重写 `docs/ARCHITECTURE.md`；10-28 差距表 7 处加"更正（2026-10-30）"；另两份旧文档里提到 `tree.go` 的句子加了更新说明 | 旧文保留原样，只加标注 |
 | 死代码 | 删除 `internal/telemetry`（2 个文件）、`internal/sessions/tree.go` 与 `tree_test.go`、根目录 `entries_test.txt`；`internal/arch/layers.go` 去掉 `telemetry` 登记；`delete_integrity_test.go` 改成直接用 SQL 造旧表数据；`store.go` 给两张遗留表加了说明注释 | **`pkg/mcphost` 没删**（是 `agentgo-crush` 的入口）；**两张表没删**（旧库外键和删会话时的清理）；**`go.mod` 没动**（见 7.3） |
 | `MiddlewareNames()` | 删除 `agent.MiddlewareNames` 与 `AppService.GetMiddlewareStack`（前端、IPC 契约、测试、`agentgo-crush` 里都没有调用方）；`app_ipc.go` 去掉不再使用的 `agent` 导入；`AppService` 导出方法 295 → 294 | 选了"删"而不是"生成"：没有消费者；真实顺序写进了 `docs/ARCHITECTURE.md` 第 7 节 |
-| CLI 跨平台发布 | `release.yml` 新增 `cli-portable`（linux amd64/arm64、darwin arm64/amd64，`CGO_ENABLED=0`，`-tags web`）；`ci.yml` 的 `go-portable`（ubuntu 与 macOS）多一步编译 `agentgo-cli` | 比设想多了 linux/arm64 和 darwin/amd64 |
+| CLI 跨平台发布 | `release.yml` 新增 `cli-portable`（linux amd64/arm64、darwin arm64/amd64，`CGO_ENABLED=0`，`-tags web`）；`ci.yml` 的 `go-portable`（ubuntu 与 macOS）多一步编译 `agentgo-cli` | 比设想多了 linux/arm64 和 darwin/amd64。**`release.yml` 里的 `cli-portable` 之后撤掉了**（2026-10-31 起只发布 Windows 版）；`ci.yml` 的 `go-portable` 保留 |
 
 ### 7.2 验证
 
@@ -210,7 +210,7 @@ $env:GOOS='linux'; $env:CGO_ENABLED='0'; go list -deps -tags web ./cmd/agentgo-c
 
 - **（已于 2026-10-30 夜完成，见 7.5）`go.mod` / `go386.mod` 没有整理。** 删掉 `telemetry` 之后，`go.opentelemetry.io/otel` 与 `otel/sdk` 应该从直接依赖变成 `// indirect`。我用 `go mod tidy -diff` 预览过：`go.mod` 本来就有一批与这次无关的整理项（未使用的 `eino-ext/components/tool/bingsearch`、应为直接依赖的 `golang.org/x/{crypto,image,net}` 和 `skip2/go-qrcode` 等），直接运行会把它们和 `go.sum` 的变动一起混进来。建议单独做一次 tidy 提交；`go386.mod` 要用 `go -modfile=go386.mod mod tidy`（我预览时 `-modfile` 的位置写错了，那份没有预览成功）。
 - **（已于 2026-10-30 夜完成，见 7.5）没有做按轮回退。** 这是差距表第 3 项里剩下的部分，要先定快照放内存还是落盘，以及怎么和对话上下文联动。
-- **工作流没有在 GitHub 上跑过**，见第 5 节。第一次推送或打 tag 时，要看一眼 `cli-portable` 的结果。
+- **工作流没有在 GitHub 上跑过**，见第 5 节。第一次推送或打 tag 时，要看一眼 `cli-portable` 的结果。（2026-10-31 更新：`ci.yml` 已在 GitHub 上跑过并通过；`cli-portable` 已随“只发布 Windows 版”从 `release.yml` 撤掉。）
 - `gofmt -l` 在 `internal/arch` 和 `internal/sessions` 里列出 12 个文件（`export.go`、`fork.go`、`titles.go`、`process_spawn_test.go` 等），都不是我这次改的，应是本来就有的格式或换行问题；CI 的 gofmt 步骤只检查 PR 里新增或修改的文件，所以它们在被改到时才会被拦。
 
 ### 7.4 回退办法
