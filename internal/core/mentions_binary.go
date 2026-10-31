@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"agentgo/internal/pathgrant"
 )
 
 // binaryDocTools names, per extension, the tools that can actually open the file.
@@ -70,14 +72,12 @@ func sniffBinary(path string) bool {
 }
 
 // outsideRoot reports whether full lies outside the workspace root. With no root
-// known there is nothing to be outside of.
+// known there is nothing to be outside of. The comparison resolves symlinks and
+// Windows short names: the root the runtime holds and a path the user typed may
+// spell the same folder differently.
 func outsideRoot(root, full string) bool {
 	if strings.TrimSpace(root) == "" {
 		return false
 	}
-	rel, err := filepath.Rel(filepath.Clean(root), filepath.Clean(full))
-	if err != nil {
-		return true
-	}
-	return rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator))
+	return !pathgrant.Under(full, root)
 }

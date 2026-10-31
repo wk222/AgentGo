@@ -71,6 +71,12 @@ func workspaceRootWarning(abs string) string {
 	return ""
 }
 
+// SamePath reports whether a and b name the same place, however each is
+// spelled: short or long Windows names, a symlink or junction, another letter
+// case where the file system ignores it. The spellings are resolved and then
+// compared as text; os.SameFile is deliberately not used, because some network
+// and virtual file systems hand out identical file IDs to different folders, and
+// "this is the folder that is already open" must never be a false yes.
 func SamePath(a, b string) bool {
 	aa, errA := filepath.Abs(a)
 	bb, errB := filepath.Abs(b)
@@ -83,7 +89,12 @@ func SamePath(a, b string) bool {
 	if eb, err := filepath.EvalSymlinks(bb); err == nil {
 		bb = eb
 	}
-	return strings.EqualFold(filepath.Clean(aa), filepath.Clean(bb))
+	aa, bb = filepath.Clean(aa), filepath.Clean(bb)
+	if aa == bb {
+		return true
+	}
+	// Windows and macOS file systems ignore case by default; Unix ones do not.
+	return (runtime.GOOS == "windows" || runtime.GOOS == "darwin") && strings.EqualFold(aa, bb)
 }
 
 func BuildInfo(root string) Info {

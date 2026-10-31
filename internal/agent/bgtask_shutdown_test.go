@@ -15,9 +15,16 @@ import (
 
 // slowChildCommand starts a grandchild (not just the shell) that writes
 // started.txt right away and marker.txt three seconds later.
+//
+// On Windows the grandchild is a second cmd, not PowerShell: these tests are about
+// ending a process tree, and PowerShell's first start on a busy machine (a hosted
+// CI runner running many packages at once) took longer than the test waits for
+// started.txt. cmd starts in milliseconds. The shell waits for it, so killing the
+// shell alone would leave it to write marker.txt; ping is its own child and
+// supplies the three seconds.
 func slowChildCommand() string {
 	if runtime.GOOS == "windows" {
-		return `powershell -NoProfile -Command "Set-Content -Path started.txt -Value x; Start-Sleep 3; Set-Content -Path marker.txt -Value x"`
+		return `cmd /c "echo x> started.txt & ping -n 4 127.0.0.1 >nul & echo x> marker.txt"`
 	}
 	return `(touch started.txt; sleep 3; touch marker.txt)`
 }

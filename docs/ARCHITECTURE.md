@@ -10,11 +10,11 @@ AgentGo 是 Go 写的智能体应用。桌面窗口（Wails）、浏览器版、
 
 ## 2. 七层依赖模型（守卫）
 
-依赖只能向下：高层可以 import 同层或更低层，不能反过来。登记表是 `internal/arch/layers.go` 的 `PackageLayer`，共 80 项（68 个顶层包加 12 个子包）。新增 `internal/<pkg>` 必须登记，否则 `go test ./internal/arch/...` 失败。
+依赖只能向下：高层可以 import 同层或更低层，不能反过来。登记表是 `internal/arch/layers.go` 的 `PackageLayer`，共 81 项（69 个顶层包加 12 个子包）。新增 `internal/<pkg>` 必须登记，否则 `go test ./internal/arch/...` 失败。
 
 | 层 | 项数 | 放什么 | 成员 |
 | --- | --- | --- | --- |
-| L0 Foundation | 29 | 运行底座和不依赖业务的小部件 | 数据与配置：`db`、`sessions`、`workspace`、`config`（`AGENTGO_*` 设置的唯一读取点）、`event`、`applog`、`buildinfo`。平台与安全：`processutil`、`shellcmd`、`textenc`、`redact`、`pathgrant`、`hostui`、`computeruse`。交付与证据：`artifact`、`evidence`、`promptbudget`。插件宿主：`plugin`。IM 渠道适配器：`imchannel` 及其子包（钉钉、Discord、飞书、Telegram、企业微信、微信）。元信息：`arch` |
+| L0 Foundation | 30 | 运行底座和不依赖业务的小部件 | 数据与配置：`db`、`sessions`、`workspace`、`config`（`AGENTGO_*` 设置的唯一读取点）、`event`、`applog`、`buildinfo`。平台与安全：`processutil`、`shellcmd`、`textenc`、`redact`、`pathgrant`、`hostui`、`computeruse`。交付与证据：`artifact`、`evidence`、`promptbudget`。插件宿主：`plugin`。IM 渠道适配器：`imchannel` 及其子包（钉钉、Discord、飞书、Telegram、企业微信、微信）。元信息：`arch`。测试辅助：`linktest`（给测试造"同一个文件夹的另一种写法"：链接、Windows 8.3 短名；只被测试文件引用） |
 | L1 Systems | 22 | 治理和跨功能系统 | `governance`（审批队列、策略、审计）、`memory`、`capability`、`checkpoint`、`gateway`、`channels`、`im`、`interactive`、`externalcontent`、`sandbox`、`coderuntime`、`compose` 及其 3 个子包、`ledger`、`spill`、`ideruntime`、`userhooks`、`docchunk`、`engine`、`audio` |
 | L2 Assets | 22 | 工具和可扩展的资产 | 工具：`tools`、`codetools`、`codelsp`、`powernaplsp`、`officedoc`、`browsercontrol`、`visionocr`、`docindex`、`rekit`。扩展：`skills`、`workflow`、`apps`、`agentpack`。调度与任务：`scheduler`、`taskhub`、`trigger`、`kanban`、`terminal`。评测与演进：`evaluation`、`memeval`、`evolution`。管理：`admin` |
 | L3 Modes | 1 | 智能体编排 | `agent`：模式、`Runner`、ADK 装配、中间件 |

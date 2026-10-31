@@ -29,20 +29,61 @@ func New() *Registry { return &Registry{grants: map[string][]string{}} }
 // Default is the process-wide registry the application uses.
 var Default = New()
 
-func norm(p string) string {
-	if abs, err := filepath.Abs(p); err == nil {
-		p = abs
+// Resolve returns the one spelling of p that every comparison in this package
+// uses: absolute, cleaned, with symbolic links, junctions and Windows 8.3 short
+// names (RUNNER~1) expanded. A path that does not exist yet keeps its missing
+// tail and has its nearest existing ancestor expanded, so a file about to be
+// created is judged by where it will really land. When nothing can be resolved
+// the cleaned absolute path is returned.
+//
+// Grants and the jails that consult them must agree on this spelling: the
+// model may name a folder one way, the application's workspace another, and
+// the file system treats them as the same place.
+func Resolve(p string) string {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		abs = p
 	}
-	p = filepath.Clean(p)
+	abs = filepath.Clean(abs)
+
+	cursor, tail := abs, ""
+	for {
+		if _, err := os.Lstat(cursor); err == nil {
+			break
+		}
+		parent := filepath.Dir(cursor)
+		if parent == cursor {
+			return abs // nothing on this path exists
+		}
+		tail = filepath.Join(filepath.Base(cursor), tail)
+		cursor = parent
+	}
+	real, err := filepath.EvalSymlinks(cursor)
+	if err != nil {
+		return abs
+	}
+	if tail == "" {
+		return filepath.Clean(real)
+	}
+	return filepath.Join(real, tail)
+}
+
+// fold drops the letter case where the file system ignores it.
+func fold(p string) string {
 	if runtime.GOOS == "windows" {
-		p = strings.ToLower(p)
+		return strings.ToLower(p)
 	}
 	return p
 }
 
+func norm(p string) string { return fold(Resolve(p)) }
+
 // Under reports whether path is dir itself or inside it.
 func Under(path, dir string) bool {
-	p, d := norm(path), norm(dir)
+	return underNorm(norm(path), norm(dir))
+}
+
+func underNorm(p, d string) bool {
 	if p == d {
 		return true
 	}
@@ -64,7 +105,7 @@ func (r *Registry) Grant(root, path string) bool {
 			return true
 		}
 	}
-	r.grants[key] = append(r.grants[key], filepath.Clean(path))
+	r.grants[key] = append(r.grants[key], Resolve(path))
 	return true
 }
 
@@ -118,22 +159,25 @@ func (r *Registry) Protect(dir string) {
 // roots, operating-system folders, credential folders and Protect()ed folders
 // are refused whatever the user answers.
 func (r *Registry) Forbidden(path string) string {
-	abs, err := filepath.Abs(path)
-	if err != nil {
+	if _, err := filepath.Abs(path); err != nil {
 		return "路径无法解析"
 	}
+	// Judge the real location: a short name, a junction or a symlink that leads
+	// into a closed folder is that folder.
+	abs := Resolve(path)
 	if filepath.Dir(abs) == abs {
 		return "磁盘根目录"
 	}
+	p := fold(abs)
 	for _, d := range systemDirs() {
-		if Under(abs, d) {
+		if underNorm(p, norm(d)) {
 			return "系统目录 " + d
 		}
 	}
 	home, _ := os.UserHomeDir()
 	if home != "" {
 		for _, sub := range []string{".ssh", ".aws", ".gnupg", ".kube", ".docker", ".config/gcloud", "AppData/Roaming/Microsoft/Credentials", "AppData/Local/Microsoft/Credentials"} {
-			if d := filepath.Join(home, filepath.FromSlash(sub)); Under(abs, d) {
+			if d := filepath.Join(home, filepath.FromSlash(sub)); underNorm(p, norm(d)) {
 				return "凭据目录 " + d
 			}
 		}
@@ -142,7 +186,7 @@ func (r *Registry) Forbidden(path string) string {
 		r.mu.RLock()
 		defer r.mu.RUnlock()
 		for _, d := range r.protected {
-			if Under(abs, d) {
+			if underNorm(p, norm(d)) {
 				return "AgentGo 自身的数据目录"
 			}
 		}
