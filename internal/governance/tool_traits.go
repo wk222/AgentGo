@@ -7,9 +7,10 @@ import "sync"
 // and withdraw them when unloaded; the policy consults them at decision time,
 // so a tool added later is covered without editing any name list here.
 type ToolTraits struct {
-	Source   string    // contributing plugin or subsystem, for audit
-	Mutating bool      // changes files in the workspace
-	Risk     RiskLevel // baseline risk the tool declares; "" = no declaration (LOW)
+	Source       string    // contributing plugin or subsystem, for audit
+	Mutating     bool      // changes files in the workspace
+	Risk         RiskLevel // baseline risk the tool declares; "" = no declaration (LOW)
+	DefinitionID string    // nonempty definitions cannot reuse another revision's approval
 }
 
 var (

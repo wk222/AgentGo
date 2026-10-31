@@ -27,6 +27,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"agentgo/internal/coderuntime"
+	"agentgo/internal/processutil"
 )
 
 const (
@@ -221,6 +222,7 @@ func (s *searcher) grepWithRg(ctx context.Context, pattern, root, include string
 	}
 	args = append(args, root)
 	cmd := exec.CommandContext(ctx, rg, args...)
+	processutil.HideWindow(cmd) // the desktop build has no console: a child would flash its own window
 	for _, name := range ignoreFileNames {
 		if p := filepath.Join(root, name); fileExists(p) {
 			cmd.Args = append(cmd.Args, "--ignore-file", p)
@@ -504,6 +506,7 @@ func rgFiles(ctx context.Context, rg, pattern, root string, limit int) ([]string
 		args = append(args, "--glob", pattern)
 	}
 	cmd := exec.CommandContext(ctx, rg, args...)
+	processutil.HideWindow(cmd)
 	cmd.Dir = root
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

@@ -7,7 +7,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 )
 
@@ -78,7 +77,7 @@ func AutoLoadMCPServers(ctx context.Context, r *Registry, workspaceRoot string) 
 					}
 				}
 
-				log.Printf("[agentgo-mcp] connecting to MCP server %q (%s %s)...", name, srv.Command, strings.Join(srv.Args, " "))
+				log.Printf("[agentgo-mcp] connecting to MCP server %q...", name)
 				initCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
 				err := r.LoadMCPServerWithEnv(initCtx, name, srv.Command, srv.Args, envList)
 				cancel()

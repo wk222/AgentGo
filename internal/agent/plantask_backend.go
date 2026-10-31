@@ -20,6 +20,9 @@ type diskPlantaskBackend struct {
 // newDiskPlantaskBackend creates a plantask storage backend anchored at baseDir.
 func newDiskPlantaskBackend(baseDir string) plantask.Backend {
 	cleanDir := filepath.Clean(baseDir)
+	if absolute, err := filepath.Abs(cleanDir); err == nil {
+		cleanDir = absolute
+	}
 	_ = os.MkdirAll(cleanDir, 0o755)
 	return &diskPlantaskBackend{baseDir: cleanDir}
 }
@@ -113,7 +116,31 @@ func (b *diskPlantaskBackend) Write(ctx context.Context, req *plantask.WriteRequ
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(target, []byte(req.Content), 0o644)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	// Readers must see either the old record or a complete new JSON document.
+	f, err := os.CreateTemp(filepath.Dir(target), ".plantask-*")
+	if err != nil {
+		return err
+	}
+	name := f.Name()
+	defer os.Remove(name)
+	if _, err = f.WriteString(req.Content); err != nil {
+		f.Close()
+		return err
+	}
+	if err = f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err = f.Close(); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return os.Rename(name, target)
 }
 
 func (b *diskPlantaskBackend) Delete(ctx context.Context, req *plantask.DeleteRequest) error {

@@ -123,6 +123,21 @@ func (r *Router) resolve(id string) (AgentEngine, error) {
 	return e, nil
 }
 
+// startedExtra copies the caller's extra "started" fields without the key the
+// router itself owns.
+func startedExtra(in map[string]any) map[string]any {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(in))
+	for k, v := range in {
+		if k != "state" {
+			out[k] = v
+		}
+	}
+	return out
+}
+
 // Run executes req synchronously. Events go to sink (nil = discard). The result
 // is also returned; the run is always finished with one EventDone.
 func (r *Router) Run(ctx context.Context, req RunRequest, sink EventSink) (res RunResult) {
@@ -165,7 +180,7 @@ func (r *Router) Run(ctx context.Context, req RunRequest, sink EventSink) (res R
 		r.mu.Unlock()
 	}()
 
-	em.Status("started", nil)
+	em.Status("started", startedExtra(req.StartedExtra))
 
 	func() {
 		defer func() {

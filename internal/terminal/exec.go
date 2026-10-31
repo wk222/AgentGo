@@ -1,14 +1,16 @@
 package terminal
 
 import (
-	"bytes"
 	"context"
-	"os/exec"
 	"strings"
 	"time"
 
 	"agentgo/internal/shellcmd"
 )
+
+// outputCap bounds the output of one command that is held in memory, per
+// stream: the start and the end are kept and the gap is counted.
+const outputCap = 8 << 20
 
 // Result is returned to the desktop terminal panel.
 type Result struct {
@@ -19,6 +21,9 @@ type Result struct {
 }
 
 // Run executes a command in the workspace directory for the desktop terminal panel.
+// The command and what it starts are one process tree: when ctx ends, all of it
+// ends. What a command leaves running on purpose (an application it opened) is
+// left alone once it finishes.
 func Run(ctx context.Context, workspaceRoot, command string) (Result, error) {
 	command = strings.TrimSpace(command)
 	if command == "" {
@@ -27,17 +32,11 @@ func Run(ctx context.Context, workspaceRoot, command string) (Result, error) {
 	start := time.Now()
 	cmd := shellcmd.Command(ctx, command)
 	cmd.Dir = workspaceRoot
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	code := 0
+	stdout, stderr := shellcmd.NewCapture(outputCap), shellcmd.NewCapture(outputCap)
+	cmd.Stdout, cmd.Stderr = stdout, stderr
+	code, err := shellcmd.Run(cmd, shellcmd.TreeOptions{Detachable: true, BestEffort: true})
 	if err != nil {
-		if ee, ok := err.(*exec.ExitError); ok {
-			code = ee.ExitCode()
-		} else {
-			return Result{}, err
-		}
+		return Result{}, err
 	}
 	return Result{
 		Stdout:   stdout.String(),

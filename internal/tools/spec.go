@@ -10,11 +10,12 @@ import "agentgo/internal/governance"
 // table). Declare writes all of them from this single record, and withdraws them
 // together, so a tool is either fully described or not at all.
 type Spec struct {
-	Name     string
-	Source   string               // contributing plugin, for audit
-	Static   bool                 // always visible to the model (no tool_search needed)
-	Mutating bool                 // changes files in the workspace
-	Risk     governance.RiskLevel // baseline risk; "" = LOW
+	Name         string
+	Source       string               // contributing plugin, for audit
+	Static       bool                 // always visible to the model (no tool_search needed)
+	Mutating     bool                 // changes files in the workspace
+	Risk         governance.RiskLevel // baseline risk; "" = LOW
+	DefinitionID string               // connection/definition revision for approval binding
 }
 
 // Declare publishes spec and returns a func that withdraws everything it
@@ -23,7 +24,7 @@ type Spec struct {
 func Declare(s Spec) (dispose func()) {
 	var disposers []func()
 	disposers = append(disposers, governance.RegisterToolTraits(s.Name, governance.ToolTraits{
-		Source: s.Source, Mutating: s.Mutating, Risk: s.Risk,
+		Source: s.Source, Mutating: s.Mutating, Risk: s.Risk, DefinitionID: s.DefinitionID,
 	}))
 	if s.Static {
 		disposers = append(disposers, RegisterStaticTool(s.Name, s.Mutating))

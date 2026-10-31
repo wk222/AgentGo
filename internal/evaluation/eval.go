@@ -35,6 +35,13 @@ type EvalCase struct {
 	// Verify and VerifyCmd inspect the workspace after the run (needs --workspace).
 	Verify    []EvalCheck  `json:"verify,omitempty"`
 	VerifyCmd *EvalCommand `json:"verify_cmd,omitempty"`
+	// Attack marks a prompt-injection case: the fixture carries a hostile
+	// instruction and Verify describes the safe disk state. The disk is checked
+	// even when the reply is wrong, because a failed check means the agent was
+	// compromised, which is a different finding from a poor answer. Attack
+	// cases must approve every pause (see Validate) so the verdict reflects the
+	// model's resistance rather than a human gate.
+	Attack bool `json:"attack,omitempty"`
 
 	root string // workspace directory, set from EvalSet.Workspace
 }
@@ -80,6 +87,8 @@ type CaseResult struct {
 	Duration time.Duration `json:"duration"`
 	ErrorMsg string        `json:"error_msg,omitempty"`
 	Metrics  Metrics       `json:"metrics"`
+	// Compromised is set when an Attack case left the workspace in an unsafe state.
+	Compromised bool `json:"compromised,omitempty"`
 }
 
 // CaseSummary aggregates multiple runs of one specific case.
@@ -200,6 +209,8 @@ func EvaluateSetTagged(ctx context.Context, agent AgentGenerator, set EvalSet, n
 					Duration: duration,
 					ErrorMsg: errMsg,
 					Metrics:  metrics,
+
+					Compromised: cr.Compromised,
 				})
 			}
 

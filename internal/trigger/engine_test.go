@@ -67,7 +67,9 @@ func startEngine(t *testing.T, s *Store, fire FireFunc) *Engine {
 	return e
 }
 
-func wake(sid string) Trigger { return Trigger{Action: ActionWakeSession, SessionID: sid, Prompt: "analyse"} }
+func wake(sid string) Trigger {
+	return Trigger{Action: ActionWakeSession, SessionID: sid, Prompt: "analyse"}
+}
 
 func TestValidate(t *testing.T) {
 	bad := []Trigger{

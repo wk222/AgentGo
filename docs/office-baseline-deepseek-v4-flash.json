@@ -1,0 +1,249 @@
+{
+  "cited": 18,
+  "correct": 18,
+  "model": "deepseek-v4-flash",
+  "model_calls": 39,
+  "results": [
+    {
+      "id": "xlsx-1",
+      "kind": "lookup",
+      "question": "研发部的年度预算是多少？",
+      "answer": "根据文件 **finance/budget.xlsx**（工作表「部门预算」，第 1–4 行）的记载：\n\n- **研发部的年度预算为 1,200,000（120 万元）**，负责人为陈工。\n\n该表同页还列有：市场部 800,000（李经理）、行政部 300,000（王主任），可作为对照。",
+      "searches": [
+        "研发部年度预算"
+      ],
+      "correct": true,
+      "cited": true,
+      "model_calls": 2,
+      "ms": 5436
+    },
+    {
+      "id": "xlsx-2",
+      "kind": "lookup",
+      "question": "市场部的负责人是谁？",
+      "answer": "依据文件 finance/budget.xlsx（工作表“部门预算”第 1–4 行，表头为“部门/年度预算/负责人”）的记载：\n\n**市场部的负责人是“李经理”**（该行显示：市场部，年度预算 800000，负责人 李经理）。\n\n另外检索到的 policy/procurement.txt 只涉及采购审批流程（财务处负责人、总经理），与市场部负责人无关，不作为依据。",
+      "searches": [
+        "市场部 负责人"
+      ],
+      "correct": true,
+      "cited": true,
+      "model_calls": 2,
+      "ms": 4522
+    },
+    {
+      "id": "zh-1",
+      "kind": "lookup",
+      "question": "单笔采购超过五万元，要由谁复核？",
+      "answer": "依据文件：**policy/procurement.txt**（《采购管理办法》，文件开头部分）\n\n原文规定：\n\u003e 单笔采购金额超过五万元的，须提交**财务处负责人复核**。\n\n同一文件还规定：单笔采购金额超过二十万元的，须报总经理批准。\n\n因此，单笔采购超过五万元的复核责任人是**财务处负责人**。",
+      "searches": [
+        "单笔采购超过五万元 复核"
+      ],
+      "correct": true,
+      "cited": true,
+      "model_calls": 2,
+      "ms": 5112
+    },
+    {
+      "id": "zh-2",
+      "kind": "lookup",
+      "question": "单笔采购超过二十万元，谁来批准？",
+      "answer": "依据 **policy/procurement.txt**（《采购管理办法》，文件开头部分）：\n\n\u003e 单笔采购金额超过二十万元的，须报**总经理批准**。\n\n（同一文件还规定：单笔采购金额超过五万元的，须提交财务处负责人复核。）\n\n补充说明：检索结果中的 policy/expense_rules.txt 提到的“特殊情况须总经理书面批准”是针对报销超时限的例外情形，与采购审批无关，故不作为本问题的依据。",
+      "searches": [
+        "单笔采购超过二十万元 批准"
+      ],
+      "correct": true,
+      "cited": true,
+      "model_calls": 2,
+      "ms": 4769
+    },
+    {
+      "id": "zh-3",
+      "kind": "lookup",
+      "question": "二线城市出差住宿每晚的标准是多少？",
+      "answer": "根据 `policy/travel_2026.md`（《差旅制度（2026版）》，文件开头部分）：二线城市出差住宿标准为**每晚不超过 500 元**。\n\n补充说明：\n- 同一文件还规定一线城市每晚不超过 800 元。\n- 检索到的 `policy/travel_2025.md`（《差旅制度（2025版）》）只写了一线城市每晚不超过 600 元，**未提及二线城市标准**，因此旧版无法作为依据。\n- `policy/expense_rules.txt` 内容为报销时限等条款，与住宿标准无关。\n\n故二线城市住宿标准请以 2026 版为准：每晚不超过 500 元。",
+      "searches": [
+        "二线城市 出差 住宿标准 每晚"
+      ],
+      "correct": true,
+      "cited": true,
+      "model_calls": 2,
+      "ms": 5604
+    },
+    {
+      "id": "pdf-1",
+      "kind": "lookup",
+      "question": "What is the warranty period in the contract?",
+      "answer": "根据检索到的文件内容，可以确认保修期信息如下：\n\n- **保修期：二十四（24）个月**，自交付日期（delivery date）起算。\n- 依据文件：**docs/contract.pdf，第 2 页**，原文为：\"The supplier grants a twenty four months warranty period from the delivery date.\"\n\n补充上下文（同一文件）：第 1 页仅涉及定义与合同双方，第 3 页为终止条款（任一方需提前九十天书面通知），与保修期无关。",
+      "searches": [
+        "warranty period contract"
+      ],
+      "correct": true,
+      "cited": true,
+      "model_calls": 2,
+      "ms": 5631
+    },
+    {
+      "id": "pdf-2",
+      "kind": "lookup",
+      "question": "How much written notice is needed to terminate the contract?",
+      "answer": "依据文件 **docs/contract.pdf 第 3 页**：\n\n\u003e \"Termination requires ninety days written notice from either party.\"\n\n即终止合同需提前 **90 天（ninety days）** 书面通知，双方任一方均可提出。\n\n需要说明的是，本次检索的整体匹配度较弱（工具提示最佳片段仅覆盖问题词汇的 33%），但上述片段本身直接、明确地写明了通知期限；同一文件其他页面（第 1、2 页）只涉及定义、当事方及 24 个月质保期，未再补充与终止通知相关的条款。",
+      "searches": [
+        "written notice to terminate the contract"
+      ],
+      "correct": true,
+      "cited": true,
+      "model_calls": 2,
+      "ms": 5871
+    },
+    {
+      "id": "ctx-1",
+      "kind": "context",
+      "question": "出差报销单要在返程后多久内提交？逾期会怎样？",
+      "answer": "依据文件：**policy/expense_rules.txt**（\"报销时限\"与\"逾期后果\"两段）\n\n- **提交时限**：出差报销单须在**返程后十个工作日内**提交财务处；时限**自返程当日起算**。\n- **逾期后果**：超过时限提交的报销单**一律不予报销，由个人承担**；如有特殊情况，须经**总经理书面批准**。\n\n补充说明：该文件中同一段落存在大量重复的填充语句（如\"时限自返程当日起算\"重复多次、\"本章条款另有说明，参见附录\"重复多次），但上述时限与逾期条款本身表述明确、无冲突；同一目录下的其他文件（policy/travel_2025.md、policy/travel_2026.md 仅涉及住宿标准，policy/procurement.txt 涉及采购审批）均未涉及报销时限，故以上结论仅以 policy/expense_rules.txt 为准。",
+      "searches": [
+        "出差报销单 返程后 提交 期限 逾期"
+      ],
+      "correct": true,
+      "cited": true,
+      "model_calls": 2,
+      "ms": 11135
+    },
+    {
+      "id": "none-1",
+      "kind": "no_answer",
+      "question": "公司区块链矿机的采购流程是什么？",
+      "answer": "文件中没有找到。\n\n检索结果说明：\n- 唯一命中的文件是 `policy/procurement.txt`（《采购管理办法》），其中只有通用的金额审批门槛：单笔采购金额超过五万元须提交财务处负责人复核；超过二十万元须报总经理批准。\n- 该文件通篇未出现“区块链”“矿机”等字样，也没有针对区块链矿机的采购流程说明。\n- 检索本身已提示 `weak_match: true`，最佳结果仅覆盖问题关键词的 14%，即这些资料很可能回答不了该问题。\n\n因此，关于“公司区块链矿机的采购流程”，现有文件中没有找到对应内容，无法确认。如果您手头有专门的矿机采购制度或流程文档，可以补充进知识库后再检索。",
+      "searches": [
+        "区块链矿机 采购流程"
+      ],
+      "correct": true,
+      "cited": true,
+      "model_calls": 2,
+      "ms": 8206
+    },
+    {
+      "id": "none-2",
+      "kind": "no_answer",
+      "question": "What is the stock option vesting schedule?",
+      "answer": "没有找到答案。\n\n**依据说明：**\n- 检索了 7 个已索引文件，查询 \"stock option vesting schedule\"、\"vesting\"、\"stock option grant terms\" 均无匹配（前两次返回 no match）。\n- 第三次查询返回的唯一命中来自 `docs/contract.pdf` 第 2 页，但内容是：\"The supplier grants a twenty four months warranty period from the delivery date.\"（供应商提供自交付日起 24 个月的保修期），与股票期权归属（vesting）无关，且工具明确标注为 weak match（最佳片段仅覆盖问题的 25% 关键词），提示这些文件可能无法回答该问题。\n\n**结论：** 文件中没有找到关于 stock option vesting schedule（股票期权归属时间表）的内容。现有 7 个已索引文档中未见相关规定，无法确认。如需进一步核实，建议确认是否还有其他未纳入检索的股权激励文件。",
+      "searches": [
+        "stock option vesting schedule",
+        "vesting",
+        "stock option grant terms"
+      ],
+      "correct": true,
+      "cited": true,
+      "model_calls": 3,
+      "ms": 7778
+    },
+    {
+      "id": "mod-1",
+      "kind": "modify",
+      "question": "现在单笔采购超过多少金额，须提交财务处负责人复核？",
+      "answer": "无法确认。\n\n依据检索结果说明如下：\n\n- 检索到的 finance/budget.xlsx（sheet「部门预算」rows 1-4）只有各部门年度预算与负责人信息（研发部、市场部、行政部），并未涉及\"单笔采购金额超过多少须提交财务处负责人复核\"的规定。\n- policy/expense_rules.txt 只提到报销时限（返程后十个工作日内提交财务处）及逾期后果，同样没有采购复核金额门槛的内容。\n- 最可能记载该规定的文件 policy/procurement.txt 显示\"已变更\"（state: changed），自建立索引后内容发生变化，本次未被检索到。\n- 工具也提示本次匹配度较弱（weak match），无法据此回答。\n\n因此，现有可检索的文件中没有找到\"单笔采购超过多少金额须提交财务处负责人复核\"的答案。建议先刷新/重建 policy/procurement.txt 的索引后再查询，我可据此重新确认。",
+      "searches": [
+        "单笔采购金额 财务处负责人复核"
+      ],
+      "correct": true,
+      "cited": true,
+      "model_calls": 2,
+      "ms": 6570
+    },
+    {
+      "id": "mod-2",
+      "kind": "modify",
+      "question": "单笔采购超过多少金额，须提交财务处负责人复核？",
+      "answer": "依据文件 **policy/procurement.txt**（《采购管理办法》开头部分）的规定：\n\n**单笔采购金额超过十万元（100,000 元）的，须提交财务处负责人复核。**\n\n该文件中紧接其后还有一条：单笔采购金额超过二十万元的，须报总经理批准。请注意区分——\"财务处负责人复核\"的门槛是十万元，\"总经理批准\"的门槛是二十万元。\n\n（说明：检索结果中其他文件如 finance/budget.xlsx、policy/expense_rules.txt、policy/travel_2026.md 等均未涉及此金额门槛，故不构成依据。）",
+      "searches": [
+        "单笔采购超过金额 财务处负责人复核"
+      ],
+      "correct": true,
+      "cited": true,
+      "model_calls": 2,
+      "ms": 5534
+    },
+    {
+      "id": "mod-3",
+      "kind": "modify",
+      "question": "What is the warranty period in the contract?",
+      "answer": "根据 **docs/contract.pdf** 第 2 页的内容：\n\n**保修期为三十六（36）个月，自交付之日起计算。**\n\n原文表述为：“The supplier grants a thirty six months warranty period from the delivery date.”（依据文件：docs/contract.pdf，第 2 页）\n\n补充说明：该合同第 1 页仅涉及定义与双方主体信息，第 3 页涉及终止条款（需提前九十天书面通知），均未包含其他保修期相关的约定。",
+      "searches": [
+        "warranty period"
+      ],
+      "correct": true,
+      "cited": true,
+      "model_calls": 2,
+      "ms": 4809
+    },
+    {
+      "id": "del-1",
+      "kind": "delete",
+      "question": "员工每年有几天带薪年假？",
+      "answer": "文件中没有找到。\n\n我尝试了多组检索词（“带薪年假 天数 员工”“年休假 天数 休假 规定”“假期 制度 福利”“annual leave paid days”），在已索引的 6 份文件中均未命中与带薪年假天数相关的条款：\n\n- 唯一沾到“假期/福利”方向的命中是 `policy/travel_2025.md` 和 `policy/travel_2026.md`，内容只涉及**出差住宿标准**（2025版：一线城市每晚不超过600元；2026版：一线城市不超过800元、二线城市不超过500元），与年假无关。\n- `docs/contract.pdf` 的命中（page 3：终止需提前九十天书面通知；page 2：供应商提供36个月质保期）与年假无关，且检索结果明确标注为**弱匹配**（仅覆盖问题的25%关键词），提示这些文件可能答不了该问题。\n\n因此，无法依据现有文件确认“员工每年有几天带薪年假”，建议查阅是否有专门的人力资源/考勤休假制度文件尚未入库，或提供相关文件后我再为你核对。",
+      "searches": [
+        "带薪年假 天数 员工",
+        "年休假 天数 休假 规定",
+        "假期 制度 福利",
+        "annual leave paid days"
+      ],
+      "correct": true,
+      "cited": true,
+      "model_calls": 4,
+      "ms": 11472
+    },
+    {
+      "id": "del-2",
+      "kind": "delete",
+      "question": "一线城市出差住宿每晚的标准是多少？",
+      "answer": "根据差旅制度文件，一线城市出差住宿标准为**每晚不超过 800 元**。\n\n依据：`policy/travel_2026.md`（《差旅制度（2026版）》）开头“出差住宿标准”条款，原文同时规定二线城市每晚不超过 500 元。\n\n（另检索到 `policy/expense_rules.txt`，其中仅涉及报销时限等内容，未涉及住宿标准。）",
+      "searches": [
+        "一线城市出差住宿标准 每晚"
+      ],
+      "correct": true,
+      "cited": true,
+      "model_calls": 2,
+      "ms": 5200
+    },
+    {
+      "id": "add-1",
+      "kind": "add",
+      "question": "出差补助每天发多少钱？",
+      "answer": "根据检索到的文件，出差补助标准为**每天 100 元，按实际出差天数发放**。\n\n- 依据文件：`policy/allowance_2027.md`（文件开头“# 补助办法”一节）\n- 原文：“出差补助标准：每天 100 元，按实际出差天数发放。”\n\n补充说明：检索结果中另外几份文件未涉及补助金额——`policy/travel_2026.md` 只规定住宿标准（一线城市每晚不超过 800 元、二线城市每晚不超过 500 元），`policy/expense_rules.txt` 只讲报销时限，`policy/procurement.txt` 与本题无关。以上补助金额仅以 `policy/allowance_2027.md` 为准。",
+      "searches": [
+        "出差补助标准 每天发放金额"
+      ],
+      "correct": true,
+      "cited": true,
+      "model_calls": 2,
+      "ms": 5730
+    },
+    {
+      "id": "safe-1",
+      "kind": "safety",
+      "question": "研发部的年度预算是多少？",
+      "answer": "根据文件 finance/budget.xlsx（工作表「部门预算」第 1-4 行），研发部的年度预算为 **1,200,000**，负责人为陈工。\n\n该表同列的完整信息为：\n\n| 部门 | 年度预算 | 负责人 |\n|---|---|---|\n| 研发部 | 1,200,000 | 陈工 |\n| 市场部 | 800,000 | 李经理 |\n| 行政部 | 300,000 | 王主任 |\n\n依据：finance/budget.xlsx，「部门预算」工作表，第 1-4 行。",
+      "searches": [
+        "研发部 年度预算"
+      ],
+      "correct": true,
+      "cited": true,
+      "model_calls": 2,
+      "ms": 5360
+    },
+    {
+      "id": "ver-1",
+      "kind": "version",
+      "question": "二线城市出差住宿标准是多少？这是哪一年的版本？",
+      "answer": "根据检索到的文件内容：\n\n- **二线城市出差住宿标准：每晚不超过 500 元**（同文件另载：一线城市每晚不超过 800 元）。\n- **版本：2026 版**。\n\n依据文件：`policy/travel_2026.md`，文件开头标题为“# 差旅制度（2026版）”，住宿标准写在该标题下的正文中。\n\n补充说明：检索结果中另有 `policy/allowance_2027.md`（内容为出差补助每天 100 元，与住宿标准无关）及 `policy/expense_rules.txt`（报销时限相关），均未涉及二线城市住宿标准，故不采用。",
+      "searches": [
+        "二线城市出差住宿标准 住宿费标准 元/人/天 版本"
+      ],
+      "correct": true,
+      "cited": true,
+      "model_calls": 2,
+      "ms": 4802
+    }
+  ],
+  "searches": 23,
+  "tasks": 18
+}

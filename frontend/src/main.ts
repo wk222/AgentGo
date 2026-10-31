@@ -5,3 +5,5 @@ import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
 
 createApp(App).mount('#app')
+
+import './styles/refined-ui.css'

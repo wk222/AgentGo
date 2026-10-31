@@ -2,7 +2,7 @@
 
 日期：2026-10-07。范围：当前源码审计，不等同于完整 UI 或真实模型验收。
 
-参考仓库已浅克隆到 `C:/Users/wgk/Documents/GitHub/codex`，来源 https://github.com/openai/codex ，提交 `406eb53c074a29bd65aa7a8bd21d574234faf315`。只阅读源码，没有安装依赖或编译 Codex。
+参考仓库已浅克隆到 `C:/Users/user/Documents/GitHub/codex`，来源 https://github.com/openai/codex ，提交 `406eb53c074a29bd65aa7a8bd21d574234faf315`。只阅读源码，没有安装依赖或编译 Codex。
 
 ## 判断
 

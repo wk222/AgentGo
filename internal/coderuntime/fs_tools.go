@@ -55,6 +55,17 @@ type FSOptions struct {
 	AfterChange func(ctx context.Context, sessionID, callID, path string) string
 	// OnRead runs after a successful view, e.g. to warm up a language server.
 	OnRead func(ctx context.Context, path string)
+	// BackupDir receives a copy of a file's previous bytes before an overwrite.
+	// Empty means <WorkDir>/.agentgo/overwrite-backups.
+	BackupDir string
+	// DisableBackup turns the pre-overwrite backup off.
+	DisableBackup bool
+	// Journal, when set, records every successful write/edit/multiedit so a
+	// session's file changes can be listed and undone (see journal.go).
+	Journal *Journal
+	// DisableSecretGuard lets the agent write credential-shaped content.
+	// AGENTGO_ALLOW_SECRET_WRITES=1 does the same without code changes.
+	DisableSecretGuard bool
 }
 
 // fsTools holds the shared state of the four tools.
@@ -64,13 +75,26 @@ type fsTools struct {
 
 	mu    sync.Mutex
 	reads map[string]time.Time // sessionID + "\x00" + path -> last read
+
+	// locks serialises the read-check-approve-write sequence on one file; the
+	// zero value is ready to use. See fs_lock.go.
+	locks pathLocks
 }
 
 // NewFSTools returns the view, write, edit and multiedit tools.
 func NewFSTools(opts FSOptions) []Tool {
 	t := &fsTools{opts: opts, reads: map[string]time.Time{}}
 	t.root, _ = filepath.Abs(opts.WorkDir)
-	return []Tool{t.viewTool(), t.writeTool(), t.editTool(), t.multiEditTool()}
+	if opts.DisableBackup {
+		t.opts.BackupDir = ""
+	} else if opts.BackupDir == "" {
+		t.opts.BackupDir = filepath.Join(t.root, ".agentgo", "overwrite-backups")
+	}
+	tools := []Tool{t.viewTool(), t.writeTool(), t.editTool(), t.multiEditTool()}
+	if opts.Journal != nil {
+		tools = append(tools, t.changesTool(), t.revertTool())
+	}
+	return tools
 }
 
 func okResult(s string) ToolResult  { return ToolResult{Content: s} }
@@ -388,10 +412,27 @@ func (t *fsTools) write(ctx context.Context, sessionID, callID string, a writeAr
 	}
 	path := t.resolve(a.FilePath)
 
+	// The lock is released before after() so a queue of writes to one file does
+	// not wait on each other's diagnostics.
+	res, err := t.withPathLock(ctx, path, func() (ToolResult, error) {
+		return t.writeFile(ctx, sessionID, callID, path, a)
+	})
+	if err != nil || res.IsError {
+		return res, err
+	}
+	out := fmt.Sprintf("<result>\nFile successfully written: %s%s\n</result>", path, res.Content)
+	return okResult(out + t.after(ctx, sessionID, callID, path)), nil
+}
+
+// writeFile is the check, approve and write part of write. The caller holds the
+// path lock. On success it returns a zero ToolResult.
+func (t *fsTools) writeFile(ctx context.Context, sessionID, callID, path string, a writeArgs) (ToolResult, error) {
 	oldContent := ""
+	existed, kept := false, false // the file was there; its bytes were read for the journal
 	info, err := os.Stat(path)
 	switch {
 	case err == nil:
+		existed = true
 		if info.IsDir() {
 			return errResult("Path is a directory, not a file: " + path), nil
 		}
@@ -399,7 +440,7 @@ func (t *fsTools) write(ctx context.Context, sessionID, callID string, a writeAr
 			return errResult(msg), nil
 		}
 		if b, rerr := os.ReadFile(path); rerr == nil {
-			oldContent = string(b)
+			oldContent, kept = string(b), true
 			if oldContent == a.Content {
 				return errResult(fmt.Sprintf("File %s already contains the exact content. No changes made.", path)), nil
 			}
@@ -408,6 +449,9 @@ func (t *fsTools) write(ctx context.Context, sessionID, callID string, a writeAr
 		return ToolResult{}, fmt.Errorf("error checking file: %w", err)
 	}
 
+	if bad := t.guardContent(path, oldContent, a.Content); bad != nil {
+		return *bad, nil
+	}
 	if !t.approve(ctx, FSRequest{SessionID: sessionID, CallID: callID, Tool: "write", Action: "write", Path: path,
 		Description: "Create file " + path}) {
 		return errResult(deniedText), nil
@@ -415,13 +459,26 @@ func (t *fsTools) write(ctx context.Context, sessionID, callID string, a writeAr
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return ToolResult{}, fmt.Errorf("error creating directory: %w", err)
 	}
+	backup := t.backupBeforeOverwrite(path)
 	if err := os.WriteFile(path, []byte(a.Content), 0o644); err != nil {
 		return ToolResult{}, fmt.Errorf("error writing file: %w", err)
 	}
+	t.journal(sessionID, callID, "write", path, []byte(oldContent), existed, kept, []byte(a.Content))
 	t.recordRead(sessionID, path)
+	return ToolResult{Content: backupNote(backup)}, nil
+}
 
-	out := fmt.Sprintf("<result>\nFile successfully written: %s\n</result>", path)
-	return okResult(out + t.after(ctx, sessionID, callID, path)), nil
+// journal notes a successful change. kept says the previous bytes were really
+// read; when they were not, the change is recorded as not restorable.
+func (t *fsTools) journal(sessionID, callID, tool, path string, before []byte, existed, kept bool, after []byte) {
+	if t.opts.Journal == nil {
+		return
+	}
+	if existed && !kept {
+		t.opts.Journal.recordChange(sessionID, callID, tool, path, nil, true, false, after)
+		return
+	}
+	t.opts.Journal.Record(sessionID, callID, tool, path, before, existed, after)
 }
 
 func (t *fsTools) after(ctx context.Context, sessionID, callID, path string) string {

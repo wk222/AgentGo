@@ -34,21 +34,11 @@ func dumpLLMRequest(raw []byte) {
 	_ = os.WriteFile(filepath.Join(dir, name), raw, 0o600)
 }
 
-// llmHTTPClient returns the instrumented client when AGENTGO_DEBUG_LLM=1 (shape log,
-// plus dump when enabled) or AGENTGO_DUMP_LLM_DIR is set; nil means "use the default".
+// llmHTTPClient returns the resilient LLM HTTP client (two-stage connect + stream idle
+// timeout, pre-output SSE 507 retry, outbound byte calibration, plus shape/dump logging
+// when AGENTGO_DEBUG_LLM or AGENTGO_DUMP_LLM_DIR is set).
 func llmHTTPClient(timeout time.Duration) *http.Client {
-	if debugLLMEnabled() {
-		return newLLMShapeClient()
-	}
-	if dumpLLMDir() != "" {
-		return &http.Client{Transport: dumpTransport{next: &http.Transport{
-			Proxy:                 http.ProxyFromEnvironment,
-			ResponseHeaderTimeout: timeout,
-			TLSHandshakeTimeout:   15 * time.Second,
-			IdleConnTimeout:       60 * time.Second,
-		}}}
-	}
-	return nil
+	return newResilientLLMClient(timeout, debugLLMEnabled())
 }
 
 // dumpTransport dumps POST bodies, then forwards. Used where the shape logger is

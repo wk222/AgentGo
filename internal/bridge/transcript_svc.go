@@ -2,6 +2,7 @@ package bridge
 
 import (
 	"context"
+	"path/filepath"
 
 	"github.com/cloudwego/eino/schema"
 
@@ -19,7 +20,11 @@ func transcriptOf(rt *Runtime) *core.Transcript {
 	if rt == nil || rt.Sessions() == nil {
 		return core.NewTranscript(nil)
 	}
-	return core.NewTranscript(rt.Sessions())
+	tr := core.NewTranscript(rt.Sessions())
+	if dir := rt.DataDir(); dir != "" {
+		tr.WithArtifactDir(filepath.Join(dir, "attachments"))
+	}
+	return tr
 }
 
 // sessionHistory loads the stored transcript of an AgentGo session. Call it

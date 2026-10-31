@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"agentgo/internal/processutil"
+	"agentgo/internal/workflow"
 	"github.com/cloudwego/eino/components/tool/utils"
 )
 
@@ -56,6 +58,7 @@ func registerUVRunSkill(r *Registry, workspaceRoot string) error {
 				args = append(args, strings.Fields(in.Args)...)
 			}
 			cmd := exec.CommandContext(cctx, "uv", args...)
+			processutil.HideWindow(cmd)
 			cmd.Dir = dir
 			var stdout, stderr strings.Builder
 			cmd.Stdout = &stdout
@@ -94,13 +97,17 @@ func registerWorkflowAppTools(r *Registry, dataDir string, onApp func(name, mode
 			id := "wf:" + strings.TrimSpace(in.Name)
 			if wfSave != nil {
 				wid, err := wfSave(in.Name, in.Description, in.NodesJSON)
-				if err == nil && wid != "" {
-					id = wid
+				if err != nil {
+					return wfOut{}, err
 				}
+				if wid == "" {
+					return wfOut{}, fmt.Errorf("workflow saved without id")
+				}
+				id = wid
 			}
 			_ = os.MkdirAll(filepath.Join(dataDir, "workflows"), 0o755)
 			payload, _ := json.Marshal(in)
-			_ = os.WriteFile(filepath.Join(dataDir, "workflows", in.Name+".json"), payload, 0o644)
+			_ = os.WriteFile(filepath.Join(dataDir, "workflows", workflow.SafeToolName(in.Name, id)+".json"), payload, 0o644)
 			return wfOut{ID: id, Message: "workflow saved; use run_workflow to execute"}, nil
 		})
 	if err != nil {

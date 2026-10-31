@@ -6,6 +6,7 @@ import (
 
 	"agentgo/internal/codelsp"
 	"agentgo/internal/coderuntime"
+	"agentgo/internal/config"
 )
 
 // Overlay returns a toolbox that serves native in place of the same-named
@@ -69,9 +70,17 @@ func SymbolSearch(opts SearchOptions) codelsp.SymbolSearch {
 // successful change appends base's lsp_diagnostics for the changed file, which
 // is what the Crush tools did inline. approve may be nil (allow all).
 func NativeFS(base coderuntime.Toolbox, workDir string, approve func(context.Context, coderuntime.FSRequest) bool) []coderuntime.Tool {
+	var journal *coderuntime.Journal
+	if config.OverwriteBackup.On() {
+		journal = coderuntime.OpenJournal(workDir)
+	}
 	return coderuntime.NewFSTools(coderuntime.FSOptions{
 		WorkDir: workDir,
 		Approve: approve,
+		// AGENTGO_OVERWRITE_BACKUP=0 turns the pre-overwrite backup, and with it the
+		// change journal behind file_changes / revert_file_changes, off.
+		DisableBackup: !config.OverwriteBackup.On(),
+		Journal:       journal,
 		OnRead: func(ctx context.Context, path string) {
 			base.StartLSP(ctx, path)
 		},

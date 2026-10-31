@@ -1,3 +1,7 @@
+// The edit/multiedit contract in this file (parameters and the model-visible
+// messages) is derived from Crush's edit and multiedit tools
+// (licenses/crush/NOTICE.md, FSL-1.1-MIT).
+
 package coderuntime
 
 import (
@@ -20,8 +24,8 @@ func (t *fsTools) editTool() Tool {
 	return Tool{
 		Name: "edit",
 		Description: "Edit a file by exact find-and-replace; it can also create a file (empty old_string) or delete text (empty new_string). " +
-			"old_string must match exactly once unless replace_all is set. If it differs from the file only in whitespace, " +
-			"the matching lines are still edited and new_string is re-indented to the file's style; the response says so, so verify the result. " +
+			"old_string must match exactly once unless replace_all is set. If it differs from the file only in whitespace or typographic punctuation (curly quotes, dashes), " +
+			"the matching lines are still edited and new_string is re-indented to fit; the response says so, so verify the result. " +
 			"The file must have been viewed first. For several changes to one file use multiedit.",
 		Schema: objectSchema(map[string]any{
 			"file_path":   strProp("The absolute path to the file to modify"),
@@ -45,14 +49,14 @@ func (t *fsTools) edit(ctx context.Context, sessionID, callID string, a editArgs
 	}
 	path := t.resolve(a.FilePath)
 
-	var res ToolResult
-	var err error
-	switch {
-	case a.OldString == "":
-		res, err = t.createFile(ctx, sessionID, callID, "edit", path, a.NewString, "File created: "+path)
-	default:
-		res, err = t.replaceInFile(ctx, sessionID, callID, "edit", path, a)
-	}
+	// Held for the read-check-approve-write sequence only, so a queue of edits to
+	// one file does not wait on each other's diagnostics in after().
+	res, err := t.withPathLock(ctx, path, func() (ToolResult, error) {
+		if a.OldString == "" {
+			return t.createFile(ctx, sessionID, callID, "edit", path, a.NewString, "File created: "+path)
+		}
+		return t.replaceInFile(ctx, sessionID, callID, "edit", path, a)
+	})
 	if err != nil || res.IsError {
 		return res, err
 	}
@@ -74,12 +78,16 @@ func (t *fsTools) createFile(ctx context.Context, sessionID, callID, tool, path,
 		Description: "Create file " + path}) {
 		return errResult(deniedText), nil
 	}
+	if bad := t.guardContent(path, "", content); bad != nil {
+		return *bad, nil
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return ToolResult{}, fmt.Errorf("failed to create parent directories: %w", err)
 	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		return ToolResult{}, fmt.Errorf("failed to write file: %w", err)
 	}
+	t.journal(sessionID, callID, tool, path, nil, false, false, []byte(content))
 	t.recordRead(sessionID, path)
 	return okResult(message), nil
 }
@@ -112,19 +120,29 @@ func (t *fsTools) loadExisting(sessionID, path string) (content string, crlf boo
 }
 
 // commit asks for approval, writes (restoring CRLF) and records the read.
-func (t *fsTools) commit(ctx context.Context, sessionID, callID, tool, path, desc, newContent string, crlf bool) (*ToolResult, error) {
+func (t *fsTools) commit(ctx context.Context, sessionID, callID, tool, path, desc, newContent string, crlf bool) (*ToolResult, string, error) {
+	var prior string
+	priorRead := false
+	if b, err := os.ReadFile(path); err == nil {
+		prior, priorRead = string(b), true
+	}
+	if bad := t.guardContent(path, prior, newContent); bad != nil {
+		return bad, "", nil
+	}
 	if !t.approve(ctx, FSRequest{SessionID: sessionID, CallID: callID, Tool: tool, Action: "write", Path: path, Description: desc}) {
 		r := errResult(deniedText)
-		return &r, nil
+		return &r, "", nil
 	}
 	if crlf {
 		newContent = toWindowsLineEndings(newContent)
 	}
+	backup := t.backupBeforeOverwrite(path)
 	if err := os.WriteFile(path, []byte(newContent), 0o644); err != nil {
-		return nil, fmt.Errorf("failed to write file: %w", err)
+		return nil, "", fmt.Errorf("failed to write file: %w", err)
 	}
+	t.journal(sessionID, callID, tool, path, []byte(prior), true, priorRead, []byte(newContent))
 	t.recordRead(sessionID, path)
-	return nil, nil
+	return nil, backupNote(backup), nil
 }
 
 func (t *fsTools) replaceInFile(ctx context.Context, sessionID, callID, tool, path string, a editArgs) (ToolResult, error) {
@@ -135,10 +153,11 @@ func (t *fsTools) replaceInFile(ctx context.Context, sessionID, callID, tool, pa
 	if bad != nil {
 		return *bad, nil
 	}
-	result, corrected, ferr := FindAndReplace(old, a.OldString, a.NewString, a.ReplaceAll)
+	applied, ferr := applyEdit(old, a.OldString, a.NewString, a.ReplaceAll)
 	if ferr != nil {
 		return errResult(ferr.Error()), nil
 	}
+	result := applied.Content
 	deleting := a.NewString == ""
 	if !deleting && result == old {
 		return errResult("new content is the same as old content. No changes made."), nil
@@ -147,13 +166,14 @@ func (t *fsTools) replaceInFile(ctx context.Context, sessionID, callID, tool, pa
 	if deleting {
 		desc, msg = "Delete content from file "+path, "Content deleted from file: "+path
 	}
-	if denied, err := t.commit(ctx, sessionID, callID, tool, path, desc, result, crlf); err != nil || denied != nil {
+	denied, note, err := t.commit(ctx, sessionID, callID, tool, path, desc, result, crlf)
+	if err != nil || denied != nil {
 		if denied != nil {
 			return *denied, nil
 		}
 		return ToolResult{}, err
 	}
-	return okResult(withWhitespaceNote(msg, corrected)), nil
+	return okResult(withToleranceNote(msg, applied.Rung) + note), nil
 }
 
 // --- multiedit -------------------------------------------------------------------
@@ -216,13 +236,12 @@ func (t *fsTools) multiEdit(ctx context.Context, sessionID, callID string, a mul
 	}
 	path := t.resolve(a.FilePath)
 
-	var res ToolResult
-	var err error
-	if a.Edits[0].OldString == "" {
-		res, err = t.multiEditCreate(ctx, sessionID, callID, path, a.Edits)
-	} else {
-		res, err = t.multiEditExisting(ctx, sessionID, callID, path, a.Edits)
-	}
+	res, err := t.withPathLock(ctx, path, func() (ToolResult, error) {
+		if a.Edits[0].OldString == "" {
+			return t.multiEditCreate(ctx, sessionID, callID, path, a.Edits)
+		}
+		return t.multiEditExisting(ctx, sessionID, callID, path, a.Edits)
+	})
 	if err != nil || res.IsError {
 		return res, err
 	}
@@ -231,32 +250,33 @@ func (t *fsTools) multiEdit(ctx context.Context, sessionID, callID string, a mul
 }
 
 // applyEdits runs edits in order; failures are collected, not fatal.
-func applyEdits(content string, edits []multiEditOp, startIndex int) (string, []failedEdit, bool) {
+// The returned rung is the loosest comparison any edit needed (0 = all literal).
+func applyEdits(content string, edits []multiEditOp, startIndex int) (string, []failedEdit, int) {
 	var failed []failedEdit
-	corrected := false
+	rung := 0
 	for i, e := range edits {
 		if e.OldString == "" && e.NewString == "" {
 			continue
 		}
-		next, c, err := FindAndReplace(content, e.OldString, e.NewString, e.ReplaceAll)
+		applied, err := applyEdit(content, e.OldString, e.NewString, e.ReplaceAll)
 		if err != nil {
 			failed = append(failed, failedEdit{Index: startIndex + i + 1, Error: err.Error()})
 			continue
 		}
-		corrected = corrected || c
-		content = next
+		rung = max(rung, applied.Rung)
+		content = applied.Content
 	}
-	return content, failed, corrected
+	return content, failed, rung
 }
 
 func (t *fsTools) multiEditCreate(ctx context.Context, sessionID, callID, path string, edits []multiEditOp) (ToolResult, error) {
-	content, failed, corrected := applyEdits(edits[0].NewString, edits[1:], 1)
+	content, failed, rung := applyEdits(edits[0].NewString, edits[1:], 1)
 	applied := len(edits) - len(failed)
 	msg := fmt.Sprintf("File created with %d edits: %s", len(edits), path)
 	if len(failed) > 0 {
 		msg = fmt.Sprintf("File created with %d of %d edits: %s (%d edit(s) failed)", applied, len(edits), path, len(failed))
 	}
-	res, err := t.createFile(ctx, sessionID, callID, "multiedit", path, content, withWhitespaceNote(msg, corrected))
+	res, err := t.createFile(ctx, sessionID, callID, "multiedit", path, content, withToleranceNote(msg, rung))
 	return withFailures(res, failed), err
 }
 
@@ -268,7 +288,7 @@ func (t *fsTools) multiEditExisting(ctx context.Context, sessionID, callID, path
 	if bad != nil {
 		return *bad, nil
 	}
-	content, failed, corrected := applyEdits(old, edits, 0)
+	content, failed, rung := applyEdits(old, edits, 0)
 	if content == old {
 		if len(failed) > 0 {
 			return withFailures(errResult(fmt.Sprintf("no changes made - all %d edit(s) failed", len(failed))), failed), nil
@@ -282,13 +302,14 @@ func (t *fsTools) multiEditExisting(ctx context.Context, sessionID, callID, path
 		desc = fmt.Sprintf("Apply %d of %d edits to file %s (%d failed)", applied, len(edits), path, len(failed))
 		msg = fmt.Sprintf("Applied %d of %d edits to file: %s (%d edit(s) failed)", applied, len(edits), path, len(failed))
 	}
-	if denied, err := t.commit(ctx, sessionID, callID, "multiedit", path, desc, content, crlf); err != nil || denied != nil {
+	denied, note, err := t.commit(ctx, sessionID, callID, "multiedit", path, desc, content, crlf)
+	if err != nil || denied != nil {
 		if denied != nil {
 			return *denied, nil
 		}
 		return ToolResult{}, err
 	}
-	return withFailures(okResult(withWhitespaceNote(msg, corrected)), failed), nil
+	return withFailures(okResult(withToleranceNote(msg, rung)+note), failed), nil
 }
 
 // withFailures lists failed edits after the message so the model can retry

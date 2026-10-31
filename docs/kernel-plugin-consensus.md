@@ -281,6 +281,20 @@ agent 以 `card` 块返回引用列表 → 前端 `chat.card` 渲染 → 卸载�
   (样式名、标题、列表、表格、公式、冻结窗格、筛选都对)。**没有在真正的 Word/WPS 里目视验证**,这一步需要人看一眼。
 - **顺带修了读取侧的静默丢数据:** `parse_file` 读 .docx 用的是默认配置,**表格、页眉、页脚全被丢掉**;现已打开。
 
+#### 阶段 2 续 · Excel 读改、PPT 生成与检查、内置办公技能(2026-10-26)
+
+办公电脑只有内网,装不了 Go/Python/Node,所以全部编进 exe,不依赖任何外部程序(LibreOffice 只是可选项)。
+设计、取舍、限制和验证记录见 `docs/office-tools-plan.md`;致谢见 `licenses/office/NOTICE.md`。
+
+- 工具从 2 个增加到 6 个:`create_docx`、`create_xlsx`、**`read_xlsx`、`edit_xlsx`、`create_pptx`、`inspect_pptx`**。
+- 治理按读写分级(`officedoc.ReadOnly`):写文件的 4 个(`create_*`、`edit_xlsx`)仍是静态可见 + 改文件 + MEDIUM,
+  只读画布里隐藏、走审批;读文件的 2 个(`read_xlsx`、`inspect_pptx`)是静态可见 + 不改文件 + LOW,只读画布里也能用。
+  `officedoc_plugin_test.go` 逐个断言了这些声明、总线上的风险等级、停插件后的撤销。
+- 内置技能:`internal/skills/builtin/{office,office-xlsx,office-pptx,office-docx}/SKILL.md` 用 `go:embed` 编进二进制,
+  scope 为 `builtin`,工作区里同名技能优先;`AGENTGO_OFFICEDOC=0` 时一并隐藏。
+  `activate_skill` 现在返回技能全文(以前只返回一句描述,模型拿不到内容),找不到时列出可用 id。
+  `skills_doc_test.go` 保证技能文字里出现的工具名、字段名、版式名都真实存在、且工具的每个选项都有说明,防止两边漂移。
+
 ### 自有命令行 `agentgo-cli`(不依赖 Crush)
 
 `cmd/agentgo-cli` + `internal/cli`。进程内跑 AgentGo 大脑(同一个引擎路由、治理、记忆、插件),不需要 crush 二进制,

@@ -8,6 +8,7 @@ import (
 	"agentgo/internal/applog"
 	"agentgo/internal/core"
 	"agentgo/internal/engine"
+	"agentgo/internal/governance"
 )
 
 // EngineEventName is the Wails event carrying engine.Event payloads.
@@ -16,22 +17,22 @@ const EngineEventName = "engine:event"
 const engineRunTimeout = 15 * time.Minute
 
 // Engines exposes the unified engine router (register more engines here).
-func (s *AppService) Engines() *engine.Router { return s.engines }
+func (s *AppService) Engines() *engine.Router { return s.rt.engineRouter }
 
 // ListEngines returns registered engine ids.
-func (s *AppService) ListEngines() []string { return s.engines.Engines() }
+func (s *AppService) ListEngines() []string { return s.rt.engineRouter.Engines() }
 
 // ListActiveEngineRuns returns in-flight runs.
-func (s *AppService) ListActiveEngineRuns() []engine.ActiveRun { return s.engines.Active() }
+func (s *AppService) ListActiveEngineRuns() []engine.ActiveRun { return s.rt.engineRouter.Active() }
 
 // CancelEngineRun cancels one run by id.
 func (s *AppService) CancelEngineRun(runID string) map[string]any {
-	return map[string]any{"success": s.engines.Cancel(strings.TrimSpace(runID))}
+	return map[string]any{"success": s.rt.engineRouter.Cancel(strings.TrimSpace(runID))}
 }
 
 // CancelEngineSession cancels every active run of a session.
 func (s *AppService) CancelEngineSession(sessionID string) map[string]any {
-	n := s.engines.CancelSession(strings.TrimSpace(sessionID))
+	n := s.rt.engineRouter.CancelSession(strings.TrimSpace(sessionID))
 	return map[string]any{"success": true, "cancelled": n}
 }
 
@@ -41,8 +42,8 @@ func (s *AppService) wailsSink() engine.EventSink {
 		// Resumed segments retain their run identity, but start a new emitter.
 		// Give desktop subscribers one monotonic sequence across all segments.
 		ev.Seq = s.desktopEventSeq.Add(1)
-		if s.app != nil {
-			s.app.Event.Emit(EngineEventName, ev)
+		if s.eventsOn() {
+			s.emit(EngineEventName, ev)
 		}
 	})
 }
@@ -51,7 +52,7 @@ func (s *AppService) wailsSink() engine.EventSink {
 // (status/token/tool_call/.../done). engineID may be empty for the default.
 func (s *AppService) RunEngine(engineID, sessionID, input string, images []string) map[string]any {
 	sessionID = strings.TrimSpace(sessionID)
-	runID := s.engines.NewRunID()
+	runID := s.rt.engineRouter.NewRunID()
 	if s.rt.runTrack != nil {
 		s.rt.runTrack.Begin(sessionID, "RunEngine")
 	}
@@ -79,13 +80,28 @@ func (s *AppService) RunEngineSync(engineID, sessionID, input string, images []s
 	}, sink)
 }
 
-// runEngineTurn persists the user turn, runs via the router, then persists the
-// final messages (mirrors what the legacy runStream path does).
+// runEngineTurn preserves the desktop adapter's internal call surface.
 func (s *AppService) runEngineTurn(parent context.Context, req engine.RunRequest, sink engine.EventSink) engine.RunResult {
+	return s.rt.runEngineTurn(parent, req, sink)
+}
+
+// runEngineTurn is the shared turn boundary for native transports and engines.
+// Completion is published only after the transcript and commit point are stored.
+func (rt *Runtime) runEngineTurn(parent context.Context, req engine.RunRequest, sink engine.EventSink) engine.RunResult {
+	if rt.engineRouter == nil {
+		return engine.RunResult{Error: "engine router unavailable"}
+	}
+	if req.RunID == "" {
+		req.RunID = rt.engineRouter.NewRunID()
+	}
+	parent = governance.WithExecutionID(parent, req.RunID)
 	ctx, cancel := context.WithTimeout(parent, engineRunTimeout)
 	defer cancel()
 
-	ctx = s.transcript().Begin(ctx, req.SessionID, req.Input, req.Images)
+	// File the workspace under this turn first, so its id is stored with the user
+	// message and reaches the client in the "started" event.
+	ctx, req = rt.beginTurnCheckpoint(ctx, req)
+	ctx = transcriptOf(rt).Begin(ctx, req.SessionID, req.Input, req.Images)
 
 	// Publish completion only after the transcript and commit point are stored.
 	// A client can safely reload the session as soon as it receives done.
@@ -99,7 +115,7 @@ func (s *AppService) runEngineTurn(parent context.Context, req engine.RunRequest
 			sink.Emit(ev)
 		}
 	})
-	res := s.engines.Run(ctx, req, s.logRunEvents(req.SessionID, forward))
+	res := rt.engineRouter.Run(ctx, req, core.LogRunEvents(rt.Sessions(), req.SessionID, forward))
 
 	if req.SessionID != "" {
 		reply := make([]core.Message, 0, len(res.Messages))
@@ -109,9 +125,9 @@ func (s *AppService) runEngineTurn(parent context.Context, req engine.RunRequest
 				ApprovalID: m.ApprovalID, ToolName: m.ToolName, Arguments: m.Arguments, Status: m.Status,
 			})
 		}
-		s.transcript().Finish(req.SessionID, reply)
+		transcriptOf(rt).Finish(req.SessionID, reply)
 		// Commit point: only now is the transcript complete for this run.
-		s.commitRun(req.SessionID, res.RunID, res)
+		rt.commitRunWith(req.SessionID, res.RunID, res, nil)
 	}
 	if sink != nil {
 		for _, ev := range completion {

@@ -418,11 +418,15 @@
 /* ── Reasoning / CoT Bubble ── */
 .reasoning-bubble {
   margin: 6px 0 10px;
-  border-radius: var(--radius-md);
+  border-radius: 6px;
   border: 1px solid var(--border);
-  background: var(--surface-hover);
+  border-left: 2px solid var(--accent);
+  background: var(--surface);
   overflow: hidden;
   max-width: 100%;
+}
+.reasoning-bubble.streaming {
+  border-left-color: var(--accent-hover);
 }
 
 .reasoning-bubble-header {
@@ -450,7 +454,7 @@
 }
 
 .reasoning-icon {
-  color: #8E44AD;
+  color: var(--accent-text);
 }
 
 .reasoning-live-badge {
@@ -459,10 +463,17 @@
   gap: 4px;
   padding: 1px 6px;
   border-radius: 8px;
-  background: rgba(142, 68, 173, 0.15);
-  color: #8E44AD;
+  background: var(--accent-bg);
+  color: var(--accent-text);
   font-size: 11px;
   font-weight: 500;
+}
+
+.reasoning-size {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-faint, var(--text-dim));
+  opacity: 0.8;
 }
 
 .reasoning-spin {
@@ -492,21 +503,25 @@
   overflow-y: auto;
 }
 
-/* ── Tool Call Card ── */
+/* ── Tool Call Card (OpenBitFun compact capsule style) ── */
 .tool-call-row {
   width: 100%;
 }
 
 .tool-call-card {
-  margin: 6px 0 8px;
-  border-radius: var(--radius-md);
+  margin: 4px 0 6px;
+  border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--surface);
   overflow: hidden;
   width: 100%;
   max-width: 100%;
-  box-shadow: var(--shadow-sm);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+  transition: border-color 0.14s ease, box-shadow 0.14s ease, background 0.14s ease;
+}
+
+.tool-call-card:hover {
+  border-color: rgba(14, 165, 233, 0.35);
 }
 
 .tool-call-card.running {
@@ -522,43 +537,63 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 7px 10px;
+  padding: 5px 9px;
   cursor: pointer;
   user-select: none;
+  gap: 8px;
 }
 
 .tool-call-main {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
+  min-width: 0;
+  flex: 1;
 }
 
 .tool-call-icon-box {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 4px;
-  background: var(--hover-bg);
-  color: var(--text-dim);
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  background: var(--accent-bg);
+  color: var(--accent-text);
+  flex-shrink: 0;
 }
 
 .tool-call-name {
   font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 11.5px;
+  font-weight: 700;
   color: var(--text-strong);
+  flex-shrink: 0;
+}
+
+.tool-call-arg-summary {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  background: var(--hover-bg);
+  border: 1px solid var(--border-subtle);
+  padding: 1px 6px;
+  border-radius: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
 }
 
 .tool-status-pill {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 7px;
-  border-radius: 10px;
-  font-size: 11px;
-  font-weight: 500;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  flex-shrink: 0;
 }
 
 .tool-status-pill.running {
@@ -580,6 +615,125 @@
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.tool-diff-stat-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.tool-diff-stat {
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.tool-diff-stat.add {
+  background: rgba(74, 140, 83, 0.14);
+  color: var(--success);
+}
+
+.tool-diff-stat.del {
+  background: rgba(192, 57, 43, 0.14);
+  color: var(--error);
+}
+
+.tool-open-file-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--accent-text);
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.tool-open-file-btn:hover {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+}
+
+.tool-inline-diff-box {
+  border-top: 1px solid var(--border-subtle);
+  background: var(--code-bg);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.tool-inline-diff-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 10px;
+  background: var(--surface-hover);
+  color: var(--text-dim);
+  font-size: 10.5px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.tool-inline-diff-path {
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-inline-diff-toggle {
+  color: var(--accent-text);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.tool-inline-diff-lines {
+  padding: 4px 0;
+  max-height: 185px;
+  overflow-y: auto;
+  overflow-x: auto;
+}
+
+.tool-diff-line {
+  padding: 1px 10px;
+  white-space: pre;
+  line-height: 1.42;
+}
+
+.tool-diff-line.is-add {
+  background: rgba(74, 140, 83, 0.12);
+  color: var(--success);
+}
+
+.tool-diff-line.is-del {
+  background: rgba(192, 57, 43, 0.12);
+  color: var(--error);
+}
+
+.tool-diff-line.is-meta {
+  color: var(--accent-text);
+  opacity: 0.85;
+}
+
+.tool-diff-more {
+  padding: 3px 10px;
+  font-size: 10.5px;
+  color: var(--text-dim);
+  cursor: pointer;
+  border-top: 1px dashed var(--border-subtle);
+}
+
+.tool-diff-more:hover {
+  color: var(--accent-text);
 }
 
 .tool-copy-btn {

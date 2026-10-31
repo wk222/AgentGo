@@ -2,17 +2,13 @@ package tools
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"regexp"
 	"sort"
 	"strings"
 	"sync"
 
-	einomcp "github.com/cloudwego/eino-ext/components/tool/mcp"
 	einotool "github.com/cloudwego/eino/components/tool"
-	"github.com/mark3labs/mcp-go/client"
-	"github.com/mark3labs/mcp-go/mcp"
 )
 
 // MCPServerSummary records metadata of an attached MCP server.
@@ -20,15 +16,24 @@ type MCPServerSummary struct {
 	Name    string   `json:"name"`
 	Command string   `json:"command"`
 	Tools   []string `json:"tools"`
+	binding *mcpBinding
 }
 
 // Registry manages the tools available to the AgentGo runtime.
 type Registry struct {
-	mu              sync.RWMutex
-	tools           map[string]einotool.BaseTool
-	dynamicCompiled map[string]bool
-	dynamicSandbox  string
-	mcpServers      map[string]*MCPServerSummary
+	mu                        sync.RWMutex
+	tools                     map[string]einotool.BaseTool
+	dynamicCompiled           map[string]bool
+	dynamicSandbox            string
+	mcpServers                map[string]*MCPServerSummary
+	mcpBindings               map[*mcpBinding]struct{}
+	mcpLoads                  map[string]*mcpLoad
+	mcpRisks                  map[string]int
+	mcpState                  *mcpRiskStore
+	mcpClosed                 bool
+	mcpStarted                bool
+	documentChunker           DocumentChunker
+	documentChunkerGeneration uint64
 
 	jobsOnce sync.Once // the background jobs started through this registry (job_monitor.go)
 	jobs     *jobMonitor
@@ -40,6 +45,9 @@ func NewRegistry() *Registry {
 		tools:           make(map[string]einotool.BaseTool),
 		dynamicCompiled: make(map[string]bool),
 		mcpServers:      make(map[string]*MCPServerSummary),
+		mcpBindings:     make(map[*mcpBinding]struct{}),
+		mcpLoads:        make(map[string]*mcpLoad),
+		mcpRisks:        make(map[string]int),
 	}
 }
 
@@ -75,54 +83,7 @@ func (r *Registry) LoadMCPServer(ctx context.Context, serverName, command string
 
 // LoadMCPServerWithEnv connects to an MCP server over stdio with optional environment variables.
 func (r *Registry) LoadMCPServerWithEnv(ctx context.Context, serverName, command string, args []string, env []string) error {
-	// Initialize MCP client
-	mcpClient, err := client.NewStdioMCPClient(command, env, args...)
-	if err != nil {
-		return fmt.Errorf("failed to create MCP client for %s: %w", serverName, err)
-	}
-
-	initRequest := mcp.InitializeRequest{}
-	initRequest.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
-	initRequest.Params.ClientInfo = mcp.Implementation{
-		Name:    "agentgo",
-		Version: "1.0.0",
-	}
-
-	_, err = mcpClient.Initialize(ctx, initRequest)
-	if err != nil {
-		return fmt.Errorf("failed to initialize MCP client for %s: %w", serverName, err)
-	}
-
-	cfg := &einomcp.Config{
-		Cli: mcpClient,
-	}
-
-	mcpTools, err := einomcp.GetTools(ctx, cfg)
-	if err != nil {
-		return fmt.Errorf("failed to get tools from MCP server %s: %w", serverName, err)
-	}
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	summary := &MCPServerSummary{
-		Name:    serverName,
-		Command: command,
-		Tools:   make([]string, 0, len(mcpTools)),
-	}
-
-	for _, t := range mcpTools {
-		info, err := t.Info(ctx)
-		if err == nil {
-			// Prefix the tool name with the server name
-			prefixedName := fmt.Sprintf("%s_%s", serverName, info.Name)
-			r.tools[prefixedName] = t
-			summary.Tools = append(summary.Tools, prefixedName)
-		}
-	}
-
-	r.mcpServers[serverName] = summary
-	return nil
+	return r.loadMCP(ctx, serverName, command, args, env)
 }
 
 // ListMCPServers returns a copy of connected MCP server summaries.
@@ -132,8 +93,15 @@ func (r *Registry) ListMCPServers() []MCPServerSummary {
 
 	out := make([]MCPServerSummary, 0, len(r.mcpServers))
 	for _, s := range r.mcpServers {
-		out = append(out, *s)
+		names := []string{}
+		for _, name := range s.Tools {
+			if t, ok := r.tools[name].(*boundMCPTool); ok && t.binding == s.binding {
+				names = append(names, name)
+			}
+		}
+		out = append(out, MCPServerSummary{Name: s.Name, Command: s.Command, Tools: names})
 	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }
 
@@ -186,4 +154,9 @@ func (r *Registry) RemoveToolsWithPrefix(prefix string) {
 			delete(r.tools, name)
 		}
 	}
+}
+
+// UnloadMCPServer removes an MCP server summary, closes its stdio client, and deletes all tools it registered.
+func (r *Registry) UnloadMCPServer(serverName string) int {
+	return r.unloadMCP(strings.TrimSpace(serverName))
 }

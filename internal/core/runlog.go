@@ -104,6 +104,9 @@ func CommitRun(st *sessions.Store, sessionID, runID string, res engine.RunResult
 		"pending":  res.Pending,
 		"messages": len(res.Messages),
 	}
+	if res.Degraded != "" {
+		payload["degraded"] = CutString(res.Degraded, RunLogPayloadMax)
+	}
 	for k, v := range extra {
 		payload[k] = v
 	}

@@ -1,8 +1,6 @@
 package bridge
 
 import (
-	"github.com/wailsapp/wails/v3/pkg/application"
-
 	"agentgo/internal/workflow"
 )
 
@@ -28,8 +26,8 @@ func (r *Runtime) recordWorkflowEvent(e workflow.Event) {
 		}
 	}
 	if e.Type == "notify" || e.NodeType == "notify" {
-		if app := application.Get(); app != nil {
-			app.Event.Emit("workflow:notify", map[string]any{
+		if eventsOn() {
+			emitEvent("workflow:notify", map[string]any{
 				"run_id":  e.RunID,
 				"node_id": e.NodeID,
 				"channel": e.Output,

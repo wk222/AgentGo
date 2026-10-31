@@ -13,14 +13,18 @@ import (
 
 // Core services every plugin may Inject.
 const (
-	svcEngines    = "engines"      // *engine.Router
-	svcCapability = "capability"   // *capability.Bus
-	svcTools      = "tools"        // *tools.Registry
-	svcBrain      = "brain"        // *AppService: the chat path and session API that engines and protocol adapters drive
+	svcEngines    = "engines"    // *engine.Router
+	svcCapability = "capability" // *capability.Bus
+	svcTools      = "tools"      // *tools.Registry
+	svcBrain      = "brain"      // legacy desktop settings API; not the chat execution owner
 )
 
-// chatBackend is all the Eino engine needs from the application: run one chat
-// turn. Naming it keeps the engine from reaching into the rest of AppService.
+// privatePluginBuilders holds optional git-ignored plugins (e.g. intranet compatibility
+// adapters in *_private*.go) registered via init() when present on disk.
+var privatePluginBuilders []func(*Runtime) (plugin.Plugin, bool)
+
+// chatBackend is the Runtime operation used by the Eino engine. Transports
+// share runEngineTurn for transcript/commit ownership; they do not implement it.
 type chatBackend interface {
 	sendMessageCore(ctx context.Context, sessionID, userText string, images []string, streamEmit func(string)) SendMessageResult
 }
@@ -93,11 +97,10 @@ func (s *AppService) initPlugins() {
 	}
 	s.plugins = h
 
-	_, _ = h.Provide(svcEngines, s.engines)
-	_, _ = h.Provide(svcBrain, s)
-	if s.rt != nil {
-		s.rt.engineRouter = s.engines
+	if !shared {
+		_, _ = h.Provide(svcEngines, s.rt.engineRouter)
 	}
+	_, _ = h.Provide(svcBrain, s)
 	if !shared {
 		if bus != nil {
 			_, _ = h.Provide(svcCapability, bus)
@@ -115,7 +118,9 @@ func (s *AppService) initPlugins() {
 			log.Printf("[plugin] register %s: %v", p.Name, err)
 		}
 	}
-	register(einoPlugin(), true)
+	if !shared {
+		register(einoPlugin(s.rt), true)
+	}
 	register(codingAgentPlugin(s.rt))
 	ctPlugin, ctEnabled := codetoolsPlugin(s.codetoolsEnv())
 	register(ctPlugin, ctEnabled)
@@ -123,6 +128,13 @@ func (s *AppService) initPlugins() {
 		s.unbindWorkspace = s.rt.AddWorkspaceBinder(s.rebindCodetools)
 	}
 	register(officedocPlugin(s.officedocEnv()))
+	register(browsercontrolPlugin(s.browserEnv()))
+	register(docindexPlugin(s.docindexEnv()))
+	register(rekitPlugin(s.rekitEnv()))
+	register(visionocrPlugin(s.visionocrEnv()))
+	for _, buildPrivate := range privatePluginBuilders {
+		register(buildPrivate(s.rt))
+	}
 
 	if err := h.Start(); err != nil {
 		log.Printf("[plugin] start: %v", err)
@@ -137,16 +149,12 @@ func (s *AppService) initPlugins() {
 }
 
 // einoPlugin contributes the built-in Eino engine (the default engine).
-func einoPlugin() plugin.Plugin {
+func einoPlugin(backend chatBackend) plugin.Plugin {
 	return plugin.Plugin{
 		Name:   "eino",
-		Inject: []string{svcEngines, svcBrain},
+		Inject: []string{svcEngines},
 		Apply: func(c *plugin.Context) error {
 			router, err := plugin.Use[*engine.Router](c, svcEngines)
-			if err != nil {
-				return err
-			}
-			backend, err := plugin.Use[chatBackend](c, svcBrain)
 			if err != nil {
 				return err
 			}

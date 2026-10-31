@@ -3,12 +3,17 @@ package agent
 import (
 	"strings"
 
+	"agentgo/internal/config"
+	"agentgo/internal/governance"
 	"agentgo/internal/tools"
 )
 
 // EnableSubagent reports whether invoke_subagent should be exposed for this mode.
 func (m SessionMode) EnableSubagent() bool {
 	p, c := m.normalized()
+	if p == ModeRedTeam {
+		return true
+	}
 	switch p {
 	case ModeAdmin:
 		return c != CanvasFocused
@@ -21,6 +26,9 @@ func (m SessionMode) EnableSubagent() bool {
 
 func (m SessionMode) normalized() (ModeProfile, ExecutionCanvas) {
 	p, c := m.Profile, m.Canvas
+	if p == ModeRedTeam && !config.ArmorBreak.On() {
+		p = ModeAssistant
+	}
 	if p == "" {
 		p = ModeAssistant
 	}
@@ -34,6 +42,8 @@ func (m SessionMode) normalized() (ModeProfile, ExecutionCanvas) {
 func (m SessionMode) StaticToolAllowlist() map[string]bool {
 	p, c := m.normalized()
 	switch p {
+	case ModeRedTeam:
+		return nil
 	case ModeAdmin:
 		return nil
 	case ModeAppMatrix:
@@ -79,7 +89,29 @@ func (m SessionMode) StaticToolAllowlist() map[string]bool {
 			allow["invoke_subagent"] = true
 			allow["run_swarm"] = true
 		}
-		allowPluginTools(allow, c)
+		allowPluginToolsForProfile(allow, p, c)
+		return allow
+	case ModeReverse:
+		allow := map[string]bool{
+			"get_current_time": true,
+			"ask_user":         true,
+			"echo_message":     true,
+			"render_ui":        true,
+		}
+		allowWorkspaceReadTools(allow)
+		if c != CanvasFocused {
+			allowWorkspaceActionTools(allow)
+			allow["activate_skill"] = true
+		}
+		if c == CanvasDeep {
+			allow["run_workflow"] = true
+			allow["list_dynamic_tools"] = true
+		}
+		if m.EnableSubagent() {
+			allow["invoke_subagent"] = true
+			allow["run_swarm"] = true
+		}
+		allowPluginToolsForProfile(allow, p, c)
 		return allow
 	default:
 		allow := map[string]bool{
@@ -120,15 +152,20 @@ func (m SessionMode) StaticToolAllowlist() map[string]bool {
 			allow["invoke_subagent"] = true
 			allow["run_swarm"] = true
 		}
-		allowPluginTools(allow, c)
+		allowPluginToolsForProfile(allow, p, c)
 		return allow
 	}
 }
 
-// allowPluginTools admits tools plugins declared always-visible. File-mutating
-// ones stay hidden in the read-only (focused) canvas.
-func allowPluginTools(allow map[string]bool, c ExecutionCanvas) {
+// allowPluginToolsForProfile admits tools plugins declared always-visible.
+// Reverse-engineering tools (re_*) are scoped to ModeReverse (and ModeAdmin via nil allowlist)
+// so ordinary chat profiles do not pay their schema token cost. File-mutating tools stay
+// hidden in the read-only (focused) canvas.
+func allowPluginToolsForProfile(allow map[string]bool, p ModeProfile, c ExecutionCanvas) {
 	for name, mutating := range tools.PluginStaticTools() {
+		if strings.HasPrefix(name, "re_") && p != ModeReverse && p != ModeAdmin {
+			continue
+		}
 		if !mutating || c != CanvasFocused {
 			allow[name] = true
 		}
@@ -153,6 +190,8 @@ func allowWorkspaceActionTools(allow map[string]bool) {
 		"create_workspace_file",
 		"execute_bash",
 		"run_batch_script",
+		"run_elevated",
+		"computer_use", // only registered when AGENTGO_COMPUTER_USE is on
 	} {
 		allow[name] = true
 	}
@@ -160,7 +199,8 @@ func allowWorkspaceActionTools(allow map[string]bool) {
 
 // AllowsDynamicTool filters toolsearch / dynamic registry entries by profile × canvas.
 func (m SessionMode) AllowsDynamicTool(name string) bool {
-	name = strings.ToLower(strings.TrimSpace(name))
+	originalName := strings.TrimSpace(name)
+	name = strings.ToLower(originalName)
 	if name == "" {
 		return false
 	}
@@ -169,7 +209,7 @@ func (m SessionMode) AllowsDynamicTool(name string) bool {
 		return true
 	}
 	if c == CanvasFocused {
-		return isReadOnlyDynamicTool(name)
+		return isReadOnlyDynamicTool(originalName)
 	}
 	if p == ModeAssistant && c == CanvasBalanced {
 		if strings.Contains(name, "execute_bash") {
@@ -180,6 +220,13 @@ func (m SessionMode) AllowsDynamicTool(name string) bool {
 }
 
 func isReadOnlyDynamicTool(name string) bool {
+	if traits, ok := governance.ToolTraitsOf(name); ok && strings.HasPrefix(traits.Source, "mcp:") {
+		return !traits.Mutating && traits.Risk == governance.RiskLow
+	}
+	if mut, ok := tools.PluginStaticTools()[name]; ok {
+		return !mut
+	}
+	name = strings.ToLower(name)
 	if strings.Contains(name, "bash") || strings.Contains(name, "execute") ||
 		strings.Contains(name, "write") || strings.Contains(name, "python") {
 		return false

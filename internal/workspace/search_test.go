@@ -1,9 +1,11 @@
 package workspace
 
 import (
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -62,6 +64,24 @@ func TestGitStatusAndBranches(t *testing.T) {
 		t.Skip("git not installed")
 	}
 	root := t.TempDir()
+	if runtime.GOOS == "windows" {
+		// Git marks loose objects read-only. Restore writability only in this
+		// test-owned fixture before testing.TempDir removes it.
+		t.Cleanup(func() {
+			err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+				if walkErr != nil {
+					return walkErr
+				}
+				if !entry.IsDir() && entry.Type()&os.ModeSymlink == 0 {
+					return os.Chmod(path, 0600)
+				}
+				return nil
+			})
+			if err != nil {
+				t.Errorf("make temporary git fixture writable: %v", err)
+			}
+		})
+	}
 	for _, args := range [][]string{{"init", "-q"}, {"config", "user.email", "t@t"}, {"config", "user.name", "t"}} {
 		if _, err := RunGit(root, args...); err != nil {
 			t.Fatal(err)

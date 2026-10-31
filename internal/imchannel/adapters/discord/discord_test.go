@@ -1,0 +1,420 @@
+package discord
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"agentgo/internal/imchannel"
+	"github.com/gorilla/websocket"
+)
+
+// fakeDiscord serves /users/@me + message REST endpoints and a gateway
+// WebSocket that runs hello → identify → READY → one MESSAGE_CREATE per
+// queued message.
+type fakeDiscord struct {
+	mu             sync.Mutex
+	sent           []map[string]any
+	edited         []map[string]any
+	messages       []dcMessage
+	srv            *httptest.Server
+	wsURL          string
+	rateLimit      int     // return 429 for the first N message sends
+	rateLimitAfter float64 // retry_after seconds reported on those 429s
+}
+
+func newFakeDiscord(t *testing.T) *fakeDiscord {
+	f := &fakeDiscord{rateLimitAfter: 0.01}
+	upgrader := websocket.Upgrader{}
+
+	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/gateway":
+			conn, err := upgrader.Upgrade(w, r, nil)
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+			f.runGateway(t, conn)
+		case r.URL.Path == "/users/@me":
+			if r.Header.Get("Authorization") != "Bot tok" {
+				w.WriteHeader(401)
+				json.NewEncoder(w).Encode(map[string]any{"message": "401: Unauthorized"})
+				return
+			}
+			if !strings.HasPrefix(r.Header.Get("User-Agent"), "DiscordBot (") {
+				t.Errorf("missing DiscordBot User-Agent: %q", r.Header.Get("User-Agent"))
+			}
+			json.NewEncoder(w).Encode(dcUser{ID: "bot-1", Username: "octo"})
+		case strings.HasSuffix(r.URL.Path, "/messages") && r.Method == http.MethodPost:
+			f.mu.Lock()
+			if f.rateLimit > 0 {
+				f.rateLimit--
+				retryAfter := f.rateLimitAfter
+				f.mu.Unlock()
+				w.WriteHeader(http.StatusTooManyRequests)
+				json.NewEncoder(w).Encode(map[string]any{"message": "You are being rate limited.", "retry_after": retryAfter})
+				return
+			}
+			var p map[string]any
+			json.NewDecoder(r.Body).Decode(&p)
+			f.sent = append(f.sent, p)
+			f.mu.Unlock()
+			json.NewEncoder(w).Encode(map[string]any{"id": "m-1"})
+		case r.Method == http.MethodPatch:
+			var p map[string]any
+			json.NewDecoder(r.Body).Decode(&p)
+			f.mu.Lock()
+			f.edited = append(f.edited, p)
+			f.mu.Unlock()
+			json.NewEncoder(w).Encode(map[string]any{"id": "m-1"})
+		case strings.HasSuffix(r.URL.Path, "/typing"):
+			w.WriteHeader(204)
+		default:
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	t.Cleanup(f.srv.Close)
+	f.wsURL = "ws" + strings.TrimPrefix(f.srv.URL, "http") + "/gateway"
+	return f
+}
+
+func (f *fakeDiscord) runGateway(t *testing.T, conn *websocket.Conn) {
+	send := func(op int, typ string, d any) {
+		b, _ := json.Marshal(d)
+		payload := map[string]any{"op": op, "d": json.RawMessage(b)}
+		if typ != "" {
+			payload["t"] = typ
+			payload["s"] = 1
+		}
+		conn.WriteJSON(payload)
+	}
+
+	send(10, "", map[string]any{"heartbeat_interval": 45000})
+
+	// Expect Identify.
+	var identify gatewayPayload
+	if err := conn.ReadJSON(&identify); err != nil || identify.Op != 2 {
+		t.Errorf("expected identify (op 2), got %+v err=%v", identify, err)
+		return
+	}
+
+	send(0, "READY", map[string]any{
+		"session_id":         "sess-1",
+		"resume_gateway_url": "",
+		"user":               dcUser{ID: "bot-1", Username: "octo"},
+	})
+
+	f.mu.Lock()
+	msgs := f.messages
+	f.mu.Unlock()
+	for _, m := range msgs {
+		send(0, "MESSAGE_CREATE", m)
+	}
+
+	// Hold the connection open; respond to heartbeats until the client leaves.
+	for {
+		var p gatewayPayload
+		if err := conn.ReadJSON(&p); err != nil {
+			return
+		}
+		if p.Op == 1 {
+			send(11, "", nil)
+		}
+	}
+}
+
+func newTestAdapter(t *testing.T, f *fakeDiscord, extra map[string]any) *Adapter {
+	cfg := channel.PlatformConfig{
+		"bot_token":   "tok",
+		"api_base":    f.srv.URL,
+		"gateway_url": f.wsURL,
+	}
+	for k, v := range extra {
+		cfg[k] = v
+	}
+	ad, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ad.(*Adapter)
+}
+
+func dm(id, fromID, content string) dcMessage {
+	return dcMessage{ID: id, ChannelID: "chan-1", Content: content, Author: dcUser{ID: fromID}}
+}
+
+func collectEvents(t *testing.T, a *Adapter, want int) []channel.InboundEvent {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	var mu sync.Mutex
+	var events []channel.InboundEvent
+	done := make(chan struct{})
+	go func() {
+		_ = a.Start(ctx, func(ev channel.InboundEvent) {
+			mu.Lock()
+			events = append(events, ev)
+			if len(events) >= want {
+				cancel()
+			}
+			mu.Unlock()
+		})
+		close(done)
+	}()
+	<-done
+	mu.Lock()
+	defer mu.Unlock()
+	return events
+}
+
+func TestNew_RequiresToken(t *testing.T) {
+	if _, err := New(channel.PlatformConfig{}); err == nil {
+		t.Fatal("expected error for missing bot_token")
+	}
+}
+
+func TestStart_DeliversDirectMessage(t *testing.T) {
+	f := newFakeDiscord(t)
+	f.messages = []dcMessage{dm("m-9", "user-7", "hello octo")}
+	a := newTestAdapter(t, f, nil)
+
+	events := collectEvents(t, a, 1)
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	ev := events[0]
+	if ev.Platform != "discord" || ev.ChatID != "chan-1" || ev.UserID != "user-7" ||
+		ev.Text != "hello octo" || ev.ChatType != "direct" || ev.MessageID != "m-9" {
+		t.Fatalf("unexpected event: %+v", ev)
+	}
+}
+
+func TestStart_GuildRequiresMention(t *testing.T) {
+	f := newFakeDiscord(t)
+	plain := dm("m-1", "user-7", "ambient chatter")
+	plain.GuildID = "g-1"
+	mentioned := dm("m-2", "user-7", "<@bot-1> do the thing")
+	mentioned.GuildID = "g-1"
+	mentioned.Mentions = []struct {
+		ID string `json:"id"`
+	}{{ID: "bot-1"}}
+	f.messages = []dcMessage{plain, mentioned}
+	a := newTestAdapter(t, f, nil)
+
+	events := collectEvents(t, a, 1)
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	if events[0].Text != "do the thing" || events[0].ChatType != "group" {
+		t.Fatalf("unexpected event: %+v", events[0])
+	}
+}
+
+func TestStart_IgnoresBotsAndSelf(t *testing.T) {
+	f := newFakeDiscord(t)
+	fromBot := dm("m-1", "other-bot", "beep")
+	fromBot.Author.Bot = true
+	fromSelf := dm("m-2", "bot-1", "echo")
+	human := dm("m-3", "user-7", "real message")
+	f.messages = []dcMessage{fromBot, fromSelf, human}
+	a := newTestAdapter(t, f, nil)
+
+	events := collectEvents(t, a, 1)
+	if len(events) != 1 || events[0].Text != "real message" {
+		t.Fatalf("bot/self messages not filtered: %+v", events)
+	}
+}
+
+func TestStart_AllowedUsersFilters(t *testing.T) {
+	f := newFakeDiscord(t)
+	f.messages = []dcMessage{dm("m-1", "stranger", "hi"), dm("m-2", "friend", "yo")}
+	a := newTestAdapter(t, f, map[string]any{"allowed_users": "friend"})
+
+	events := collectEvents(t, a, 1)
+	if len(events) != 1 || events[0].UserID != "friend" {
+		t.Fatalf("allowed_users not enforced: %+v", events)
+	}
+}
+
+func TestStart_BadTokenFailsFast(t *testing.T) {
+	f := newFakeDiscord(t)
+	cfg := channel.PlatformConfig{"bot_token": "wrong", "api_base": f.srv.URL, "gateway_url": f.wsURL}
+	ad, _ := New(cfg)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	err := ad.Start(ctx, func(channel.InboundEvent) {})
+	if err == nil || !strings.Contains(err.Error(), "users/@me") {
+		t.Fatalf("expected /users/@me auth error, got %v", err)
+	}
+}
+
+func TestSendText(t *testing.T) {
+	f := newFakeDiscord(t)
+	a := newTestAdapter(t, f, nil)
+
+	res := a.SendText("chan-1", "hello", "m-0")
+	if !res.OK || res.MessageID != "m-1" {
+		t.Fatalf("send failed: %+v", res)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.sent[0]["content"] != "hello" {
+		t.Fatalf("unexpected payload: %+v", f.sent[0])
+	}
+	if f.sent[0]["message_reference"] == nil {
+		t.Fatal("expected message_reference for reply")
+	}
+}
+
+// #1119: content was sent with no allowed_mentions field, so agent-generated
+// text containing "@everyone", "@here", or a raw <@id> mention actually
+// pinged the channel or those users — the model has no way to know plain
+// text in its output carries that side effect.
+func TestSendText_SuppressesMentions(t *testing.T) {
+	f := newFakeDiscord(t)
+	a := newTestAdapter(t, f, nil)
+
+	if res := a.SendText("chan-1", "hey @everyone check this out", ""); !res.OK {
+		t.Fatalf("send failed: %+v", res)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	mentions, _ := f.sent[0]["allowed_mentions"].(map[string]any)
+	parse, ok := mentions["parse"].([]any)
+	if !ok || len(parse) != 0 {
+		t.Fatalf("expected allowed_mentions.parse to be an empty list, got: %+v", f.sent[0]["allowed_mentions"])
+	}
+}
+
+// #1118: a 429 used to fail SendText outright — with a multi-chunk message
+// that meant chunk 1 arrives and chunk 2 silently vanishes. It should now
+// honor retry_after and retry instead of dropping the chunk.
+func TestSendText_RetriesOnRateLimit(t *testing.T) {
+	f := newFakeDiscord(t)
+	f.rateLimit = 1
+	a := newTestAdapter(t, f, nil)
+
+	res := a.SendText("chan-1", "hello", "")
+	if !res.OK {
+		t.Fatalf("expected retry to succeed, got %+v", res)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.sent) != 1 {
+		t.Fatalf("expected exactly one delivered message after the retry, got %d", len(f.sent))
+	}
+}
+
+// #1118: retries are bounded — a channel that's rate-limited past the retry
+// budget must still surface a real error, not hang or silently swallow it.
+func TestSendText_GivesUpAfterMaxRateLimitRetries(t *testing.T) {
+	f := newFakeDiscord(t)
+	f.rateLimit = maxRateLimitRetries + 1
+	a := newTestAdapter(t, f, nil)
+
+	res := a.SendText("chan-1", "hello", "")
+	if res.OK {
+		t.Fatalf("expected send to fail after exhausting retries, got %+v", res)
+	}
+}
+
+// The retry wait must actually be cancellable — the point of threading ctx
+// through rest() rather than a bare time.Sleep. A long retry_after (5s) that
+// gets interrupted well before it elapses (ctx cancelled at ~50ms) proves the
+// wait was really interrupted rather than just being short.
+func TestRest_CancelsDuringRateLimitWait(t *testing.T) {
+	f := newFakeDiscord(t)
+	f.rateLimit = 1
+	f.rateLimitAfter = 5
+	a := newTestAdapter(t, f, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+
+	start := time.Now()
+	var msg struct {
+		ID string `json:"id"`
+	}
+	err := a.rest(ctx, http.MethodPost, "/channels/chan-1/messages", map[string]any{"content": "hello"}, &msg)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected an error from the cancelled wait")
+	}
+	if elapsed > time.Second {
+		t.Fatalf("expected the wait to be interrupted well under the 5s retry_after, took %v", elapsed)
+	}
+}
+
+// #1116: SendText used to post content as-is with no cap at all — any reply
+// over Discord's 2000-char limit got HTTP 400 and the entire message
+// vanished, with nothing telling the user why.
+func TestSendText_SplitsLongMessages(t *testing.T) {
+	f := newFakeDiscord(t)
+	a := newTestAdapter(t, f, nil)
+
+	long := strings.Repeat("word ", 500) // ~2500 chars
+	res := a.SendText("chan-1", long, "")
+	if !res.OK {
+		t.Fatalf("send failed: %+v", res)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.sent) < 2 {
+		t.Fatalf("expected split into >=2 messages, got %d", len(f.sent))
+	}
+	for _, p := range f.sent {
+		if len(p["content"].(string)) > maxMessageBytes {
+			t.Fatalf("chunk exceeds cap: %d bytes", len(p["content"].(string)))
+		}
+	}
+	// replyTo should only attach to the first chunk, not every one.
+	if f.sent[0]["message_reference"] != nil {
+		t.Fatalf("no replyTo was passed, but message_reference is set on chunk 0")
+	}
+}
+
+func TestUpdateMessageAndTyping(t *testing.T) {
+	f := newFakeDiscord(t)
+	a := newTestAdapter(t, f, nil)
+
+	if !a.UpdateMessage("chan-1", "m-1", "edited") {
+		t.Fatal("expected edit to succeed")
+	}
+	if !a.SupportsMessageUpdates() {
+		t.Fatal("discord supports message updates")
+	}
+	if err := a.SendTyping("chan-1", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	// #1119: an edit is as capable of pinging @everyone as an initial send.
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	mentions, _ := f.edited[0]["allowed_mentions"].(map[string]any)
+	parse, ok := mentions["parse"].([]any)
+	if !ok || len(parse) != 0 {
+		t.Fatalf("expected allowed_mentions.parse to be an empty list on edit, got: %+v", f.edited[0]["allowed_mentions"])
+	}
+}
+
+func TestValidateConfig(t *testing.T) {
+	a := &Adapter{}
+	if errs := a.ValidateConfig(channel.PlatformConfig{}); len(errs) != 1 {
+		t.Fatalf("expected 1 error, got %v", errs)
+	}
+	if errs := a.ValidateConfig(channel.PlatformConfig{"bot_token": "x"}); len(errs) != 0 {
+		t.Fatalf("expected no errors, got %v", errs)
+	}
+}

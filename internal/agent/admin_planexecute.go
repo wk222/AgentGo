@@ -16,6 +16,7 @@ const adminPlanExecuteSessionPrefix = "admin_pe:"
 
 // runAdminPlanExecute runs admin goals via Eino planexecute (plan → execute → replan).
 func (r *Runner) runAdminPlanExecute(ctx context.Context, cfg LLMSettings, sessionID, userText string) (string, error) {
+	ctx = withLLMBudget(ctx, cfg)
 	if r.cpStore == nil {
 		return "", fmt.Errorf("checkpoint store required for admin planexecute")
 	}
@@ -29,8 +30,8 @@ func (r *Runner) runAdminPlanExecute(ctx context.Context, cfg LLMSettings, sessi
 
 	sm := SessionModeFromContext(ctx)
 	toolList := RegistryToolsForMode(r.toolReg, sm)
-	// planexecute has no ADK handlers: compose mount is the single mount point.
-	toolMW := r.composeToolMiddlewares(r.effectivePolicy(), toolMounts{})
+	// This pinned executor only exposes ToolsConfig; reuse the same execution chain.
+	toolMW := r.toolExecutionHandlers(ctx).compose()
 
 	planner, err := planexecute.NewPlanner(ctx, &planexecute.PlannerConfig{
 		ToolCallingChatModel: chatModel,
@@ -44,7 +45,7 @@ func (r *Runner) runAdminPlanExecute(ctx context.Context, cfg LLMSettings, sessi
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{
 				Tools:               toolList,
-				ToolCallMiddlewares: toolMW,
+				ToolCallMiddlewares: []compose.ToolMiddleware{toolMW},
 			},
 		},
 		MaxIterations: 16,

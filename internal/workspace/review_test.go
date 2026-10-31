@@ -101,3 +101,30 @@ func mustWriteReviewTestFile(t *testing.T, root, rel, content string) {
 		t.Fatal(err)
 	}
 }
+
+func TestBeginReusesUnchangedSnapshotBytes(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "source.txt")
+	if err := os.WriteFile(path, []byte("unchanged source bytes"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	store := NewReviewStore()
+	if _, _, _, err := store.Begin("s", root); err != nil {
+		t.Fatal(err)
+	}
+	before := store.reviews["s"].Files["source.txt"].Content
+	if _, _, _, err := store.Begin("s", root); err != nil {
+		t.Fatal(err)
+	}
+	after := store.reviews["s"].Files["source.txt"].Content
+	if len(before) == 0 || len(after) == 0 || &before[0] != &after[0] {
+		t.Fatal("unchanged baseline was reread rather than reused")
+	}
+	if err := os.WriteFile(path, []byte("changed by tool"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	resumed, pending, _, err := store.Begin("s", root)
+	if err != nil || !resumed || pending != 1 {
+		t.Fatalf("lost change protection: %v %d %v", resumed, pending, err)
+	}
+}

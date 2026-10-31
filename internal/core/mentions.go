@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"agentgo/internal/workspace"
 )
@@ -21,7 +22,40 @@ type MentionSources struct {
 	Diagnostics func() (counts map[string]int, detail func(name string) any, ok bool)
 }
 
-var mentionRegex = regexp.MustCompile(`@([a-zA-Z0-9_\-\.\/]+)`)
+// A mention is @name or @"a path with spaces". Names keep letters of any script
+// (a dropped "工作簿1.xlsx" must stay whole) plus the characters a path or a
+// file name like "报表(1).xlsx" is made of; CJK punctuation and spaces end it.
+var mentionRegex = regexp.MustCompile(`@(?:"([^"\r\n]+)"|([\p{L}\p{N}_\-\.\/\\:()（）\[\]]+))`)
+
+// mentionTarget picks the captured name out of a mentionRegex match and drops
+// the sentence punctuation or unbalanced closing bracket that trails it.
+func mentionTarget(m []string) string {
+	if m[1] != "" {
+		return strings.TrimSpace(m[1])
+	}
+	t := strings.TrimRight(m[2], ".,;:!?")
+	for {
+		last, ok := lastRune(t)
+		if !ok || (last != ')' && last != '）') {
+			return t
+		}
+		if strings.Count(t, "(")+strings.Count(t, "（") >= strings.Count(t, ")")+strings.Count(t, "）") {
+			return t
+		}
+		t = strings.TrimRight(t[:len(t)-len(string(last))], ".,;:!?")
+	}
+}
+
+func lastRune(s string) (rune, bool) {
+	if s == "" {
+		return 0, false
+	}
+	r, size := utf8.DecodeLastRuneInString(s)
+	if r == utf8.RuneError && size <= 1 {
+		return 0, false
+	}
+	return r, true
+}
 
 // ExpandMentions analyzes user prompt for @mentions (like @Git, @Terminal, @Codebase, @filepath)
 // and appends authoritative context snapshots to provide Cursor Composer-like target awareness.
@@ -41,7 +75,10 @@ func ExpandMentions(userText string, src MentionSources) string {
 
 	for _, m := range matches {
 		raw := m[0]
-		target := m[1]
+		target := mentionTarget(m)
+		if target == "" {
+			continue
+		}
 		if seenMentions[strings.ToLower(target)] {
 			continue
 		}
@@ -205,30 +242,71 @@ func collectProblemsContext(diag func() (counts map[string]int, detail func(name
 }
 
 func collectFileContext(root, relPath string) string {
-	if root == "" || relPath == "" {
+	relPath = strings.TrimRight(strings.TrimSpace(relPath), ".,;:!?")
+	if relPath == "" {
 		return ""
 	}
-	clean := filepath.Clean(relPath)
-	full := filepath.Join(root, clean)
+	if root == "" {
+		root, _ = os.Getwd()
+	}
 
-	// Ensure path stays within root
-	if !strings.HasPrefix(filepath.Clean(full), filepath.Clean(root)) {
-		return ""
+	normalized := strings.ReplaceAll(relPath, "/", string(filepath.Separator))
+	clean := filepath.Clean(normalized)
+	var full string
+	if filepath.IsAbs(clean) {
+		full = clean
+	} else {
+		full = filepath.Join(root, clean)
+		if !strings.HasPrefix(filepath.Clean(full), filepath.Clean(root)) {
+			return ""
+		}
 	}
 
 	info, err := os.Stat(full)
-	if err != nil || info.IsDir() {
+	if err != nil {
 		return ""
 	}
 
-	// Read content up to 32KB
+	if info.IsDir() {
+		entries, err := os.ReadDir(full)
+		if err != nil {
+			return ""
+		}
+		var lines []string
+		for i, e := range entries {
+			if i >= 60 {
+				lines = append(lines, "... [truncated]")
+				break
+			}
+			tag := "[FILE] "
+			if e.IsDir() {
+				tag = "[DIR]  "
+			}
+			lines = append(lines, tag+e.Name())
+		}
+		return fmt.Sprintf("#### 📁 Context Directory: `%s`\n```\n%s\n```",
+			filepath.ToSlash(clean),
+			strings.Join(lines, "\n"),
+		)
+	}
+
+	// Documents and other binaries are named, not pasted: raw zip bytes help nobody.
+	shown := filepath.ToSlash(clean)
+	if filepath.IsAbs(clean) {
+		shown = filepath.ToSlash(full)
+	}
+	if hint := binaryFileHint(root, full, shown, info.Size()); hint != "" {
+		return hint
+	}
+
+	// Read content up to 64KB
 	data, err := os.ReadFile(full)
 	if err != nil {
 		return ""
 	}
 	txt := string(data)
-	if len(txt) > 32*1024 {
-		txt = txt[:32*1024] + "\n... [file truncated, exceeds 32KB]"
+	if len(txt) > 64*1024 {
+		txt = txt[:64*1024] + "\n... [file truncated, exceeds 64KB]"
 	}
 
 	return fmt.Sprintf("#### 📄 Context File: `%s`\n```%s\n%s\n```",

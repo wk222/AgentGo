@@ -1,3 +1,6 @@
+// Derived in part from Crush's internal/lsp and LSP agent tools
+// (licenses/crush/NOTICE.md, FSL-1.1-MIT).
+
 package codelsp
 
 import (
@@ -148,6 +151,6 @@ func (t *Toolbox) Close() {
 		t.cancel()
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		t.m.StopAll(ctx)
+		t.m.Close(ctx)
 	})
 }

@@ -1,0 +1,21 @@
+/* 设置 / 调用追踪。只用 Chrome 109 能认的写法。 */
+.trace-bar{display:flex;align-items:center;gap:8px;margin:0 0 12px}
+.trace-state{font-size:11px;color:var(--text-dim)}
+.trace-state.on{color:var(--success)}
+.trace-sessions{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 12px}
+.trace-chip{padding:3px 9px;border:1px solid var(--border);border-radius:999px;background:transparent;color:var(--text-dim);font-size:11px;font-family:var(--font-mono,monospace);cursor:pointer}
+.trace-chip.active{border-color:var(--settings-accent);color:var(--settings-accent)}
+.trace-none{padding:14px 4px;font-size:11px;color:var(--text-dim)}
+.trace-list{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px}
+.trace-call{border:1px solid var(--border);border-radius:9px;background:var(--bg);min-width:0}
+.trace-call.failed{border-color:rgba(239,68,68,.5)}
+.trace-head{width:100%;display:flex;align-items:center;gap:10px;padding:10px 14px;border:0;background:transparent;color:var(--text-strong);text-align:left;font-size:12px;cursor:pointer}
+.trace-head strong{flex-shrink:0}
+.trace-meta{flex:1;min-width:0;font-size:11px;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.trace-head code{flex-shrink:0;font-size:10px;color:var(--text-dim)}
+.trace-body{padding:2px 14px 12px;border-top:1px dashed var(--border);display:flex;flex-direction:column;gap:10px}
+.trace-step-head{display:flex;gap:10px;align-items:baseline;margin-top:10px;font-size:11px}
+.trace-step-head b{flex-shrink:0;color:var(--text-strong)}
+.trace-step-head span{min-width:0;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.trace-pre{margin:6px 0 0;padding:8px 10px;max-height:220px;overflow:auto;border:1px solid var(--border);border-radius:7px;background:var(--surface);font-size:11px;line-height:1.5;white-space:pre-wrap;word-break:break-all}
+.trace-actions{display:flex;justify-content:flex-end}

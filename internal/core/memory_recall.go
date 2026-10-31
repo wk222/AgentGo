@@ -53,7 +53,9 @@ func RecallQA(m memory.Engine, query, scope, modality string, limit int) map[str
 		}
 	}
 
-	prompt, promptErr := m.ContextPrompt(ctx, scope)
+	// The preview must be what a run receives: a run recalls with its task as the
+	// query, which also decides whether the summary tree or flat records are used.
+	prompt, promptErr := m.ContextPrompt(memory.WithRecallQuery(ctx, query), scope)
 	rows := make([]map[string]any, 0, len(recs))
 	for i, rec := range recs {
 		rows = append(rows, recallQARow(query, rec, i))

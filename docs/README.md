@@ -25,6 +25,18 @@
 | [product-features.md](./product-features.md) | 桌面产品能力（面向用户/测试） |
 | [build-reproducible.md](./build-reproducible.md) | 可复现构建与本地 replace |
 
+## 前端
+
+| 文件 | 用途 |
+|------|------|
+| [FRONTEND.md](./FRONTEND.md) | 前端目录、依赖方向、约定、样式规则、日常命令 |
+| [SYSTEM_DESIGN_2026-10-17-frontend.md](./SYSTEM_DESIGN_2026-10-17-frontend.md) | 重构的设计与决策 |
+| [ui-baseline/README.md](./ui-baseline/README.md) | 基线数字与重跑方法 |
+
+## 归档
+
+`archive/`：已被取代的方案（OpenSumi Lite / Electron、旧 UI 重构笔记等），只读参考。
+
 ## 历史（只读参考）
 
 `eino-architecture-plan.md`、`development-plan.md`、`pybot-gap.md` 旧百分比已废弃。

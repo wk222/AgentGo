@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"agentgo/internal/processutil"
 )
 
 // LocalProcessRuntime executes scripts using available local interpreters (Python, Bash/cmd).
@@ -84,6 +86,7 @@ func (r *LocalProcessRuntime) Execute(ctx context.Context, req ExecutionRequest)
 	}
 
 	cmd.Dir = r.workspaceRoot
+	processutil.HideWindow(cmd)
 	if len(req.Env) > 0 {
 		cmd.Env = os.Environ()
 		for k, v := range req.Env {

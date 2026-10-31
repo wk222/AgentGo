@@ -36,18 +36,22 @@ type ToolControlDecision struct {
 	RequiresApproval bool
 	Reason           string
 	ControlTags      []string
+	// GrantDirs are the folders outside the workspace this call needs; once the
+	// user approves the call they are granted for the rest of the run
+	// (pathgrant), so the tools' path jails accept them.
+	GrantDirs []string
 }
 
 var (
-	toolMutationTools      = []string{"create_tool", "create_tool_from_template", "execute_dynamic_tool"}
+	toolMutationTools = []string{"create_tool", "create_tool_from_template", "execute_dynamic_tool"}
 	// Built-in tools that change workspace files. Plugin tools do not belong
 	// here: they declare Mutating through RegisterToolTraits (tool_traits.go),
 	// which the policy checks at decision time. The codetools plugin's own
 	// Approver is nil in AgentGo (allow all), so governance is the only gate.
 	workspaceMutationTools = []string{"replace_workspace_text", "create_workspace_file"}
-	hostExecutionTools     = []string{"execute_bash", "run_uv_skill", "run_batch_script"}
+	hostExecutionTools     = []string{"execute_bash", "run_uv_skill", "run_batch_script", ElevatedTool}
 	delegationTools        = []string{"invoke_subagent"}
-	alwaysApproveTools     = []string{"execute_bash", "run_uv_skill", "run_batch_script"}
+	alwaysApproveTools     = []string{"execute_bash", "run_uv_skill", "run_batch_script", ElevatedTool}
 )
 
 // ControlPolicyFromMode returns a preset aligned with PyBot agent_control.py.

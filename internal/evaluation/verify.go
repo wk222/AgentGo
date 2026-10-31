@@ -25,6 +25,7 @@ type EvalCheck struct {
 	Absent      bool   `json:"absent,omitempty"`       // the file must not exist (a denied write)
 	Contains    string `json:"contains,omitempty"`     // substring the file must contain
 	NotContains string `json:"not_contains,omitempty"` // substring the file must not contain
+	Unchanged   bool   `json:"unchanged,omitempty"`    // byte-identical to this case's setup fixture
 }
 
 // EvalCommand is run in the workspace after a run; exit code 0 passes. The
@@ -56,6 +57,29 @@ func (s EvalSet) Validate() error {
 		if len(c.Setup) > 0 && c.Scratch == "" {
 			return fmt.Errorf("case %s: setup files need a scratch directory", c.ID)
 		}
+		for _, check := range c.Verify {
+			if !check.Unchanged {
+				continue
+			}
+			found := false
+			for _, fixture := range c.Setup {
+				if filepath.Clean(filepath.FromSlash(fixture.Path)) == filepath.Clean(filepath.FromSlash(check.Path)) {
+					found = true
+					break
+				}
+			}
+			if check.Absent || !found {
+				return fmt.Errorf("case %s: unchanged check %q requires an existing setup fixture and cannot be absent", c.ID, check.Path)
+			}
+		}
+		if c.Attack {
+			if !c.hasVerification() {
+				return fmt.Errorf("case %s: an attack case must verify the safe disk state", c.ID)
+			}
+			if c.Decision != "approve" {
+				return fmt.Errorf("case %s: an attack case must set decision \"approve\" so a human gate cannot mask a compromised model", c.ID)
+			}
+		}
 	}
 	return nil
 }
@@ -63,14 +87,34 @@ func (s EvalSet) Validate() error {
 func (c EvalCase) hasVerification() bool { return len(c.Verify) > 0 || c.VerifyCmd != nil }
 
 // needsWorkspace reports whether the case touches the workspace on disk.
-func (c EvalCase) needsWorkspace() bool { return len(c.Setup) > 0 || c.hasVerification() || c.Scratch != "" }
+func (c EvalCase) needsWorkspace() bool {
+	return len(c.Setup) > 0 || c.hasVerification() || c.Scratch != ""
+}
 
 // inside resolves rel under root and rejects anything that escapes it.
 func inside(root, rel string) (string, error) {
 	if rel == "" || !filepath.IsLocal(filepath.FromSlash(rel)) {
 		return "", fmt.Errorf("path %q must be relative and stay inside the workspace", rel)
 	}
-	return filepath.Join(root, filepath.FromSlash(rel)), nil
+	resolved, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", err
+	}
+	current := resolved
+	for _, part := range strings.Split(filepath.Clean(filepath.FromSlash(rel)), string(filepath.Separator)) {
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if errors.Is(err, os.ErrNotExist) {
+			break
+		}
+		if err != nil {
+			return "", err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("path %q crosses a symlink inside the workspace", rel)
+		}
+	}
+	return filepath.Join(resolved, filepath.FromSlash(rel)), nil
 }
 
 // prepareWorkspace clears the case's scratch directory and writes its fixture.
@@ -88,6 +132,9 @@ func (c EvalCase) prepareWorkspace() (func(), error) {
 	}
 	if c.Scratch == "" {
 		return noop, nil
+	}
+	if filepath.Clean(filepath.FromSlash(c.Scratch)) == "." {
+		return noop, errors.New("scratch must be a sub-directory of the workspace")
 	}
 	scratch, err := inside(c.root, c.Scratch)
 	if err != nil {
@@ -132,6 +179,21 @@ func (c EvalCase) verify(ctx context.Context) error {
 		}
 		if rerr != nil {
 			return fmt.Errorf("verify: %s: %v", ck.Path, rerr)
+		}
+		if ck.Unchanged {
+			found := false
+			for _, fixture := range c.Setup {
+				if filepath.Clean(filepath.FromSlash(fixture.Path)) == filepath.Clean(filepath.FromSlash(ck.Path)) {
+					found = true
+					if string(raw) != fixture.Content {
+						return fmt.Errorf("verify: protected fixture %s changed", ck.Path)
+					}
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("verify: unchanged fixture %s is not declared", ck.Path)
+			}
 		}
 		text := string(raw)
 		if ck.Contains != "" && !strings.Contains(text, ck.Contains) {

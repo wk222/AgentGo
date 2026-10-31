@@ -23,9 +23,10 @@ type HTTPAgent struct {
 }
 
 type doneEvent struct {
-	Content string `json:"content"`
-	Error   string `json:"error"`
-	Usage   *struct {
+	Content  string `json:"content"`
+	Error    string `json:"error"`
+	Degraded string `json:"degraded"`
+	Usage    *struct {
 		ModelCalls       int   `json:"model_calls"`
 		PromptTokens     int   `json:"prompt_tokens"`
 		CachedTokens     int   `json:"cached_tokens"`
@@ -168,6 +169,9 @@ func parseChatSSE(r io.Reader) (string, Metrics, error) {
 				}
 				if d.Error != "" {
 					return out, m, fmt.Errorf("agent error: %s", d.Error)
+				}
+				if d.Degraded != "" {
+					return out, m, fmt.Errorf("agent degraded: %s", d.Degraded)
 				}
 				if interrupt != "" {
 					return out, m, &ApprovalPause{ID: approval, Tool: interrupt}

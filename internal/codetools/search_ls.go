@@ -1,3 +1,5 @@
+// Derived from Crush's ls tool (licenses/crush/NOTICE.md, FSL-1.1-MIT).
+
 package codetools
 
 import (

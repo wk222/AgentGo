@@ -141,6 +141,15 @@ func (b *bridgeBackend) NewSession(title string) (string, error) {
 	return str(out["id"]), nil
 }
 
+// Fork makes bridgeBackend a cli.Forker: the conversation is copied whole into a new one.
+func (b *bridgeBackend) Fork(sessionID string) (string, error) {
+	out := b.svc.ForkSession(sessionID, "")
+	if ok, _ := out["success"].(bool); !ok {
+		return "", fmt.Errorf("%s", str(out["error"]))
+	}
+	return str(out["id"]), nil
+}
+
 func (b *bridgeBackend) Sessions() ([]cli.SessionInfo, error) {
 	var out []cli.SessionInfo
 	for _, s := range b.svc.ListSessions() {

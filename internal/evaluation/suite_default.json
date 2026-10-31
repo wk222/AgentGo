@@ -1,5 +1,5 @@
 {
-  "id": "agentgo-default-v2",
+  "id": "agentgo-default-v3",
   "cases": [
     {
       "id": "fact-busy-timeout",
@@ -18,13 +18,15 @@
     },
     {
       "id": "fact-harness-ids",
-      "input": "frontend/src/harness.ts 定义了哪四个 harness 的 id？请逐个列出。",
+      "input": "frontend/src/shared/harness.ts 的 DEFAULT_HARNESSES 当前定义了哪些 harness id？请完整列出所有 id。",
       "keywords": [
         "minimal",
         "standard",
         "ultimate",
-        "creative"
-      ]
+        "creative",
+        "reverse"
+      ],
+      "min_tool_calls": 1
     },
     {
       "id": "fact-cancel-route",
@@ -149,6 +151,122 @@
       "input": "用一句话说明 Go 里多个 defer 语句的执行顺序，不要使用任何工具。",
       "expected_text": "(?i)后进先出|LIFO|逆序|反序|相反",
       "max_tool_calls": 0
+    },
+    {
+      "id": "task-fix-total-tests",
+      "input": "修复 .eval-scratch/task-fix-total 模块中 Total 漏算负数的问题：应累加所有整数。只修改 calc.go，保留 go.mod 与 calc_test.go，运行 go test 确认通过。",
+      "decision": "approve",
+      "scratch": ".eval-scratch/task-fix-total",
+      "setup": [
+        {
+          "path": ".eval-scratch/task-fix-total/go.mod",
+          "content": "module evalartifact\n\ngo 1.21\n"
+        },
+        {
+          "path": ".eval-scratch/task-fix-total/calc.go",
+          "content": "package evalartifact\n\n// Total returns the sum of every integer, including negatives.\nfunc Total(values []int) int {\n total := 0\n for _, value := range values {\n  if value > 0 { total += value }\n }\n return total\n}\n"
+        },
+        {
+          "path": ".eval-scratch/task-fix-total/calc_test.go",
+          "content": "package evalartifact\n\nimport \"testing\"\n\nfunc TestTotal(t *testing.T) {\n for _, c := range []struct{values []int; want int}{\n  {nil,0},{[]int{3,-5,2},0},{[]int{-4,-5},-9},{[]int{10,-4},6},\n } { if got:=Total(c.values);got!=c.want {t.Errorf(\"Total(%v)=%d want %d\",c.values,got,c.want)} }\n}\n"
+        }
+      ],
+      "verify": [
+        {
+          "path": ".eval-scratch/task-fix-total/calc.go",
+          "contains": "func Total"
+        },
+        {
+          "path": ".eval-scratch/task-fix-total/go.mod",
+          "unchanged": true
+        },
+        {
+          "path": ".eval-scratch/task-fix-total/calc_test.go",
+          "unchanged": true
+        }
+      ],
+      "verify_cmd": {
+        "dir": ".eval-scratch/task-fix-total",
+        "name": "go",
+        "args": [
+          "test",
+          "-count=1",
+          "."
+        ],
+        "timeout_sec": 60
+      },
+      "skip_harnesses": [
+        "minimal",
+        "creative"
+      ]
+    },
+    {
+      "id": "task-csv-report-verified",
+      "input": "读取 .eval-scratch/task-csv-report/input.csv，按区县汇总目标与完成，差距=目标-完成，按区县首次出现顺序生成同目录 report.csv。UTF-8 无 BOM，表头为 区县,目标,完成,差距。不要修改输入、go.mod 和 report_test.go；用现有 go test 校验产物。",
+      "decision": "approve",
+      "scratch": ".eval-scratch/task-csv-report",
+      "setup": [
+        {
+          "path": ".eval-scratch/task-csv-report/go.mod",
+          "content": "module evalartifact\n\ngo 1.21\n"
+        },
+        {
+          "path": ".eval-scratch/task-csv-report/input.csv",
+          "content": "区县,目标,完成\n城东,100,80\n城西,120,90\n城东,50,40\n"
+        },
+        {
+          "path": ".eval-scratch/task-csv-report/report_test.go",
+          "content": "package evalartifact\n\nimport (\"encoding/csv\";\"os\";\"reflect\";\"testing\")\n\nfunc TestGeneratedReport(t *testing.T) {\n f,err:=os.Open(\"report.csv\");if err!=nil{t.Fatal(err)};defer f.Close()\n got,err:=csv.NewReader(f).ReadAll();if err!=nil{t.Fatal(err)}\n want:=[][]string{{\"区县\",\"目标\",\"完成\",\"差距\"},{\"城东\",\"150\",\"120\",\"30\"},{\"城西\",\"120\",\"90\",\"30\"}}\n if !reflect.DeepEqual(got,want){t.Fatalf(\"report rows=%v want %v\",got,want)}\n}\n"
+        }
+      ],
+      "verify": [
+        {
+          "path": ".eval-scratch/task-csv-report/report.csv",
+          "contains": "城东,150,120,30"
+        },
+        {
+          "path": ".eval-scratch/task-csv-report/input.csv",
+          "unchanged": true
+        },
+        {
+          "path": ".eval-scratch/task-csv-report/go.mod",
+          "unchanged": true
+        },
+        {
+          "path": ".eval-scratch/task-csv-report/report_test.go",
+          "unchanged": true
+        }
+      ],
+      "verify_cmd": {
+        "dir": ".eval-scratch/task-csv-report",
+        "name": "go",
+        "args": [
+          "test",
+          "-count=1",
+          "."
+        ],
+        "timeout_sec": 60
+      },
+      "skip_harnesses": [
+        "minimal",
+        "creative"
+      ]
+    },
+    {
+      "id": "task-approved-file-content",
+      "input": "创建 .eval-scratch/task-approved-file/note.txt，内容只有一行 hello-eval-7421。遇到审批时等待决定，执行后确认实际文件内容。",
+      "decision": "approve",
+      "scratch": ".eval-scratch/task-approved-file",
+      "verify": [
+        {
+          "path": ".eval-scratch/task-approved-file/note.txt",
+          "contains": "hello-eval-7421"
+        }
+      ],
+      "skip_harnesses": [
+        "minimal",
+        "creative"
+      ]
     }
   ]
 }

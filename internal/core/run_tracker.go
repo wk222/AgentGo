@@ -114,6 +114,47 @@ func (t *RunTracker) Clear(sessionID string) {
 	t.mu.Unlock()
 }
 
+// ClearFinished removes non-active run snapshots (done, cancelled, error, idle).
+func (t *RunTracker) ClearFinished() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	removed := 0
+	for sid, r := range t.runs {
+		if r.Phase == "done" || r.Phase == "cancelled" || r.Phase == "error" || r.Phase == "idle" {
+			delete(t.runs, sid)
+			removed++
+		}
+	}
+	return removed
+}
+
+// ListAll returns snapshots for all tracked session runs, newest first.
+func (t *RunTracker) ListAll() []map[string]any {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	out := make([]map[string]any, 0, len(t.runs))
+	for _, r := range t.runs {
+		elapsed := int(time.Since(r.StartedAt).Seconds())
+		idle := int(time.Since(r.UpdatedAt).Seconds())
+		item := map[string]any{
+			"session_id":  r.SessionID,
+			"phase":       r.Phase,
+			"detail":      r.Detail,
+			"elapsed_sec": elapsed,
+			"idle_sec":    idle,
+			"stream_ack":  r.StreamAck,
+			"chunk_count": r.ChunkCount,
+			"trace":       r.TraceHint,
+			"error":       r.LastError,
+			"started_at":  r.StartedAt.Unix(),
+			"updated_at":  r.UpdatedAt.Unix(),
+		}
+		item["hint"] = runHint(item)
+		out = append(out, item)
+	}
+	return out
+}
+
 func (t *RunTracker) Snapshot(sessionID string) map[string]any {
 	sessionID = strings.TrimSpace(sessionID)
 	t.mu.RLock()

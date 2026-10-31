@@ -4,6 +4,7 @@
 package core
 
 import (
+	"context"
 	"strings"
 
 	"github.com/cloudwego/eino/schema"
@@ -53,4 +54,31 @@ func BuildHistory(msgs []sessions.Message, maxMsgs, maxRunes int) []*schema.Mess
 		picked = picked[1:]
 	}
 	return picked
+}
+
+// BuildMigrationHistory keeps the old prompt window plus a bounded recovery
+// ledger from the broader pre-turn transcript. This runs once per native scope.
+func BuildMigrationHistory(ctx context.Context, stored []sessions.Message) ([]*schema.Message, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	var all []*schema.Message
+	for _, msg := range stored {
+		if (msg.Type != "" && msg.Type != "text") || strings.TrimSpace(msg.Content) == "" {
+			continue
+		}
+		switch msg.Role {
+		case "user":
+			all = append(all, schema.UserMessage(msg.Content))
+		case "assistant":
+			all = append(all, schema.AssistantMessage(msg.Content, nil))
+		}
+	}
+	if len(all) == 0 {
+		return nil, nil
+	}
+	tail := BuildHistory(stored, HistoryMaxMessages, HistoryMaxRunes)
+	window := max(1, len(tail))
+	view := sessions.CompileProjectedView(all, sessions.CompileOptions{MaxActiveTurns: window, PreserveLatestUser: true})
+	return view.Render(ctx)
 }

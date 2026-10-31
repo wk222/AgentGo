@@ -1,337 +1,306 @@
 package coderuntime
 
-// Whitespace-tolerant find-and-replace for the native edit tools.
+// Find-and-replace for the edit tools.
 //
-// The matching strategy (exact match first, then a whitespace-normalised
-// whole-line fallback with indentation adaptation, then a diagnostic hint) is
-// derived from Crush's edit tool (licenses/crush/NOTICE.md, FSL-1.1-MIT), reduced to
-// pure string functions with no session, permission or history coupling.
+// Strategy: take the text literally if it occurs; otherwise walk a ladder of
+// progressively looser line comparisons (trailing whitespace, edge whitespace,
+// inner whitespace runs, typographic punctuation) and use the first rung that
+// finds the block. Every rung insists on a single location unless replace_all
+// is set, and a looser rung is never consulted once a stricter one has hits.
+// Text is never matched by similarity score; scores only feed the error hint
+// (edit_hint.go).
+//
+// Independent implementation. The idea of graded line comparison is common to
+// several open-source agents (OpenAI Codex CLI, Aider, Gemini CLI; all
+// Apache-2.0) and was studied for this design; no code is copied.
 
 import (
 	"errors"
-	"fmt"
 	"slices"
 	"strings"
 )
 
-// whitespaceCorrectedNote tells the caller that old_string did not match
-// byte-for-byte and that the edit was applied to whitespace-equivalent text.
-const whitespaceCorrectedNote = "Note: old_string did not match exactly. The edit was applied to whitespace-equivalent text in the file and new_string was re-indented to match the file's style. Verify the result."
-
-// errAmbiguous is returned when old_string matches more than once and
-// replace_all is off.
-var errAmbiguous = errors.New("old_string appears multiple times in the file. Please provide more context to ensure a unique match, or set replace_all to true")
-
-// FindAndReplace replaces old with new in content. Without replaceAll it needs
-// exactly one match. The bool reports whether the whitespace-normalised
-// fallback was needed.
-func FindAndReplace(content, old, new string, replaceAll bool) (string, bool, error) {
-	if replaceAll {
-		if strings.Contains(content, old) {
-			return strings.ReplaceAll(content, old, new), false, nil
-		}
-	} else {
-		index := strings.Index(content, old)
-		switch {
-		case index == -1:
-			// fall through to the fuzzy fallback
-		case index != strings.LastIndex(content, old):
-			return "", false, errAmbiguous
-		default:
-			return content[:index] + new + content[index+len(old):], false, nil
-		}
-	}
-	if result, ok := normalizedReplace(content, old, new, replaceAll); ok {
-		return result, true, nil
-	}
-	return "", false, notFoundError(content, old)
+// tolerance is one rung of the ladder: lines are equal when their keys are.
+type tolerance struct {
+	label string
+	key   func(string) string
 }
 
-func notFoundError(content, old string) error {
-	msg := "old_string not found in file. Make sure it matches exactly, including whitespace and line breaks"
-	if hint := diagnoseMismatch(content, old); hint != "" {
-		msg += "\n\n" + hint
-	}
-	return errors.New(msg)
+var ladder = []tolerance{
+	{"trailing whitespace", func(s string) string { return strings.TrimRight(s, " \t\r") }},
+	{"indentation or line-edge whitespace", strings.TrimSpace},
+	{"whitespace runs inside lines", collapseSpace},
+	{"typographic punctuation (curly quotes, dashes)", func(s string) string {
+		return asciiPunctuation.Replace(collapseSpace(s))
+	}},
 }
 
-// withWhitespaceNote appends the auto-correction note when the edit did not
-// match the file byte-for-byte.
-func withWhitespaceNote(message string, corrected bool) string {
-	if !corrected {
-		return message
-	}
-	return message + "\n" + whitespaceCorrectedNote
+var asciiPunctuation = strings.NewReplacer(
+	"\u2018", "'", "\u2019", "'", "\u201A", "'", "\u201B", "'",
+	"\u201C", `"`, "\u201D", `"`, "\u201E", `"`, "\u201F", `"`,
+	"\u2010", "-", "\u2011", "-", "\u2012", "-", "\u2013", "-", "\u2014", "-", "\u2015", "-", "\u2212", "-",
+	"\u2026", "...",
+)
+
+// collapseSpace trims a line and folds every whitespace run (NBSP included)
+// into one space.
+func collapseSpace(s string) string { return strings.Join(strings.Fields(s), " ") }
+
+// editApplied is the outcome of a successful applyEdit.
+type editApplied struct {
+	Content string
+	Rung    int // 0 = literal match; n > 0 = ladder[n-1]
+	Count   int // replaced locations
 }
 
-// normMatch is a line range [startLine, endLine] of the original content.
-type normMatch struct{ startLine, endLine int }
+var errEmptyOld = errors.New("old_string is empty")
 
-// findNormalizedMatches searches content for old after collapsing every line's
-// whitespace runs. Only whole-line matches are reported, because replacement
-// happens at line granularity.
-func findNormalizedMatches(content, old string) []normMatch {
-	contentLines := strings.Split(content, "\n")
-	oldLines := strings.Split(old, "\n")
+var errAmbiguousLiteral = errors.New("old_string occurs in more than one place. Add neighbouring lines so only one place matches, or set replace_all to true")
 
-	normOld := joinNormalized(oldLines)
-	if strings.TrimSpace(normOld) == "" {
-		return nil
+// applyEdit replaces oldStr with newStr in content (LF line endings).
+func applyEdit(content, oldStr, newStr string, replaceAll bool) (editApplied, error) {
+	if oldStr == "" {
+		return editApplied{}, errEmptyOld
 	}
-
-	normContentLines := make([]string, len(contentLines))
-	for i, l := range contentLines {
-		normContentLines[i] = normalizeWS(l)
-	}
-	normContent := strings.Join(normContentLines, "\n")
-
-	var matches []normMatch
-	searchFrom := 0
-	for searchFrom <= len(normContent) {
-		idx := strings.Index(normContent[searchFrom:], normOld)
-		if idx == -1 {
-			break
+	if first := strings.Index(content, oldStr); first >= 0 {
+		if !replaceAll && first != strings.LastIndex(content, oldStr) {
+			return editApplied{}, errAmbiguousLiteral
 		}
-		absIdx := searchFrom + idx
-		end := absIdx + len(normOld)
-		atLineStart := absIdx == 0 || normContent[absIdx-1] == '\n'
-		atLineEnd := end == len(normContent) || normContent[end] == '\n'
-		if !atLineStart || !atLineEnd {
-			searchFrom = absIdx + 1
+		return editApplied{
+			Content: strings.ReplaceAll(content, oldStr, newStr),
+			Count:   strings.Count(content, oldStr),
+		}, nil
+	}
+
+	pat, endsWithNL := patternLines(oldStr)
+	if !hasText(pat) {
+		return editApplied{}, notFoundError(content, oldStr, newStr)
+	}
+	lines := strings.Split(content, "\n")
+	repl := replacementLines(strings.ReplaceAll(newStr, "\r\n", "\n"), endsWithNL)
+
+	for i, rung := range ladder {
+		starts := findWindows(lines, pat, rung.key)
+		if len(starts) == 0 {
 			continue
 		}
-		startLine := lineAtOffset(normContentLines, absIdx)
-		endLine := startLine + len(oldLines) - 1
-		if endLine >= len(contentLines) {
-			break
+		if len(starts) > 1 && !replaceAll {
+			return editApplied{}, ambiguousTolerantError(len(starts), rung.label)
 		}
-		matches = append(matches, normMatch{startLine, endLine})
-		searchFrom = end + 1
+		return editApplied{
+			Content: strings.Join(spliceBlocks(lines, starts, pat, repl), "\n"),
+			Rung:    i + 1,
+			Count:   len(starts),
+		}, nil
 	}
-	return matches
+	return editApplied{}, notFoundError(content, oldStr, newStr)
 }
 
-// normalizedReplace is the fuzzy fallback: a unique (or replaceAll) whole-line
-// match is replaced, with new_string re-indented to the file's style.
-func normalizedReplace(content, old, new string, replaceAll bool) (string, bool) {
-	matches := findNormalizedMatches(content, old)
-	if len(matches) == 0 {
-		return "", false
+// patternLines splits oldStr into lines. A trailing newline means "whole
+// lines" and is not a line of its own.
+func patternLines(s string) (lines []string, endsWithNL bool) {
+	lines = strings.Split(s, "\n")
+	if len(lines) > 1 && lines[len(lines)-1] == "" {
+		return lines[:len(lines)-1], true
 	}
-	if !replaceAll && len(matches) > 1 {
-		return "", false // ambiguous; let the model disambiguate
-	}
-
-	contentLines := strings.Split(content, "\n")
-	fileUnit := detectIndentUnit(contentLines)
-
-	result := slices.Clone(contentLines)
-	for _, m := range slices.Backward(matches) { // reverse keeps indices valid
-		actual := strings.Join(contentLines[m.startLine:m.endLine+1], "\n")
-		adapted := adaptIndentation(actual, old, new, fileUnit)
-		result = slices.Concat(result[:m.startLine], strings.Split(adapted, "\n"), result[m.endLine+1:])
-	}
-	return strings.Join(result, "\n"), true
+	return lines, false
 }
 
-func joinNormalized(lines []string) string {
-	norm := make([]string, len(lines))
-	for i, l := range lines {
-		norm[i] = normalizeWS(l)
+func replacementLines(s string, endsWithNL bool) []string {
+	lines := strings.Split(s, "\n")
+	if endsWithNL && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
 	}
-	return strings.Join(norm, "\n")
+	return lines
 }
 
-// adaptIndentation rewrites newStr's leading whitespace to the file's style
-// and applies the nesting-depth offset between old_string and the matched text.
-func adaptIndentation(actualStr, oldStr, newStr, fileUnit string) string {
-	if fileUnit == "" {
-		return newStr
-	}
-	actualLines := strings.Split(actualStr, "\n")
-	oldLines := strings.Split(oldStr, "\n")
-	newLines := strings.Split(newStr, "\n")
-
-	sourceUnit := detectIndentUnit(oldLines)
-	if sourceUnit == "" {
-		sourceUnit = detectIndentUnit(newLines)
-	}
-	if sourceUnit == "" {
-		sourceUnit = fileUnit
-	}
-
-	baseDepth := firstIndentDepth(actualLines, fileUnit)
-	oldBaseDepth := firstIndentDepth(oldLines, sourceUnit)
-	depthOffset := baseDepth - oldBaseDepth
-	if sourceUnit == fileUnit && depthOffset == 0 {
-		return newStr
-	}
-
-	result := make([]string, len(newLines))
-	for i, line := range newLines {
-		trimmed := strings.TrimLeft(line, " \t")
-		if trimmed == "" {
-			result[i] = line
-			continue
-		}
-		leading := line[:len(line)-len(trimmed)]
-		depth := max(measureDepth(leading, sourceUnit)+depthOffset, 0)
-		result[i] = strings.Repeat(fileUnit, depth) + trimmed
-	}
-	return strings.Join(result, "\n")
-}
-
-func firstIndentDepth(lines []string, unit string) int {
+func hasText(lines []string) bool {
 	for _, l := range lines {
-		trimmed := strings.TrimLeft(l, " \t")
-		if trimmed == "" {
-			continue
+		if !isBlank(l) {
+			return true
 		}
-		return measureDepth(l[:len(l)-len(trimmed)], unit)
 	}
-	return 0
+	return false
 }
 
-// detectIndentUnit returns "\t" for tab-indented text, N spaces for
-// space-indented text, or "" when it cannot tell.
-func detectIndentUnit(lines []string) string {
-	minSpaces := 0
-	for _, line := range lines {
-		trimmed := strings.TrimLeft(line, " \t")
-		if trimmed == "" {
+func isBlank(s string) bool { return strings.TrimSpace(s) == "" }
+
+// findWindows returns the start line of each non-overlapping run of lines that
+// equals pat under key, scanning top to bottom.
+func findWindows(lines, pat []string, key func(string) string) []int {
+	want := make([]string, len(pat))
+	for i, p := range pat {
+		want[i] = key(p)
+	}
+	have := make([]string, len(lines))
+	for i, l := range lines {
+		have[i] = key(l)
+	}
+	var starts []int
+	for i := 0; i+len(want) <= len(have); {
+		if slices.Equal(have[i:i+len(want)], want) {
+			starts = append(starts, i)
+			i += len(want)
 			continue
 		}
-		leading := line[:len(line)-len(trimmed)]
-		if leading == "" {
+		i++
+	}
+	return starts
+}
+
+// spliceBlocks swaps each matched block for the replacement, re-indented to
+// the block it replaces.
+func spliceBlocks(lines []string, starts []int, pat, repl []string) []string {
+	fileUnit := indentUnit(lines)
+	out := make([]string, 0, len(lines)+len(repl))
+	next := 0
+	for _, s := range starts {
+		out = append(out, lines[next:s]...)
+		out = append(out, fitIndent(lines[s:s+len(pat)], pat, repl, fileUnit)...)
+		next = s + len(pat)
+	}
+	return append(out, lines[next:]...)
+}
+
+// --- indentation ------------------------------------------------------------
+
+// fitIndent re-indents repl, written against the old_string block pat, so it
+// suits the block actual that pat matched in the file. Three cases, cheapest
+// first: indentation already agrees; the whole block is shifted by one fixed
+// prefix; or the file uses a different indent style, so depths are remapped.
+func fitIndent(actual, pat, repl []string, fileUnit string) []string {
+	if sameIndentation(actual, pat) {
+		return repl
+	}
+	if out, ok := shiftBlock(actual, pat, repl); ok {
+		return out
+	}
+	return remapDepth(actual, pat, repl, fileUnit)
+}
+
+func leadingWS(s string) string { return s[:len(s)-len(strings.TrimLeft(s, " \t"))] }
+
+func sameIndentation(actual, pat []string) bool {
+	for i := range pat {
+		if !isBlank(pat[i]) && leadingWS(actual[i]) != leadingWS(pat[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// commonLead is the longest leading whitespace shared by all non-blank lines.
+func commonLead(lines []string) string {
+	var lead string
+	seen := false
+	for _, l := range lines {
+		if isBlank(l) {
 			continue
 		}
-		if strings.Contains(leading, "\t") {
+		w := leadingWS(l)
+		if !seen {
+			lead, seen = w, true
+			continue
+		}
+		n := 0
+		for n < len(lead) && n < len(w) && lead[n] == w[n] {
+			n++
+		}
+		lead = lead[:n]
+	}
+	return lead
+}
+
+// shiftBlock handles the case where the model's block differs from the file's
+// only by one constant indentation prefix. It fails (ok=false) when relative
+// indentation differs or a replacement line sits left of the old block.
+func shiftBlock(actual, pat, repl []string) (out []string, ok bool) {
+	from, to := commonLead(pat), commonLead(actual)
+	for i := range pat {
+		if isBlank(pat[i]) {
+			continue
+		}
+		a, p := leadingWS(actual[i]), leadingWS(pat[i])
+		if len(a) < len(to) || len(p) < len(from) || a[len(to):] != p[len(from):] {
+			return nil, false
+		}
+	}
+	out = make([]string, len(repl))
+	for i, l := range repl {
+		switch {
+		case isBlank(l):
+			out[i] = l
+		case strings.HasPrefix(l, from):
+			out[i] = to + l[len(from):]
+		default:
+			return nil, false
+		}
+	}
+	return out, true
+}
+
+// remapDepth converts nesting depth from the model's indent style to the
+// file's, anchored so the first non-blank line lands at the matched block's
+// depth.
+func remapDepth(actual, pat, repl []string, fileUnit string) []string {
+	if fileUnit == "" {
+		return repl
+	}
+	srcUnit := indentUnit(pat)
+	if srcUnit == "" {
+		srcUnit = indentUnit(repl)
+	}
+	if srcUnit == "" {
+		srcUnit = fileUnit
+	}
+	shift := firstDepth(actual, fileUnit) - firstDepth(pat, srcUnit)
+	out := make([]string, len(repl))
+	for i, l := range repl {
+		if isBlank(l) {
+			out[i] = l
+			continue
+		}
+		body := strings.TrimLeft(l, " \t")
+		depth := max(depthOf(leadingWS(l), srcUnit)+shift, 0)
+		out[i] = strings.Repeat(fileUnit, depth) + body
+	}
+	return out
+}
+
+// indentUnit guesses one indentation step: a tab, or the smallest run of
+// leading spaces. It returns "" when no line is indented.
+func indentUnit(lines []string) string {
+	least := 0
+	for _, l := range lines {
+		lead := leadingWS(l)
+		if lead == "" || isBlank(l) {
+			continue
+		}
+		if strings.Contains(lead, "\t") {
 			return "\t"
 		}
-		if n := len(leading); minSpaces == 0 || n < minSpaces {
-			minSpaces = n
+		if least == 0 || len(lead) < least {
+			least = len(lead)
 		}
 	}
-	if minSpaces > 0 {
-		return strings.Repeat(" ", minSpaces)
-	}
-	return ""
+	return strings.Repeat(" ", least)
 }
 
-func measureDepth(leading, unit string) int {
-	if unit == "" {
+func depthOf(lead, unit string) int {
+	switch unit {
+	case "":
 		return 0
+	case "\t":
+		return strings.Count(lead, "\t")
 	}
-	if unit == "\t" {
-		return strings.Count(leading, "\t")
-	}
-	return strings.Count(leading, " ") / len(unit)
+	return strings.Count(lead, " ") / len(unit)
 }
 
-// diagnoseMismatch builds a hint for a failed match: the whitespace-different
-// text if it exists, else the closest line window.
-func diagnoseMismatch(content, old string) string {
-	contentLines := strings.Split(content, "\n")
-	oldLines := strings.Split(old, "\n")
-	if len(oldLines) == 0 {
-		return ""
-	}
-	if hint := diagnoseWhitespaceMismatch(contentLines, oldLines); hint != "" {
-		return hint
-	}
-	return diagnoseBestLineMatch(contentLines, oldLines)
-}
-
-func normalizeWS(s string) string { return strings.Join(strings.Fields(s), " ") }
-
-func diagnoseWhitespaceMismatch(contentLines, oldLines []string) string {
-	matches := findNormalizedMatches(strings.Join(contentLines, "\n"), strings.Join(oldLines, "\n"))
-	if len(matches) == 0 {
-		return ""
-	}
-	return formatWhitespaceHint(contentLines, matches[0].startLine, matches[0].endLine)
-}
-
-// lineAtOffset maps a character offset in newline-joined lines to a line index.
-func lineAtOffset(lines []string, offset int) int {
-	pos := 0
-	for i, line := range lines {
-		if pos+len(line) >= offset {
-			return i
-		}
-		pos += len(line) + 1
-	}
-	return len(lines) - 1
-}
-
-func formatWhitespaceHint(contentLines []string, startLine, endLine int) string {
-	var b strings.Builder
-	b.WriteString("A whitespace-normalized match was found, so the text exists but with different whitespace (tabs vs spaces, or different indentation).\n")
-	fmt.Fprintf(&b, "Actual file content (lines %d-%d):\n", startLine+1, endLine+1)
-	for i := startLine; i <= endLine && i < len(contentLines); i++ {
-		fmt.Fprintf(&b, "%6d|%s\n", i+1, visualizeWS(contentLines[i]))
-	}
-	b.WriteString("Use the exact whitespace shown above (→ = tab, · = space).")
-	return b.String()
-}
-
-// diagnoseBestLineMatch finds the line window that best matches oldLines after
-// trimming, and reports it when at least half the lines agree.
-func diagnoseBestLineMatch(contentLines, oldLines []string) string {
-	if len(oldLines) == 0 || len(contentLines) == 0 {
-		return ""
-	}
-	trimmedOld := make([]string, len(oldLines))
-	for i, l := range oldLines {
-		trimmedOld[i] = strings.TrimSpace(l)
-	}
-	for len(trimmedOld) > 0 && trimmedOld[0] == "" {
-		trimmedOld = trimmedOld[1:]
-	}
-	for len(trimmedOld) > 0 && trimmedOld[len(trimmedOld)-1] == "" {
-		trimmedOld = trimmedOld[:len(trimmedOld)-1]
-	}
-	if len(trimmedOld) == 0 {
-		return ""
-	}
-
-	bestScore, bestStart := 0, -1
-	window := len(trimmedOld)
-	for start := range len(contentLines) - window + 1 {
-		score := 0
-		for j := range window {
-			if strings.TrimSpace(contentLines[start+j]) == trimmedOld[j] {
-				score++
-			}
-		}
-		if score > bestScore {
-			bestScore, bestStart = score, start
+func firstDepth(lines []string, unit string) int {
+	for _, l := range lines {
+		if !isBlank(l) {
+			return depthOf(leadingWS(l), unit)
 		}
 	}
-	if bestStart == -1 || bestScore < (window+1)/2 {
-		return ""
-	}
-
-	endLine := bestStart + window - 1
-	ctxStart := max(0, bestStart-1)
-	ctxEnd := min(len(contentLines)-1, endLine+1)
-
-	var b strings.Builder
-	fmt.Fprintf(&b, "No exact match found. Closest match at lines %d-%d (%d/%d lines match after trimming whitespace):\n",
-		bestStart+1, endLine+1, bestScore, window)
-	for i := ctxStart; i <= ctxEnd; i++ {
-		fmt.Fprintf(&b, "%6d|%s\n", i+1, visualizeWS(contentLines[i]))
-	}
-	b.WriteString("Use the exact text shown above (→ = tab, · = space).")
-	return b.String()
-}
-
-// visualizeWS makes tabs and leading spaces visible.
-func visualizeWS(s string) string {
-	s = strings.ReplaceAll(s, "\t", "→")
-	trimmed := strings.TrimLeft(s, " ")
-	if leading := len(s) - len(trimmed); leading > 0 {
-		s = strings.Repeat("·", leading) + trimmed
-	}
-	return s
+	return 0
 }

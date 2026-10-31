@@ -39,6 +39,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				m.tl.load(msg.msgs)
 			}
+			if m.afterLoad != "" {
+				m.tl.notice(m.afterLoad)
+				m.afterLoad = ""
+			}
 		}
 	case tea.KeyPressMsg:
 		cmd = m.onKey(msg)
@@ -225,6 +229,7 @@ func (m *Model) onSessions(msg sessionsMsg) {
 // switchTo makes id the current conversation and replays its history.
 func (m *Model) switchTo(id string) tea.Cmd {
 	m.session = id
+	m.afterLoad = ""
 	m.queue = nil
 	m.tl.entries = nil
 	m.tl.rev++

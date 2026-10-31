@@ -1,3 +1,7 @@
+// The LSP tool contract in this file (parameters, output formats and the
+// model-visible descriptions and messages) is derived from Crush's LSP agent tools
+// (licenses/crush/NOTICE.md, FSL-1.1-MIT).
+
 package codelsp
 
 import (

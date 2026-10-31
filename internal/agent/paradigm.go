@@ -87,12 +87,12 @@ type ParadigmConfig struct {
 // ParadigmEngine executes lifecycle rules and prompts driven by PARADIGM.yaml,
 // ported and enhanced from PurrCat's Paradigm / HookHandler architecture.
 type ParadigmEngine struct {
-	mu           sync.RWMutex
-	config       ParadigmConfig
-	configPath   string
-	pathAliases  map[string]string
-	recentMemos  []string
-	memoMu       sync.RWMutex
+	mu          sync.RWMutex
+	config      ParadigmConfig
+	configPath  string
+	pathAliases map[string]string
+	recentMemos []string
+	memoMu      sync.RWMutex
 }
 
 // NewParadigmEngine creates a ParadigmEngine instance.
@@ -337,4 +337,3 @@ func (m *ParadigmMiddleware) BeforeModelRewriteState(ctx context.Context, state 
 
 	return ctx, state, nil
 }
-

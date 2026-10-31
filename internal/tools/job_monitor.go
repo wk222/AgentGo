@@ -12,6 +12,7 @@ import (
 
 	"github.com/cloudwego/eino/components/tool/utils"
 
+	"agentgo/internal/processutil"
 	"agentgo/internal/shellcmd"
 )
 
@@ -20,7 +21,7 @@ type MonitoredJob struct {
 	ID             string    `json:"id"`
 	Name           string    `json:"name"`
 	Command        string    `json:"command"`
-	Status         string    `json:"status"` // "running", "completed", "failed", "cancelled"
+	Status         string    `json:"status"` // "running", "cancelling", "completed", "failed", "cancelled"
 	StartedAt      time.Time `json:"started_at"`
 	FinishedAt     time.Time `json:"finished_at,omitempty"`
 	ExitCode       int       `json:"exit_code"`
@@ -100,7 +101,7 @@ func (r *Registry) StopJobs(wait time.Duration) int {
 	m.closed = true
 	stopped := 0
 	for _, j := range m.jobs {
-		if j.Status == "running" && j.cancelFn != nil {
+		if (j.Status == "running" || j.Status == "cancelling") && j.cancelFn != nil {
 			j.cancelFn()
 			stopped++
 		}
@@ -154,6 +155,7 @@ func RegisterJobMonitorTool(r *Registry, workspaceRoot string) error {
 					Command:       cmdStr,
 					Status:        "running",
 					StartedAt:     time.Now(),
+					ExitCode:      -1,
 					WatchFile:     in.WatchFile,
 					SummaryPrompt: in.SummaryPrompt,
 					cancelFn:      cancel,
@@ -222,8 +224,7 @@ func RegisterJobMonitorTool(r *Registry, workspaceRoot string) error {
 						if live.cancelFn != nil {
 							live.cancelFn()
 						}
-						live.Status = "cancelled"
-						live.FinishedAt = time.Now()
+						live.Status = "cancelling"
 					}
 					job = live.snapshot()
 				}
@@ -235,7 +236,7 @@ func RegisterJobMonitorTool(r *Registry, workspaceRoot string) error {
 					Success: true,
 					Action:  "cancel",
 					Job:     job,
-					Message: fmt.Sprintf("任务 [%s] 已被成功取消", id),
+					Message: fmt.Sprintf("\u4efb\u52a1 [%s] \u5f53\u524d\u72b6\u6001: %s", id, job.Status),
 				}, nil
 
 			default:
@@ -268,28 +269,24 @@ func (m *jobMonitor) run(ctx context.Context, job *MonitoredJob, workspaceRoot s
 	}
 	// Cancelling must end what the command started, not only the shell, and must
 	// not wait forever for a grandchild that still holds the output pipe.
-	shellcmd.Prepare(cmd)
-	cmd.Cancel = func() error { shellcmd.KillTree(cmd); return nil }
-	cmd.WaitDelay = 2 * time.Second
-
-	// Capture combined output
-	outputBytes, err := cmd.CombinedOutput()
-	outStr := string(outputBytes)
+	var output processutil.TailBuffer
+	cmd.Stdout, cmd.Stderr = &output, &output
+	tree, err := shellcmd.StartTree(cmd)
+	if err == nil {
+		err = tree.Wait()
+	}
+	if err != nil {
+		output.Write([]byte("\n[AgentGo: " + err.Error() + "]"))
+	}
 
 	m.mu.Lock()
-	// Keep last 1500 characters as tail summary
-	if len(outStr) > 1500 {
-		job.LastOutputTail = outStr[len(outStr)-1500:]
-	} else {
-		job.LastOutputTail = outStr
-	}
+	job.LastOutputTail = output.String()
 	job.FinishedAt = time.Now()
-	if err != nil {
-		if ctx.Err() == context.Canceled {
-			job.Status = "cancelled"
-		} else {
-			job.Status = "failed"
-		}
+	if ctx.Err() != nil {
+		job.Status = "cancelled"
+		job.ExitCode = -1
+	} else if err != nil {
+		job.Status = "failed"
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			job.ExitCode = exitErr.ExitCode()
 		} else {
@@ -299,6 +296,7 @@ func (m *jobMonitor) run(ctx context.Context, job *MonitoredJob, workspaceRoot s
 		job.Status = "completed"
 		job.ExitCode = 0
 	}
+	job.cancelFn = nil
 	closed := m.closed
 	final := job.snapshot()
 	m.mu.Unlock()

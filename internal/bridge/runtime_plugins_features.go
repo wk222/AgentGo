@@ -9,8 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wailsapp/wails/v3/pkg/application"
-
 	"agentgo/internal/applog"
 	"agentgo/internal/config"
 	"agentgo/internal/gateway"
@@ -28,12 +26,7 @@ import (
 // and cadence follow the agent's session mode, read each time it runs.
 func newDistillScheduler(rt *Runtime) *memory.DistillScheduler {
 	return memory.NewDistillScheduler(rt.hybrid.Pipeline(),
-		func() string {
-			if ar := rt.agentRunner; ar != nil {
-				return ar.SessionMode().MemoryDistillScope()
-			}
-			return "session"
-		},
+		nil, // Discover actual session scopes; mode is cadence policy only.
 		func() int {
 			if ar := rt.agentRunner; ar != nil {
 				return ar.SessionMode().DistillIntervalHours()
@@ -215,8 +208,8 @@ func (rt *Runtime) featurePlugins() []plugin.Plugin {
 				_ = workspaceFS.StartWatcher()
 				c.Effect("stop file watcher", workspaceFS.StopWatcher)
 				workspaceFS.OnFilesChanged(func(batch ideruntime.FSChangeBatch) {
-					if app := application.Get(); app != nil && app.Event != nil {
-						app.Event.Emit("workspace:filesChanged", batch)
+					if eventsOn() {
+						emitEvent("workspace:filesChanged", batch)
 					}
 				})
 			}
@@ -225,13 +218,13 @@ func (rt *Runtime) featurePlugins() []plugin.Plugin {
 				termSvc := ideruntime.NewTerminalService(rt.supervisor)
 				rt.terminalSvc = termSvc
 				termSvc.OnTerminalData(func(termID, data string) {
-					if app := application.Get(); app != nil && app.Event != nil {
-						app.Event.Emit("terminal:data", map[string]any{"term_id": termID, "data": data})
+					if eventsOn() {
+						emitEvent("terminal:data", map[string]any{"term_id": termID, "data": data})
 					}
 				})
 				termSvc.OnTerminalExit(func(termID string, exitCode int) {
-					if app := application.Get(); app != nil && app.Event != nil {
-						app.Event.Emit("terminal:exit", map[string]any{"term_id": termID, "exit_code": exitCode})
+					if eventsOn() {
+						emitEvent("terminal:exit", map[string]any{"term_id": termID, "exit_code": exitCode})
 					}
 				})
 				if rt.workspaceFS != nil {
@@ -241,5 +234,8 @@ func (rt *Runtime) featurePlugins() []plugin.Plugin {
 			}
 			return c.Provide(svcIDE, true)
 		}),
+
+		// The scripts the user lists in hooks.json, run around every tool call.
+		rt.userHooksPlugin(),
 	}
 }

@@ -182,7 +182,9 @@ func (f Int) Get() int {
 	return n
 }
 
-func (f Int) Name() string { return f.info.Name }
+func (f Int) Name() string     { return f.info.Name }
+func (f Int) Set(v int)        { set(f.info.Name, strconv.Itoa(v)) }
+func (f Int) SetDefault(v int) { setDefault(f.info.Name, strconv.Itoa(v)) }
 
 // Float is a floating point flag.
 type Float struct{ info Info }

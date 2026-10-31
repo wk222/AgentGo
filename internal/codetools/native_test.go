@@ -255,8 +255,8 @@ func TestNativeFSMatchesCrushRecording(t *testing.T) {
 	assertParity(t, loadGolden(t).FS, seedParity, parityScenario(), []string{
 		"you must read the file before editing", "has been modified since it was last read",
 		"Content replaced in file", "Content deleted from file", "File created:",
-		"appears multiple times", "old_string not found", "whitespace-equivalent",
-		"A whitespace-normalized match", "File has more lines", "File not found",
+		"occurs in more than one place", "old_string was not found", "differed from the file only in",
+		"matches 2 places", "File has more lines", "File not found",
 		"is a directory", "Applied 2 of 3 edits", "File created with", "already contains the exact content",
 	})
 }

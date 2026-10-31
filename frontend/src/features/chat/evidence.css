@@ -1,0 +1,9 @@
+.evidence-link { color: var(--accent, #69b1ff); background: transparent; border: 0; padding: 0 3px; font: inherit; font-size: .85em; cursor: pointer; border-radius: 3px; }
+.evidence-link:hover, .evidence-link:focus-visible { background: var(--surface-hover); text-decoration: underline; }
+.evidence-unavailable { color: var(--text-dim); font-size: .85em; }
+.evidence-viewer { margin: 12px 0; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-1); }
+.evidence-viewer-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.evidence-viewer-heading button { color: inherit; background: transparent; border: 0; font-size: 20px; cursor: pointer; }
+.evidence-source { overflow-wrap: anywhere; font-weight: 500; }
+.evidence-location, .evidence-snapshot { color: var(--text-dim); font-size: 12px; margin-top: 4px; }
+.evidence-excerpt { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; margin: 10px 0 0; padding: 10px; font: inherit; line-height: 1.65; background: var(--surface-2); border-radius: 4px; }

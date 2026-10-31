@@ -1,0 +1,165 @@
+/* Inner App：握手条与伴随卡片。 */
+/* ── InnerApp Creative Companion & Handshake Bar ── */
+.inner-app-handshake-badge {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-3);
+  border: 1px solid var(--border);
+}
+
+.inner-app-handshake-badge.ok {
+  color: var(--success);
+  border-color: rgba(46, 160, 67, 0.35);
+  background: rgba(46, 160, 67, 0.08);
+}
+
+.inner-app-handshake-badge.err {
+  color: var(--danger);
+  border-color: rgba(229, 83, 75, 0.4);
+  background: rgba(229, 83, 75, 0.1);
+}
+
+.inner-app-bar-btn {
+  padding: 3px 9px;
+  font-size: 11.5px;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.inner-app-bar-btn:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.inner-app-bar-btn.accent {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  border-color: var(--accent);
+}
+
+.inner-app-bar-btn.warn {
+  background: rgba(217, 119, 6, 0.12);
+  color: var(--warning);
+  border-color: var(--warning);
+}
+
+.inner-app-companion-card {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  width: min(360px, calc(100% - 28px));
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 40;
+}
+
+.inner-app-companion-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.inner-app-companion-badge {
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: #fff;
+}
+
+.inner-app-companion-close {
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 5px;
+  border-radius: 4px;
+}
+
+.inner-app-companion-close:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.inner-app-companion-errbox {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: rgba(229, 83, 75, 0.1);
+  border: 1px solid rgba(229, 83, 75, 0.35);
+  color: var(--danger);
+  font-size: 11.5px;
+}
+
+.inner-app-companion-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.inner-app-companion-chip {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.inner-app-companion-chip:hover {
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.inner-app-companion-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 9px;
+  font-size: 12px;
+  font-family: var(--font-sans);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--input-bg);
+  color: var(--text);
+  resize: vertical;
+  outline: none;
+}
+
+.inner-app-companion-input:focus {
+  border-color: var(--accent);
+}
+
+.inner-app-companion-status {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.inner-app-companion-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}

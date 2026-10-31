@@ -43,7 +43,7 @@ type canvasPolicyCtxKey struct{}
 // CanvasPolicies maps each ExecutionCanvas to its preset policy (Single Source of Truth).
 var CanvasPolicies = map[ExecutionCanvas]CanvasPolicy{
 	CanvasFocused: {
-		SummarizationTokens:  60_000,
+		SummarizationTokens:  12_000,
 		ReductionClearTokens: 80_000,
 		MaxIterations:        6,
 		DistillIntervalHours: 48,
@@ -56,7 +56,7 @@ var CanvasPolicies = map[ExecutionCanvas]CanvasPolicy{
 		ContextTokenBudget:   16_384,
 	},
 	CanvasBalanced: {
-		SummarizationTokens:  120_000,
+		SummarizationTokens:  24_000,
 		ReductionClearTokens: 120_000,
 		MaxIterations:        20,
 		DistillIntervalHours: 24,
@@ -69,7 +69,7 @@ var CanvasPolicies = map[ExecutionCanvas]CanvasPolicy{
 		ContextTokenBudget:   32_768,
 	},
 	CanvasDeep: {
-		SummarizationTokens:  180_000,
+		SummarizationTokens:  48_000,
 		ReductionClearTokens: 160_000,
 		MaxIterations:        30,
 		DistillIntervalHours: 6,
@@ -107,11 +107,11 @@ func CanvasPolicyFromContext(ctx context.Context) CanvasPolicy {
 		return CanvasPolicyFor(CanvasBalanced)
 	}
 	if p, ok := ctx.Value(canvasPolicyCtxKey{}).(CanvasPolicy); ok {
-		return p
+		return constrainPolicyToModel(ctx, p)
 	}
 	sm := SessionModeFromContext(ctx)
 	if sm.Canvas != "" {
-		return CanvasPolicyFor(sm.Canvas)
+		return constrainPolicyToModel(ctx, CanvasPolicyFor(sm.Canvas))
 	}
-	return CanvasPolicyFor(CanvasBalanced)
+	return constrainPolicyToModel(ctx, CanvasPolicyFor(CanvasBalanced))
 }

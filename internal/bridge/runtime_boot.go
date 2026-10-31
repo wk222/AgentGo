@@ -15,6 +15,8 @@ import (
 	"agentgo/internal/applog"
 	"agentgo/internal/capability"
 	"agentgo/internal/config"
+	"agentgo/internal/engine"
+	"agentgo/internal/pathgrant"
 	"agentgo/internal/plugin"
 	"agentgo/internal/tools"
 )
@@ -44,6 +46,7 @@ const (
 	svcToolset     = "toolset"     // bool: the built-in tools are registered
 	svcTaskHub     = "taskhub"     // *taskhub.Hub
 	svcIDE         = "ide"         // bool: process supervision, file system, terminals
+	svcChunker     = "chunker"     // *docchunk.Service: adaptive document chunker (provided only when AGENTGO_DOCCHUNK is on)
 )
 
 // pluginsDisabledEnv lists plugins to keep from starting, comma separated.
@@ -62,12 +65,19 @@ func DefaultDataDir() string {
 // NewRuntime assembles the runtime in the user's data directory.
 func NewRuntime() (*Runtime, error) {
 	dataDir := DefaultDataDir()
+	if err := loadMemorySettings(dataDir); err != nil {
+		log.Printf("[memory] saved settings ignored: %v", err)
+	}
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return nil, err
 	}
 	if err := applog.Init(dataDir); err != nil {
 		log.Printf("[agentgo] file log disabled: %v", err)
 	}
+	if err := applog.InitCrash(dataDir); err != nil {
+		log.Printf("[agentgo] crash capture disabled: %v", err)
+	}
+	applyShellLimits()
 	return newRuntimeAt(dataDir)
 }
 
@@ -87,8 +97,9 @@ type configModel struct{ rt *Runtime }
 
 func (m configModel) LLM() LLMConfig {
 	m.rt.mu.RLock()
-	defer m.rt.mu.RUnlock()
-	return m.rt.llm
+	cfg := m.rt.llm
+	m.rt.mu.RUnlock()
+	return m.rt.resolveModelLimits(cfg)
 }
 
 // llmSettingsFrom adapts a ModelSource to the form the agent code takes. It
@@ -96,7 +107,7 @@ func (m configModel) LLM() LLMConfig {
 func llmSettingsFrom(src ModelSource) func() agent.LLMSettings {
 	return func() agent.LLMSettings {
 		c := src.LLM()
-		return agent.LLMSettings{APIBase: c.APIBase, APIKey: c.APIKey, Model: c.Model, FallbackModel: c.FallbackModel}
+		return c.agentSettings()
 	}
 }
 
@@ -107,16 +118,22 @@ func newRuntimeAt(dataDir string) (*Runtime, error) {
 // newRuntimeWith is newRuntimeAt that lets the caller change the plugin list
 // first: swap an implementation, add a probe. Production passes nil.
 func newRuntimeWith(dataDir string, adjust func([]plugin.Plugin) []plugin.Plugin) (*Runtime, error) {
+	pathgrant.Default.Protect(dataDir) // holds the API key: never offered for the agent to open
 	cfg, govCfg, wsCfg := loadAppConfig(dataDir)
 	log.Printf("[agentgo] data_dir=%s db=%s governance=%s", dataDir, filepath.Join(dataDir, "agentgo.db"), govCfg.ControlMode)
 
 	rt := &Runtime{
-		dataDir: dataDir, llm: cfg, governanceCfg: govCfg, workspaceHint: wsCfg.Root,
+		engineRouter: engine.NewRouter(),
+		dataDir:      dataDir, llm: cfg, governanceCfg: govCfg, workspaceHint: wsCfg.Root,
 		interactStore:    tools.NewInteractionStore(),
 		runTrack:         core.NewRunTracker(),
 		workspaceReviews: newWorkspaceReviewStore(),
+		turnCheckpoints:  newTurnCheckpointStore(),
 	}
 	rt.host = plugin.NewHost(governanceHooksFor(func() *capability.Bus { return rt.capBus }))
+	if _, err := rt.host.Provide(svcEngines, rt.engineRouter); err != nil {
+		return nil, err
+	}
 
 	plugins := rt.runtimePlugins()
 	if adjust != nil {

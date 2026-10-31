@@ -17,7 +17,7 @@ func (r *Runtime) runBackgroundTask(ctx context.Context, t taskhub.Task, emit fu
 		emit(taskhub.Event{Type: taskhub.EventError, Payload: `{"error":"LLM not configured"}`})
 		return nil
 	}
-	llm := agent.LLMSettings{APIBase: cfg.APIBase, APIKey: cfg.APIKey, Model: cfg.Model}
+	llm := cfg.agentSettings()
 	if t.Kind == "swarm" {
 		var payload struct {
 			Topic        string `json:"topic"`
@@ -53,7 +53,11 @@ func (r *Runtime) runBackgroundTask(ctx context.Context, t taskhub.Task, emit fu
 
 	if err != nil {
 		if persist {
-			_ = r.Sessions().AppendMessage(context.Background(), t.SessionID, "assistant", "唤醒后执行失败: "+err.Error(), "text", map[string]any{"source": "trigger", "task_id": t.ID})
+			msg := "唤醒后执行失败: " + err.Error()
+			if ctx.Err() != nil {
+				msg = "这次唤醒被你停止了。"
+			}
+			_ = r.Sessions().AppendMessage(context.Background(), t.SessionID, "assistant", msg, "text", map[string]any{"source": "trigger", "task_id": t.ID})
 		}
 		b, _ := json.Marshal(map[string]string{"error": err.Error()})
 		emit(taskhub.Event{Type: taskhub.EventError, Payload: string(b)})

@@ -1,3 +1,6 @@
+// The server-selection and lifecycle rules in this file are derived from Crush's
+// internal/lsp manager (licenses/crush/NOTICE.md, FSL-1.1-MIT).
+
 package codelsp
 
 import (
@@ -14,8 +17,8 @@ import (
 	"sync"
 	"time"
 
+	powernap "agentgo/internal/powernaplsp"
 	powernapconfig "github.com/charmbracelet/x/powernap/pkg/config"
-	powernap "github.com/charmbracelet/x/powernap/pkg/lsp"
 	"github.com/sourcegraph/jsonrpc2"
 )
 
@@ -76,6 +79,12 @@ type Manager struct {
 	autoLSP  bool
 	callback func(name string, c *Client)
 
+	stopMu      sync.Mutex
+	starting    sync.WaitGroup
+	stopping    bool
+	closed      bool
+	runCtx      context.Context
+	cancelRun   context.CancelFunc
 	mu          sync.Mutex
 	clients     map[string]*Client
 	unavailable map[string]time.Time
@@ -96,9 +105,11 @@ type ManagerOptions struct {
 // NewManager builds the server table: powernap's bundled definitions plus the
 // user's overrides.
 func NewManager(o ManagerOptions) *Manager {
+	runCtx, cancelRun := context.WithCancel(context.Background())
 	pm := powernapconfig.NewManager()
 	pm.LoadDefaults()
 	m := &Manager{
+		runCtx: runCtx, cancelRun: cancelRun,
 		workDir: o.WorkDir, servers: map[string]ServerSpec{}, user: map[string]bool{},
 		autoLSP: !o.NoAuto, callback: func(string, *Client) {},
 		clients: map[string]*Client{}, unavailable: map[string]time.Time{},
@@ -175,9 +186,18 @@ func (m *Manager) Start(ctx context.Context, path string) {
 	if !within(m.workDir, path) {
 		return
 	}
+	m.mu.Lock()
+	if m.closed || m.stopping || ctx.Err() != nil {
+		m.mu.Unlock()
+		return
+	}
+	m.starting.Add(1)
+	runCtx := m.runCtx
+	m.mu.Unlock()
+	defer m.starting.Done()
 	var wg sync.WaitGroup
 	for name, spec := range m.servers {
-		wg.Go(func() { m.startServer(name, path, spec) })
+		wg.Go(func() { m.startServer(ctx, runCtx, name, path, spec) })
 	}
 	wg.Wait()
 }
@@ -193,7 +213,7 @@ func (m *Manager) existing(name string) (*Client, bool) {
 	return c, ok && running(c.State())
 }
 
-func (m *Manager) startServer(name, path string, spec ServerSpec) {
+func (m *Manager) startServer(ctx, runCtx context.Context, name, path string, spec ServerSpec) {
 	user := m.user[name]
 	if !user && !m.autoLSP {
 		return
@@ -201,7 +221,7 @@ func (m *Manager) startServer(name, path string, spec ServerSpec) {
 	if c, ok := m.existing(name); ok {
 		// Another call is still bringing it up: wait, so the caller's query
 		// does not hit a server that has not finished initialising.
-		c.waitStarted(context.Background())
+		c.waitStarted(ctx)
 		m.callback(name, c)
 		return
 	}
@@ -219,13 +239,19 @@ func (m *Manager) startServer(name, path string, spec ServerSpec) {
 		return
 	}
 	m.mu.Lock()
+	if runCtx.Err() != nil {
+		m.mu.Unlock()
+		client.kill()
+		return
+	}
 	if old, ok := m.clients[name]; ok && running(old.State()) { // lost a race
 		m.mu.Unlock()
 		client.kill()
-		old.waitStarted(context.Background())
+		old.waitStarted(ctx)
 		m.callback(name, old)
 		return
 	}
+	client.setState(StateStarting)
 	m.clients[name] = client
 	m.mu.Unlock()
 	defer func() {
@@ -236,19 +262,28 @@ func (m *Manager) startServer(name, path string, spec ServerSpec) {
 	client.setState(StateStarting)
 	// Independent of the caller's context: a tool call may end long before the
 	// server finishes starting, and the server must outlive it.
-	initCtx, cancel := context.WithTimeout(context.Background(), time.Duration(cmp.Or(spec.TimeoutSec, 30))*time.Second)
+	initCtx, cancel := context.WithTimeout(runCtx, time.Duration(cmp.Or(spec.TimeoutSec, 30))*time.Second)
 	defer cancel()
 	if err := client.initialize(initCtx); err != nil {
 		slog.Error("lsp: initialize failed", "name", name, "error", err)
 		client.kill()
+		client.setState(StateError)
 		m.mu.Lock()
-		delete(m.clients, name)
+		if m.clients[name] == client {
+			delete(m.clients, name)
+		}
 		m.mu.Unlock()
 		return
 	}
 	if err := client.waitReady(initCtx); err != nil {
-		slog.Warn("lsp: server not fully ready, continuing", "name", name, "error", err)
+		slog.Warn("lsp: server failed to become ready", "name", name, "error", err)
+		client.kill()
 		client.setState(StateError)
+		m.mu.Lock()
+		if m.clients[name] == client {
+			delete(m.clients, name)
+		}
+		m.mu.Unlock()
 	}
 }
 
@@ -316,8 +351,31 @@ func handles(spec ServerSpec, path, workDir string) bool {
 	return handlesFiletype(spec.FileTypes, path) && hasRootMarkers(workDir, spec.RootMarkers)
 }
 
+// Close permanently prevents new starts and joins every owned server.
+func (m *Manager) Close(ctx context.Context) {
+	m.mu.Lock()
+	m.closed = true
+	m.mu.Unlock()
+	m.StopAll(ctx)
+}
+
 // StopAll shuts every server down gracefully.
 func (m *Manager) StopAll(ctx context.Context) {
+	m.stopMu.Lock()
+	defer m.stopMu.Unlock()
+	m.mu.Lock()
+	m.stopping = true
+	m.cancelRun()
+	m.mu.Unlock()
+	// Startup owns processes before publishing them in clients. Join startup
+	// before taking the snapshot so none can appear after shutdown.
+	m.starting.Wait()
+	defer func() {
+		m.mu.Lock()
+		m.runCtx, m.cancelRun = context.WithCancel(context.Background())
+		m.stopping = false
+		m.mu.Unlock()
+	}()
 	m.mu.Lock()
 	snapshot := m.clients
 	m.clients = map[string]*Client{}

@@ -1,0 +1,45 @@
+/* 记忆图谱：SVG 画布 + 右侧详情。只用 Win7 可用浏览器（Chrome 109）支持的 CSS。 */
+.mgraph{display:flex;flex-direction:column;gap:10px;color:var(--text)}
+.mgraph button,.mgraph select{font-family:inherit}
+.mgraph button{cursor:pointer}
+.mgraph button:disabled{opacity:.5;cursor:default}
+.mgraph-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.mgraph-grow{flex:1}
+.mgraph-seg{display:inline-flex;border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden}
+.mgraph-seg button{border:0;background:transparent;color:var(--text-dim);padding:5px 11px;font-size:12px}
+.mgraph-seg button.on{background:var(--accent-bg-strong);color:var(--accent-text);font-weight:600}
+.mgraph-select{border:1px solid var(--border);border-radius:var(--radius-md);background:var(--input-bg);color:var(--text);padding:5px 8px;font-size:12px;outline:none}
+.mgraph-btn{border:1px solid var(--border);border-radius:var(--radius-md);background:transparent;color:var(--text-dim);padding:5px 10px;font-size:12px;white-space:nowrap}
+.mgraph-btn.primary{border-color:transparent;background:var(--accent-bg);color:var(--accent-text);font-weight:700}
+
+.mgraph-kinds{display:flex;flex-wrap:wrap;gap:6px}
+.mgraph-kind{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:12px;background:transparent;color:var(--text-dim);padding:3px 10px;font-size:11.5px}
+.mgraph-kind i{display:inline-block;width:8px;height:8px;border-radius:50%}
+.mgraph-kind em{font-style:normal;color:var(--text-dim);font-variant-numeric:tabular-nums}
+.mgraph-kind.on{border-color:var(--accent);background:var(--accent-bg);color:var(--accent-text)}
+
+.mgraph-notice{border-radius:var(--radius-md);padding:8px 12px;font-size:12px;line-height:1.7;border:1px solid var(--border-subtle);background:var(--surface-2);color:var(--text-dim)}
+.mgraph-notice.warn{border-color:var(--warning);color:var(--text)}
+.mgraph-error{border-radius:var(--radius-md);padding:8px 12px;font-size:12px;border:1px solid var(--error);color:var(--error);background:var(--surface-2)}
+
+.mgraph-body{display:flex;gap:10px;align-items:stretch;min-height:420px}
+.mgraph-stage{position:relative;flex:1;min-width:0;height:460px;border:1px solid var(--border-subtle);border-radius:var(--radius-md);background:var(--surface-2);overflow:hidden;color:var(--text-dim)}
+.mgraph-stage svg{display:block;cursor:grab;touch-action:none;user-select:none}
+.mgraph-stage svg:active{cursor:grabbing}
+.mgraph-node{cursor:pointer;outline:none}
+.mgraph-node:focus circle:first-child{stroke:var(--accent);stroke-width:3}
+.mgraph-label{font-size:11px;fill:var(--text);paint-order:stroke;stroke:var(--surface-2);stroke-width:3px;pointer-events:none}
+.mgraph-caption{font-size:13px;font-weight:700;cursor:pointer}
+.mgraph-empty{position:absolute;left:0;right:0;top:0;bottom:0;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;font-size:13px;line-height:1.8;color:var(--text-dim)}
+.mgraph-busy{position:absolute;right:10px;top:8px;font-size:11px;color:var(--text-dim);background:var(--surface);border-radius:8px;padding:2px 8px}
+
+.mgraph-side{flex:0 0 232px;max-width:36%;border:1px solid var(--border-subtle);border-radius:var(--radius-md);background:var(--surface-2);padding:12px;font-size:12px;line-height:1.7;overflow:auto;max-height:460px}
+.mgraph-side-kind{font-size:11px;font-weight:700;margin-bottom:4px}
+.mgraph-side-title{font-size:13.5px;font-weight:700;color:var(--text-strong);word-break:break-word;margin-bottom:8px}
+.mgraph-facts{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;margin:0 0 10px}
+.mgraph-facts dt{color:var(--text-dim)}
+.mgraph-facts dd{margin:0;min-width:0;word-break:break-all}
+.mgraph-facts .mono{font-family:monospace;font-size:11px}
+.mgraph-side-actions{display:flex;flex-wrap:wrap;gap:6px}
+.mgraph-side-hint{color:var(--text-dim)}
+@media (max-width:760px){.mgraph-body{flex-direction:column}.mgraph-side{flex-basis:auto;max-width:none;max-height:none}}

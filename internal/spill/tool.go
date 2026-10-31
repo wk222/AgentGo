@@ -1,6 +1,7 @@
 package spill
 
 import (
+	"agentgo/internal/governance"
 	"context"
 	"fmt"
 
@@ -34,6 +35,10 @@ func NewFetchSpillTool(store Store) (tool.InvokableTool, error) {
 		"fetch_spill_content",
 		"Retrieve sliced or filtered content from a spilled/offloaded tool output by its spill_id.",
 		func(ctx context.Context, in fetchSpillInput) (fetchSpillOutput, error) {
+			record, err := store.GetRecord(ctx, in.SpillID)
+			if err != nil || record == nil || record.SessionID != governance.SessionIDFromContext(ctx) {
+				return fetchSpillOutput{}, fmt.Errorf("spill: result unavailable in this session")
+			}
 			res, err := store.Fetch(ctx, in.SpillID, FetchOptions{
 				OffsetLine:  in.OffsetLine,
 				LimitLines:  in.LimitLines,

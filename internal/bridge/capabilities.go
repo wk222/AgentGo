@@ -30,7 +30,7 @@ var capabilityDefs = []capabilityDef{
 	{id: "chat.eino", title: "Eino agent chat", needs: []string{"eino"}},
 	{id: "coding.agent", title: "Coding agent workflow node", needs: []string{"coding-agent"}},
 	{id: "code.tools", title: "Code-aware tools (LSP, edit, search)", needs: []string{"codetools"}},
-	{id: "office.docs", title: "Word and Excel generation", needs: []string{"officedoc"}},
+	{id: "office.docs", title: "Word, Excel and PowerPoint documents", needs: []string{"officedoc"}},
 	{id: "tools.builtin", title: "Built-in agent tools", needs: []string{"toolset"}},
 	{id: "workflow", title: "Workflows", needs: []string{"workflow"}},
 	{id: "approvals", title: "Human approval of risky actions", needs: []string{"approvals"}},

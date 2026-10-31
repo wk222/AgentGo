@@ -6,15 +6,18 @@ import (
 	"path/filepath"
 	"strings"
 
+	"agentgo/internal/agent"
 	"agentgo/internal/config"
 )
 
 // LLMConfig mirrors PyBot llm_config (OpenAI-compatible endpoint).
 type LLMConfig struct {
-	APIBase       string `json:"api_base"`
-	APIKey        string `json:"api_key"`
-	Model         string `json:"model"`
-	FallbackModel string `json:"fallback_model,omitempty"`
+	APIBase         string `json:"api_base"`
+	APIKey          string `json:"api_key"`
+	Model           string `json:"model"`
+	FallbackModel   string `json:"fallback_model,omitempty"`
+	ContextWindow   int    `json:"context_window,omitempty"`
+	MaxOutputTokens int    `json:"max_output_tokens,omitempty"`
 }
 
 // GovernanceConfig persists control preset (strict / balanced / open).
@@ -87,6 +90,8 @@ func loadAppConfig(dataDir string) (LLMConfig, GovernanceConfig, WorkspaceConfig
 		if stored.LLM.Model != "" {
 			cfg.Model = stored.LLM.Model
 		}
+		cfg.ContextWindow = stored.LLM.ContextWindow
+		cfg.MaxOutputTokens = stored.LLM.MaxOutputTokens
 		if stored.LLM.FallbackModel != "" {
 			cfg.FallbackModel = stored.LLM.FallbackModel
 		}
@@ -135,4 +140,8 @@ func saveAppConfig(dataDir string, cfg LLMConfig, gov GovernanceConfig, ws Works
 func saveConfig(dataDir string, cfg LLMConfig) error {
 	_, gov, ws := loadAppConfig(dataDir)
 	return saveAppConfig(dataDir, cfg, gov, ws)
+}
+
+func (c LLMConfig) agentSettings() agent.LLMSettings {
+	return agent.LLMSettings{APIBase: c.APIBase, APIKey: c.APIKey, Model: c.Model, FallbackModel: c.FallbackModel, ContextWindow: c.ContextWindow, MaxOutputTokens: c.MaxOutputTokens}
 }

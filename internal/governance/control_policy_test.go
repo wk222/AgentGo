@@ -62,7 +62,7 @@ func TestRunBatchScriptAlwaysRequiresApproval(t *testing.T) {
 
 func TestPathPolicyBlocksTraversal(t *testing.T) {
 	root := t.TempDir()
-	pipe := BuildDefaultToolPolicyPipeline(BuildPolicy("balanced", root), NewToolCallTracker())
+	pipe := BuildDefaultToolPolicyPipeline()
 	dec := pipe.Evaluate(ToolPolicyContext{
 		ToolName:    "read_workspace",
 		Arguments:   `{"path":"../../etc/passwd"}`,
@@ -75,15 +75,12 @@ func TestPathPolicyBlocksTraversal(t *testing.T) {
 }
 
 func TestRateLimitStage(t *testing.T) {
-	tr := NewToolCallTracker()
-	pipe := NewToolPolicyPipeline(RateLimitStage{Tracker: tr})
+	pipe := NewToolPolicyPipeline(RateLimitStage{})
 	ctrl := ControlPolicyFromMode("balanced")
 	ctrl.MaxCallsPerTool = 2
 	ctx := ToolPolicyContext{
-		ToolName: "echo", SessionID: "s1", Control: ctrl,
+		ToolName: "echo", SessionID: "s1", Control: ctrl, RecentCalls: 2,
 	}
-	tr.Record("s1", "echo")
-	tr.Record("s1", "echo")
 	dec := pipe.Evaluate(ctx)
 	if dec.Allowed {
 		t.Fatal("expected rate limit deny")

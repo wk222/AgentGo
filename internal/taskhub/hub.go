@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -57,6 +58,16 @@ type Hub struct {
 	mu       sync.RWMutex
 	emitters []func(taskID string, ev Event)
 	runFn    func(ctx context.Context, t Task, emit func(Event)) error
+
+	// live holds the tasks this process is running right now. The table cannot say
+	// that: a row left at "running" by a process that died looks exactly the same.
+	liveMu sync.Mutex
+	live   map[string]*liveTask
+}
+
+type liveTask struct {
+	task   Task
+	cancel context.CancelFunc
 }
 
 func New(db *sql.DB) (*Hub, error) {
@@ -136,30 +147,108 @@ func (h *Hub) Start(kind, sessionID, input string) (Task, error) {
 		return Task{}, err
 	}
 	h.appendEvent(id, EventStatus, `{"status":"queued"}`)
-	go h.runTask(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	h.track(t, cancel)
+	go h.runTask(ctx, t)
 	return t, nil
 }
 
-func (h *Hub) runTask(t Task) {
+func (h *Hub) runTask(ctx context.Context, t Task) {
+	defer h.untrack(t.ID)
 	if h.runFn == nil {
 		h.fail(t.ID, "no task runner configured")
 		return
 	}
 	h.setStatus(t.ID, StatusRunning)
+	h.markLive(t.ID, StatusRunning)
 	h.appendEvent(t.ID, EventStatus, `{"status":"running"}`)
-	ctx := context.Background()
 	emit := func(ev Event) {
+		if ev.Type == EventError && ctx.Err() != nil {
+			return // stopping a task is not a failure; "cancelled" says it
+		}
 		if ev.TaskID == "" {
 			ev.TaskID = t.ID
 		}
 		h.appendEvent(t.ID, ev.Type, ev.Payload)
 	}
 	err := h.runFn(ctx, t, emit)
-	if err != nil {
+	switch {
+	case err != nil && ctx.Err() != nil:
+		// The only thing that ends this context is Cancel. A task that finished
+		// anyway, just as the user pressed it, keeps its result.
+		h.cancelled(t.ID)
+	case err != nil:
 		h.fail(t.ID, err.Error())
-		return
+	default:
+		h.complete(t.ID, "")
 	}
-	h.complete(t.ID, "")
+}
+
+func (h *Hub) track(t Task, cancel context.CancelFunc) {
+	h.liveMu.Lock()
+	defer h.liveMu.Unlock()
+	if h.live == nil {
+		h.live = make(map[string]*liveTask)
+	}
+	h.live[t.ID] = &liveTask{task: t, cancel: cancel}
+}
+
+func (h *Hub) untrack(id string) {
+	h.liveMu.Lock()
+	lt := h.live[id]
+	delete(h.live, id)
+	h.liveMu.Unlock()
+	if lt != nil {
+		lt.cancel() // release the context's resources once the task is over
+	}
+}
+
+func (h *Hub) markLive(id, status string) {
+	h.liveMu.Lock()
+	defer h.liveMu.Unlock()
+	if lt := h.live[id]; lt != nil {
+		lt.task.Status = status
+		lt.task.UpdatedAt = time.Now().Unix()
+	}
+}
+
+// Active returns the tasks this process is running (or about to), oldest first.
+// Tasks other processes started, and rows a dead process left at "running", are
+// not in it: nothing here could stop them, and they are not running here.
+func (h *Hub) Active() []Task {
+	h.liveMu.Lock()
+	out := make([]Task, 0, len(h.live))
+	for _, lt := range h.live {
+		out = append(out, lt.task)
+	}
+	h.liveMu.Unlock()
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].CreatedAt != out[j].CreatedAt {
+			return out[i].CreatedAt < out[j].CreatedAt
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out
+}
+
+// Cancel asks a task this process is running to stop. It returns false when the
+// task is not running here (already finished, or somebody else's). The task ends
+// as "cancelled" once its runner returns.
+func (h *Hub) Cancel(id string) bool {
+	h.liveMu.Lock()
+	lt := h.live[id]
+	h.liveMu.Unlock()
+	if lt == nil {
+		return false
+	}
+	lt.cancel()
+	return true
+}
+
+func (h *Hub) cancelled(id string) {
+	now := time.Now().Unix()
+	_, _ = h.db.Exec(`UPDATE tasks SET status=?, updated_at=? WHERE id=?`, StatusCancelled, now, id)
+	h.appendEvent(id, EventStatus, `{"status":"cancelled"}`)
 }
 
 func (h *Hub) setStatus(id, status string) {
@@ -180,12 +269,18 @@ func (h *Hub) fail(id, errMsg string) {
 	h.appendEvent(id, EventError, string(b))
 }
 
+// taskColumns is what List and Get read, in Scan order. A task is inserted without
+// a result or an error, and a finished one has only one of the two, so those
+// columns are NULL for every row sooner or later; database/sql cannot scan a NULL
+// into a string, and without the COALESCE the whole list failed on the first task.
+const taskColumns = `id, kind, COALESCE(session_id,''), COALESCE(input,''), status, COALESCE(result,''), COALESCE(error,''), created_at, updated_at`
+
 // List returns recent tasks.
 func (h *Hub) List(limit int) ([]Task, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	rows, err := h.db.Query(`SELECT id, kind, session_id, input, status, result, error, created_at, updated_at FROM tasks ORDER BY updated_at DESC LIMIT ?`, limit)
+	rows, err := h.db.Query(`SELECT `+taskColumns+` FROM tasks ORDER BY updated_at DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -221,7 +316,7 @@ func (h *Hub) EventsSince(taskID string, afterSeq int64) ([]Event, error) {
 
 func (h *Hub) Get(taskID string) (Task, error) {
 	var t Task
-	err := h.db.QueryRow(`SELECT id, kind, session_id, input, status, result, error, created_at, updated_at FROM tasks WHERE id=?`, taskID).
+	err := h.db.QueryRow(`SELECT `+taskColumns+` FROM tasks WHERE id=?`, taskID).
 		Scan(&t.ID, &t.Kind, &t.SessionID, &t.Input, &t.Status, &t.Result, &t.Error, &t.CreatedAt, &t.UpdatedAt)
 	return t, err
 }

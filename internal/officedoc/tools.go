@@ -15,9 +15,20 @@ import (
 
 // Tool names, as the model sees them.
 const (
-	ToolCreateDocx = "create_docx"
-	ToolCreateXlsx = "create_xlsx"
+	ToolCreateDocx  = "create_docx"
+	ToolCreateXlsx  = "create_xlsx"
+	ToolReadXlsx    = "read_xlsx"
+	ToolAnalyzeXlsx = "analyze_xlsx"
+	ToolEditXlsx    = "edit_xlsx"
+	ToolCreatePptx  = "create_pptx"
+	ToolInspectPptx = "inspect_pptx"
 )
+
+// ReadOnly reports whether the named tool never changes a file; the others
+// write inside the workspace and are governed like any file write.
+func ReadOnly(name string) bool {
+	return name == ToolReadXlsx || name == ToolAnalyzeXlsx || name == ToolInspectPptx
+}
 
 // Source names this package's tools in governance audit records.
 const Source = "officedoc"
@@ -83,7 +94,70 @@ func Tools(env Env) ([]tool.BaseTool, error) {
 	if err != nil {
 		return nil, err
 	}
-	return []tool.BaseTool{docx, xlsx}, nil
+	readX, err := utils.InferTool(ToolReadXlsx,
+		"Read an existing Excel (.xlsx) workbook in the workspace: lists every sheet and returns the cell values of a range, "+
+			"with formulas calculated and dates/percentages as displayed. Use find to locate text in one or all sheets. "+
+			"It also lists the charts on the sheet (anchor cell, type, title, data ranges) so you can tell whether they still match the data. "+
+			"Read-only; use it before edit_xlsx and again afterwards to confirm the result.",
+		func(_ context.Context, in readXlsxInput) (readXlsxOutput, error) {
+			return readXlsx(env, in)
+		})
+	if err != nil {
+		return nil, err
+	}
+	analyzeX, err := utils.InferTool(ToolAnalyzeXlsx,
+		"Analyze a table in an existing Excel (.xlsx) workbook and calculate exactly: use it for every total, average, count, ranking, "+
+			"top/bottom N, list of rows above or below a target, and period-over-period comparison, instead of adding numbers up yourself. "+
+			"It finds the header row (title and note rows are skipped), reads percentages and text-typed numbers as numbers (percent columns are in percentage points: 96 means 96%), "+
+			"leaves out total rows, and reports blank or unreadable cells so nothing is silently counted as zero. "+
+			"Several queries per call: profile (columns, types, values, data problems), aggregate (where / group_by / metrics / having / order_by / limit / rank), "+
+			"compare (current vs previous period with change and change %), pivot (a metric by period) and rows (list matching rows). "+
+			"Start with a profile if you have not seen the table; its \"stored\" field says how percent and date columns are really stored, which you need before writing formulas. Read-only. Playbook: activate_skill skill:office-xlsx.",
+		func(_ context.Context, in analyzeXlsxInput) (analyzeXlsxOutput, error) {
+			return analyzeXlsx(env, in)
+		})
+	if err != nil {
+		return nil, err
+	}
+	editX, err := utils.InferTool(ToolEditXlsx,
+		"Edit an existing Excel (.xlsx) workbook: set cells and formulas, fill ranges, add/rename/delete sheets, insert/delete rows, "+
+			"fill a formula down a column, format cells (bold, colours, number format, borders), colour cells by a rule (conditional formatting), column widths, merge, freeze panes, filters, and add or delete charts. "+
+			"Existing charts keep their data ranges when rows move: read_xlsx lists them, and a chart that no longer fits is rebuilt with delete_chart then add_chart. "+
+			"All operations are applied together or not at all. An in-place edit first leaves a timestamped backup copy next to the file. "+
+			"Playbook: activate_skill skill:office-xlsx.",
+		func(_ context.Context, in editXlsxInput) (editXlsxOutput, error) {
+			return editXlsx(env, in)
+		})
+	if err != nil {
+		return nil, err
+	}
+	pptx, err := utils.InferTool(ToolCreatePptx,
+		"Create a PowerPoint (.pptx) deck in the workspace from a structured outline: automatic cover, bullet, two-column, table "+
+			"(long tables are split over slides), native editable charts, key-number cards, timeline, picture and section slides, with speaker notes. "+
+			"A free-form svg slide (flow charts, diagrams, cards) takes a constrained SVG and becomes native editable shapes, not a picture. "+
+			"Text is sized to fit and the look comes from a theme (blue, mobile, green, red, gray). Opens in PowerPoint and WPS. "+
+			"Write slide titles as conclusions, keep to about 7 points per slide, and put numbers in chart/table/stats slides rather than prose. "+
+			"The reply lists warnings (text that does not fit): fix them, then check the file with inspect_pptx. "+
+			"For a new deck, first read the playbook with activate_skill skill:office-pptx. "+
+			"Fails if the file exists unless overwrite is true.",
+		func(_ context.Context, in createPptxInput) (createPptxOutput, error) {
+			return createPptx(env, in)
+		})
+	if err != nil {
+		return nil, err
+	}
+	inspect, err := utils.InferTool(ToolInspectPptx,
+		"Read an existing PowerPoint (.pptx) file in the workspace and describe every slide: layout, title, text, tables, charts "+
+			"(type, categories, series values), picture count and speaker notes, then check the layout: missing titles, text that "+
+			"overflows its box, text below 10 pt, shapes off the slide or overlapping, empty or very dense slides. "+
+			"Read-only; run it on a deck made by create_pptx (or any deck) and fix what it reports.",
+		func(_ context.Context, in inspectPptxInput) (inspectPptxOutput, error) {
+			return inspectPptx(env, in)
+		})
+	if err != nil {
+		return nil, err
+	}
+	return []tool.BaseTool{docx, xlsx, readX, analyzeX, editX, pptx, inspect}, nil
 }
 
 func createDocx(env Env, in createDocxInput) (createOutput, error) {

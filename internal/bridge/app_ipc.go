@@ -7,9 +7,9 @@ import (
 	"os"
 	"strings"
 
-	"agentgo/internal/agent"
 	"agentgo/internal/applog"
 	"agentgo/internal/channels"
+	"agentgo/internal/engine"
 	"agentgo/internal/memory"
 	"agentgo/internal/tools"
 )
@@ -25,10 +25,14 @@ func (s *AppService) ListSessions() []map[string]any {
 	}
 	out := make([]map[string]any, 0, len(list))
 	for _, x := range list {
-		out = append(out, map[string]any{
+		row := map[string]any{
 			"id": x.ID, "title": x.Title, "updated_at": x.UpdatedAt,
 			"message_count": x.MessageCount,
-		})
+		}
+		if x.ParentID != "" { // a fork: where it came from, for the lineage line
+			row["parent_id"], row["parent_title"], row["parent_gone"] = x.ParentID, x.ParentTitle, x.ParentGone
+		}
+		out = append(out, row)
 	}
 	applog.Session("ListSessions count=%d", len(out))
 	return out
@@ -62,6 +66,43 @@ func (s *AppService) DeleteSession(sessionID string) map[string]any {
 	}
 	applog.Session("DeleteSession id=%s", sessionID)
 	return map[string]any{"success": true, "id": sessionID}
+}
+
+// DeleteSessionsBatch removes multiple chat sessions in one IPC round-trip.
+func (s *AppService) DeleteSessionsBatch(sessionIDs []string) map[string]any {
+	ctx := context.Background()
+	deleted, err := s.rt.Sessions().DeleteBatch(ctx, sessionIDs)
+	if err != nil {
+		applog.Session("DeleteSessionsBatch err=%v", err)
+		return map[string]any{"success": false, "error": err.Error(), "deleted": deleted}
+	}
+	applog.Session("DeleteSessionsBatch count=%d/%d", deleted, len(sessionIDs))
+	return map[string]any{"success": true, "deleted": deleted}
+}
+
+// DeleteOtherSessions removes every session in SQLite except keepSessionID (across the entire DB, not just top 100).
+func (s *AppService) DeleteOtherSessions(keepSessionID string) map[string]any {
+	ctx := context.Background()
+	keepSessionID = strings.TrimSpace(keepSessionID)
+	deleted, err := s.rt.Sessions().DeleteAllExcept(ctx, keepSessionID)
+	if err != nil {
+		applog.Session("DeleteOtherSessions keep=%s err=%v", keepSessionID, err)
+		return map[string]any{"success": false, "error": err.Error(), "deleted": deleted}
+	}
+	applog.Session("DeleteOtherSessions keep=%s deleted=%d", keepSessionID, deleted)
+	return map[string]any{"success": true, "deleted": deleted, "keep_id": keepSessionID}
+}
+
+// DeleteSessionsByTitle removes all sessions matching title across the entire SQLite DB.
+func (s *AppService) DeleteSessionsByTitle(title string, keepSessionID string) map[string]any {
+	ctx := context.Background()
+	deleted, err := s.rt.Sessions().DeleteByTitle(ctx, title, keepSessionID)
+	if err != nil {
+		applog.Session("DeleteSessionsByTitle title=%q err=%v", title, err)
+		return map[string]any{"success": false, "error": err.Error(), "deleted": deleted}
+	}
+	applog.Session("DeleteSessionsByTitle title=%q keep=%s deleted=%d", title, keepSessionID, deleted)
+	return map[string]any{"success": true, "deleted": deleted}
 }
 
 // GetSessionMessages returns {session_id, messages, count} so the UI can verify IPC echoed the requested id.
@@ -110,6 +151,31 @@ func (s *AppService) GetSessionMessages(sessionID string) map[string]any {
 				if req, err := s.rt.Approvals().GetRequest(ctx, id); err == nil && req != nil {
 					row["status"] = req.Status
 					row["resolved"] = req.Status != "pending"
+				} else if s.rt.pending != nil {
+					if _, ok := s.rt.pending.Get(id); !ok {
+						row["resolved"] = true
+					}
+				}
+			}
+		}
+		if msgType == "question" {
+			if id, _ := row["approval_id"].(string); id != "" && s.rt.pending != nil {
+				if _, ok := s.rt.pending.Get(id); !ok {
+					row["resolved"] = true
+				}
+			}
+			if row["data"] == nil {
+				if argStr, ok := row["arguments"].(string); ok && strings.TrimSpace(argStr) != "" {
+					var parsed map[string]any
+					if err := json.Unmarshal([]byte(argStr), &parsed); err == nil && len(parsed) > 0 {
+						if rawChoices, ok := parsed["choices"].(string); ok && strings.TrimSpace(rawChoices) != "" {
+							var arr []string
+							if json.Unmarshal([]byte(rawChoices), &arr) == nil {
+								parsed["choices"] = arr
+							}
+						}
+						row["data"] = parsed
+					}
 				}
 			}
 		}
@@ -308,10 +374,6 @@ func (s *AppService) GetGatewayStatus() map[string]any {
 	return s.sseGatewayStatus()
 }
 
-func (s *AppService) GetMiddlewareStack() []string {
-	return agent.MiddlewareNames()
-}
-
 func (s *AppService) ListRegisteredTools() []string {
 	ctx := context.Background()
 	if s.rt.AgentRunner() == nil {
@@ -328,9 +390,10 @@ func (s *AppService) SendMessageWithSession(sessionID, userText string, images [
 		return s.SendMessage(userText)
 	}
 	applog.IPC("SendMessageWithSession", "enter session=%s len=%d", sessionID, len(userText))
-	ctx := s.transcript().Begin(context.Background(), sessionID, userText, images)
-	res := s.sendMessageCore(ctx, sessionID, userText, images, nil)
-	s.transcript().Finish(sessionID, coreMessages(res.Messages))
+	res := sendResultFromEngine(s.rt.runEngineTurn(context.Background(), engine.RunRequest{
+		Engine: EinoEngineID, SessionID: sessionID, Input: userText, Images: images,
+	}, nil))
+	s.emitPendingMessages(sessionID, res.Messages)
 	return res
 }
 
@@ -347,8 +410,8 @@ func (s *AppService) SteerSession(sessionID, instruction string) map[string]any 
 	}
 	if runner.SteerSessionRun(sessionID, instruction) {
 		applog.IPC("SteerSession", "queued steer for session=%s: %q", sessionID, instruction)
-		if s.app != nil {
-			s.app.Event.Emit("chat:steered", map[string]any{
+		if s.eventsOn() {
+			s.emit("chat:steered", map[string]any{
 				"session_id":  sessionID,
 				"instruction": instruction,
 			})

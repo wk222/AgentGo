@@ -48,7 +48,7 @@ func NewSpillMiddleware(store spill.Store) (*SpillMiddleware, error) {
 	}, nil
 }
 
-func (m *SpillMiddleware) BeforeAgent(ctx context.Context, runCtx *adk.ChatModelAgentContext[*schema.Message]) (context.Context, *adk.ChatModelAgentContext[*schema.Message], error) {
+func (m *SpillMiddleware) BeforeAgent(ctx context.Context, runCtx *adk.TypedChatModelAgentContext[*schema.Message]) (context.Context, *adk.TypedChatModelAgentContext[*schema.Message], error) {
 	if runCtx == nil {
 		return ctx, runCtx, nil
 	}
@@ -64,14 +64,24 @@ func (m *SpillMiddleware) BeforeModelRewriteState(ctx context.Context, state *ad
 		return ctx, state, nil
 	}
 
-	sessionID := "default"
-	if sid, ok := ctx.Value("session_id").(string); ok && sid != "" {
-		sessionID = sid
-	}
+	sessionID := SessionIDFromContext(ctx)
+	toolNames := map[string]string{}
 
 	for _, msg := range state.Messages {
-		if msg == nil || msg.Role != schema.Tool {
+		if msg == nil {
 			continue
+		}
+		if msg.Role == schema.Assistant {
+			for _, call := range msg.ToolCalls {
+				toolNames[call.ID] = call.Function.Name
+			}
+		}
+		if msg.Role != schema.Tool {
+			continue
+		}
+		toolName := msg.Name
+		if toolName == "" {
+			toolName = toolNames[msg.ToolCallID]
 		}
 		if len(msg.Content) < m.maxBytes && strings.Count(msg.Content, "\n") < m.maxLines {
 			continue
@@ -88,7 +98,6 @@ func (m *SpillMiddleware) BeforeModelRewriteState(ctx context.Context, state *ad
 		}
 
 		toolCallID := msg.ToolCallID
-		toolName := msg.Name
 		raw := msg.Content
 
 		record, err := m.store.Save(ctx, sessionID, toolCallID, toolName, []byte(raw))

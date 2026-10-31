@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -76,12 +77,27 @@ func (s *ReviewStore) Begin(sessionID, root string) (resumed bool, pending int, 
 
 	sessionID = reviewSessionID(sessionID)
 	if existing := s.reviews[sessionID]; existing != nil && SamePath(existing.Root, root) {
-		changes, scanErr := collectReviewChanges(existing)
+		current, scanErr := scanCurrentWorkspace(existing)
 		if scanErr != nil {
 			return false, 0, existing.Skipped, scanErr
 		}
+		changes := compareReviewChanges(existing, current)
 		if len(changes) > 0 {
 			return true, len(changes), existing.Skipped, nil
+		}
+		if slices.Equal(existing.Ignores, LoadIgnore(root)) {
+			// The scan proved the baseline content unchanged; reuse captured bytes
+			// instead of rereading up to 128 MiB for another conversational turn.
+			for path, before := range existing.Files {
+				if after, ok := current.Files[path]; ok {
+					before.Mode = after.Mode
+					before.Size = after.Size
+					before.ModTime = after.ModTime
+					existing.Files[path] = before
+				}
+			}
+			existing.CreatedAt = time.Now()
+			return false, 0, existing.Skipped, nil
 		}
 	}
 
@@ -348,6 +364,10 @@ func collectReviewChanges(review *Review) ([]ReviewChange, error) {
 	if err != nil {
 		return nil, err
 	}
+	return compareReviewChanges(review, current), nil
+}
+
+func compareReviewChanges(review, current *Review) []ReviewChange {
 	var changes []ReviewChange
 	for path, before := range review.Files {
 		after, exists := current.Files[path]
@@ -365,7 +385,7 @@ func collectReviewChanges(review *Review) ([]ReviewChange, error) {
 		}
 	}
 	sort.Slice(changes, func(i, j int) bool { return changes[i].Path < changes[j].Path })
-	return changes, nil
+	return changes
 }
 
 // scanCurrentWorkspace avoids rereading unchanged file content on every UI refresh.

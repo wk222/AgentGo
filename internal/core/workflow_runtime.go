@@ -139,11 +139,10 @@ func (r *WorkflowRuntime) ToolsBridge(ctx context.Context, cbs []callbacks.Handl
 	if r.Tools == nil {
 		return nil, fmt.Errorf("tool registry unavailable")
 	}
-	var toolMW []compose.ToolMiddleware
+	toolMW := []compose.ToolMiddleware{agent.ComposeToolHealMiddleware()}
 	if r.Approvals != nil {
 		toolMW = append(toolMW, governance.ComposeToolMiddleware(r.Approvals, r.EffectivePolicy()))
 	}
-	toolMW = agent.AppendComposeToolMiddlewares(toolMW, agent.ComposeToolHealMiddleware())
 	reg := r.Tools
 	return workflow.NewToolsBridge(ctx, workflow.ToolsBridgeConfig{
 		Tools:               reg.GetAllTools(),

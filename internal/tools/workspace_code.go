@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -13,12 +12,13 @@ import (
 	"strings"
 
 	"github.com/cloudwego/eino/components/tool/utils"
+
+	"agentgo/internal/pathgrant"
 )
 
 const (
 	maxAgentSourceBytes = 2 * 1024 * 1024
 	maxSearchResults    = 200
-	maxGitOutputBytes   = 64 * 1024
 )
 
 var agentIgnoredDirs = map[string]bool{
@@ -84,16 +84,6 @@ type createWorkspaceFileInput struct {
 	Content string `json:"content" jsonschema:"description=Complete initial file content"`
 }
 
-type getWorkspaceChangesInput struct {
-	Path string `json:"path,omitempty" jsonschema:"description=Optional workspace-relative path filter"`
-}
-
-type getWorkspaceChangesOutput struct {
-	Status    string `json:"status"`
-	Diff      string `json:"diff"`
-	Truncated bool   `json:"truncated"`
-}
-
 func registerWorkspaceCodeTools(r *Registry, workspaceRoot string) error {
 	readTool, err := utils.InferTool("read_workspace_file",
 		"Read a bounded line range from a text file inside the workspace. Use before editing; request additional ranges when needed.",
@@ -136,7 +126,7 @@ func registerWorkspaceCodeTools(r *Registry, workspaceRoot string) error {
 	r.AddTool(createTool)
 
 	changesTool, err := utils.InferTool("get_workspace_changes",
-		"Return git status plus staged and unstaged textual diffs for the workspace. Use after edits to review scope before reporting completion.",
+		getWorkspaceChangesDescription,
 		func(ctx context.Context, in getWorkspaceChangesInput) (getWorkspaceChangesOutput, error) {
 			return getWorkspaceChanges(ctx, workspaceRoot, in)
 		})
@@ -168,7 +158,7 @@ func resolveWorkspacePath(root, input string, allowRoot, mustExist bool) (string
 		return "", "", fmt.Errorf("workspace-relative path is required")
 	}
 	if filepath.IsAbs(raw) || filepath.VolumeName(raw) != "" {
-		return "", "", fmt.Errorf("absolute paths are not allowed: %q", input)
+		return resolveAbsolute(rootAbs, input, raw, mustExist)
 	}
 	clean := filepath.Clean(filepath.FromSlash(raw))
 	if clean == "." && !allowRoot {
@@ -177,39 +167,9 @@ func resolveWorkspacePath(root, input string, allowRoot, mustExist bool) (string
 	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
 		return "", "", fmt.Errorf("path escapes workspace: %q", input)
 	}
-	full := filepath.Join(rootAbs, clean)
-	if mustExist {
-		evaluated, evalErr := filepath.EvalSymlinks(full)
-		if evalErr != nil {
-			return "", "", evalErr
-		}
-		full = evaluated
-	} else {
-		// Resolve the nearest existing parent so a newly created nested path
-		// cannot escape through a symlinked ancestor.
-		cursor := filepath.Dir(full)
-		missing := make([]string, 0, 4)
-		for {
-			if _, statErr := os.Lstat(cursor); statErr == nil {
-				break
-			} else if !os.IsNotExist(statErr) {
-				return "", "", statErr
-			}
-			parent := filepath.Dir(cursor)
-			if parent == cursor {
-				return "", "", fmt.Errorf("cannot resolve parent for %q", input)
-			}
-			missing = append([]string{filepath.Base(cursor)}, missing...)
-			cursor = parent
-		}
-		evaluated, evalErr := filepath.EvalSymlinks(cursor)
-		if evalErr != nil {
-			return "", "", evalErr
-		}
-		for _, part := range missing {
-			evaluated = filepath.Join(evaluated, part)
-		}
-		full = filepath.Join(evaluated, filepath.Base(full))
+	full, err := evalForAccess(filepath.Join(rootAbs, clean), input, mustExist)
+	if err != nil {
+		return "", "", err
 	}
 	rel, err := filepath.Rel(rootAbs, full)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
@@ -218,6 +178,60 @@ func resolveWorkspacePath(root, input string, allowRoot, mustExist bool) (string
 	return filepath.ToSlash(filepath.Clean(clean)), full, nil
 }
 
+// evalForAccess resolves symlinks in full. For a path that does not exist yet it
+// resolves the nearest existing parent, so a newly created nested path cannot
+// escape through a symlinked ancestor.
+func evalForAccess(full, input string, mustExist bool) (string, error) {
+	if mustExist {
+		return filepath.EvalSymlinks(full)
+	}
+	cursor := filepath.Dir(full)
+	missing := make([]string, 0, 4)
+	for {
+		if _, statErr := os.Lstat(cursor); statErr == nil {
+			break
+		} else if !os.IsNotExist(statErr) {
+			return "", statErr
+		}
+		parent := filepath.Dir(cursor)
+		if parent == cursor {
+			return "", fmt.Errorf("cannot resolve parent for %q", input)
+		}
+		missing = append([]string{filepath.Base(cursor)}, missing...)
+		cursor = parent
+	}
+	evaluated, err := filepath.EvalSymlinks(cursor)
+	if err != nil {
+		return "", err
+	}
+	for _, part := range missing {
+		evaluated = filepath.Join(evaluated, part)
+	}
+	return filepath.Join(evaluated, filepath.Base(full)), nil
+}
+
+// resolveAbsolute accepts an absolute path that lies inside the workspace, or
+// inside a folder the user approved for this workspace (internal/pathgrant). The
+// returned name for a granted path is the absolute path itself.
+func resolveAbsolute(rootAbs, input, raw string, mustExist bool) (string, string, error) {
+	if !filepath.IsAbs(raw) { // "C:file" is relative to a drive's current folder
+		return "", "", fmt.Errorf("absolute paths are not allowed: %q", input)
+	}
+	if strings.Contains(raw, "..") {
+		return "", "", fmt.Errorf("path escapes workspace: %q", input)
+	}
+	full, err := evalForAccess(filepath.Clean(filepath.FromSlash(raw)), input, mustExist)
+	if err != nil {
+		return "", "", err
+	}
+	if rel, err := filepath.Rel(rootAbs, full); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel) {
+		return filepath.ToSlash(rel), full, nil
+	}
+	if !pathgrant.Default.Allowed(rootAbs, full) {
+		return "", "", fmt.Errorf("path is outside the workspace and the user has not approved it: %q", input)
+	}
+	return filepath.ToSlash(full), full, nil
+}
 func readWorkspaceFile(root string, in readWorkspaceFileInput) (readWorkspaceFileOutput, error) {
 	clean, full, err := resolveWorkspacePath(root, in.Path, false, true)
 	if err != nil {
@@ -436,48 +450,4 @@ func createWorkspaceFile(root string, in createWorkspaceFileInput) (workspaceMut
 		return workspaceMutationOutput{}, err
 	}
 	return workspaceMutationOutput{Path: clean, Bytes: len(in.Content), Message: "new file created"}, nil
-}
-
-func getWorkspaceChanges(ctx context.Context, root string, in getWorkspaceChangesInput) (getWorkspaceChangesOutput, error) {
-	filter := ""
-	if strings.TrimSpace(in.Path) != "" {
-		clean, _, err := resolveWorkspacePath(root, in.Path, false, false)
-		if err != nil {
-			return getWorkspaceChangesOutput{}, err
-		}
-		filter = clean
-	}
-	argsFor := func(base ...string) []string {
-		if filter == "" {
-			return base
-		}
-		return append(base, "--", filter)
-	}
-	run := func(args ...string) (string, error) {
-		cmd := exec.CommandContext(ctx, "git", args...)
-		cmd.Dir = root
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			return "", fmt.Errorf("git %s: %s", strings.Join(args, " "), strings.TrimSpace(string(out)))
-		}
-		return string(out), nil
-	}
-	status, err := run(argsFor("status", "--short")...)
-	if err != nil {
-		return getWorkspaceChangesOutput{}, err
-	}
-	unstaged, unstagedErr := run(argsFor("diff", "--no-color")...)
-	staged, stagedErr := run(argsFor("diff", "--cached", "--no-color")...)
-	if unstagedErr != nil && stagedErr != nil {
-		return getWorkspaceChangesOutput{}, unstagedErr
-	}
-	diff := unstaged
-	if strings.TrimSpace(staged) != "" {
-		diff += "\n[staged changes]\n" + staged
-	}
-	truncated := len(diff) > maxGitOutputBytes
-	if truncated {
-		diff = diff[:maxGitOutputBytes] + "\n… diff truncated …"
-	}
-	return getWorkspaceChangesOutput{Status: status, Diff: diff, Truncated: truncated}, nil
 }

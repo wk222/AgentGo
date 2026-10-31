@@ -154,6 +154,25 @@
 - **未完成（如实记录）**：F5 的 5000 行目标；`ModeHints`（档位名写进提示词）——评测套件只能证明"不退化"，衡量不了"模型能不能说出自己所在档位"，
   而它会固定多花几十个 prompt token，所以没有为它做对照实验，暂不加；PTY 共享；内联样式清理。
 
+## 阶段 G — 前端重构（2026-10-17，已完成 M0–M7）
+
+设计与决策见 `docs/SYSTEM_DESIGN_2026-10-17-frontend.md`，现状结构见 `docs/FRONTEND.md`，基线数字见 `docs/ui-baseline/README.md`。
+
+| 里程碑 | 结果 |
+|---|---|
+| M0 基线 | `tsc` 零错误、`vite build`、`npm test`、一张预览截图（未做三尺寸截图集） |
+| M1 shared | `notify/confirmDialog` 替换全部原生 `alert/confirm`；删除 `naive-ui`；`runtime-client` 并入 `shared/` |
+| M2+M3 stores 与壳 | `App.tsx` 869→42 行；`layout/workspace/llm/sessionMode` 四个 store；活动栏 + 视图注册表 + keepAlive；Agent 三态；真实工作区切换器（含未保存拦截）；“扩展”页签合并内置应用/能力/Skills/渠道 |
+| M4 目录 | `panels/ components/ composables/ ipc/ utils/ workflow/` 拆入 `features/* shared/*`，旧目录全部删除 |
+| M5 对话 | `ChatPanel` 29 个 props → `provide/inject`（`chatContext.ts`） |
+| M6 样式 | 删除 `polish.css`，按功能拆入各 feature 的 css；`!important` 29→5 |
+| M7 文档 | 本节、`FRONTEND.md`；4 份 OpenSumi/旧 UI 方案与根目录 `plan.md`（OpenSumi Lite 方案）移入 `docs/archive/` |
+| M8 单纵栏 + 审查/审批/Steer | 移除代码页重复纵向活动栏改为顶部分段条；编辑器顶部新增内联 AI 变更审查条；`ReviewPanel` 移除 2s 轮询；打通 `ResolveApproval(id, ok, note, overrideArgs)` 改参放行与 `SteerSession` 对话流回显；状态栏新增 `✨ AI 修复` |
+| M9 舞台联动 + 任务清单 | `projectToolToStage` 自动把 `build_inner_app_iteratively` / `scaffold_inner_app` 投射到内置应用舞台并热重载；`InnerAppHost` 顶栏一键把运行时报错发给 Agent 修复；对话顶栏下方新增可折叠 `PlanTask` 进度条 |
+| M10 上下文 X-Ray 透视器 | 右抽屉新增 `X-Ray` 页签（`ContextXRayView`），联动 `SessionSpine`、`MemoryContextPrompt`、`MemoryDistill`、`MemoryFeedback` (`👍/👎`) 与可用 Skills；顶栏 `Cache-First · X-Ray` 胶囊一键直达 |
+
+**未做（如实记录）**：内联 SVG 统一为 `shared/icons`；面板内联样式清理；三尺寸截图集与 M6 前后像素级对比；Wails 真窗口里的标题栏拖拽区未验。
+
 ## 明确后置
 
 - IM 渠道、Browser 工具、33 PyFlow 节点、2071 式测试规模  

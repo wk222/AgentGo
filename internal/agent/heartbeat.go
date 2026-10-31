@@ -27,16 +27,16 @@ type HeartbeatConfig struct {
 // HeartbeatManager provides proactive idle-driven background inspection and goal tracking,
 // ported and enhanced from PurrCat's HeartbeatManager.
 type HeartbeatManager struct {
-	mu           sync.RWMutex
-	cfg          HeartbeatConfig
-	cfgPath      string
-	goalPath     string
-	lastMtime    time.Time
-	isIdle       bool
-	idleSince    time.Time
-	stopCh       chan struct{}
-	running      bool
-	onHeartbeat  func(goalText string)
+	mu          sync.RWMutex
+	cfg         HeartbeatConfig
+	cfgPath     string
+	goalPath    string
+	lastMtime   time.Time
+	isIdle      bool
+	idleSince   time.Time
+	stopCh      chan struct{}
+	running     bool
+	onHeartbeat func(goalText string)
 }
 
 // NewHeartbeatManager creates a new HeartbeatManager with configuration in dir.

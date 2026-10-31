@@ -45,10 +45,11 @@ func RegisterRememberTool(r *Registry, ingest func(ctx context.Context, rec memo
 			if scope == "" {
 				scope = "global"
 			}
-			modality := memory.NormalizeModality(strings.TrimSpace(in.Modality))
+			modality := strings.TrimSpace(in.Modality)
 			if modality == "" {
 				modality = "fact"
 			}
+			modality = memory.NormalizeModality(modality)
 			importance := in.Importance
 			if importance <= 0 {
 				importance = 1.0
@@ -118,11 +119,27 @@ func RegisterRecallTool(r *Registry, recall func(ctx context.Context, query stri
 			if err != nil {
 				return recallOutput{Error: err.Error()}, nil
 			}
-			return recallOutput{Results: res}, nil
+			out := recallOutput{Results: res}
+			if n := staleSourceCount(res); n > 0 {
+				out.Message = fmt.Sprintf("%d of these memories were learned from a file that has since changed or been deleted (see metadata.source_state); verify them against the current file or learn it again before relying on them", n)
+			}
+			return out, nil
 		})
 	if err != nil {
 		return err
 	}
 	r.AddTool(t)
 	return nil
+}
+
+// staleSourceCount counts recalled memories marked as learned from a source file
+// that has changed or been deleted.
+func staleSourceCount(records []memory.Record) int {
+	n := 0
+	for _, r := range records {
+		if s, _ := r.Metadata["source_state"].(string); s == memory.SourceChanged || s == memory.SourceDeleted {
+			n++
+		}
+	}
+	return n
 }

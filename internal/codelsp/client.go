@@ -19,7 +19,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	powernap "github.com/charmbracelet/x/powernap/pkg/lsp"
+	powernap "agentgo/internal/powernaplsp"
 	"github.com/charmbracelet/x/powernap/pkg/lsp/protocol"
 )
 
@@ -247,11 +247,11 @@ func (c *Client) kill() {
 // close shuts the server down gracefully, falling back to a kill after
 // closeTimeout (a hung server must not hang the app).
 func (c *Client) close(ctx context.Context) error {
-	c.closeAllFiles(ctx)
 	closeCtx, cancel := context.WithTimeout(ctx, closeTimeout)
 	defer cancel()
 	done := make(chan error, 1)
 	go func() {
+		c.closeAllFiles(closeCtx)
 		if err := c.pc.Shutdown(closeCtx); err != nil {
 			slog.Debug("lsp: shutdown", "name", c.name, "error", err)
 		}

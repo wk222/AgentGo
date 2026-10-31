@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -34,58 +35,65 @@ func TestLLMConnection(ctx context.Context, cfg LLMConfig) APITestResult {
 	}
 
 	base := strings.TrimRight(cfg.APIBase, "/")
-	url := base + "/models"
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	// A local /models endpoint can be healthy even when upstream authentication
+	// is broken. Verify a real, bounded chat request instead.
+	payload, _ := json.Marshal(map[string]any{"model": cfg.Model, "messages": []map[string]string{{"role": "user", "content": "Reply with OK."}}, "stream": true, "max_tokens": 256})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, chatCompletionURL(base), bytes.NewReader(payload))
 	if err != nil {
 		return APITestResult{OK: false, Message: err.Error()}
 	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream, application/json")
 	req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
 	req.Header.Set("api-key", cfg.APIKey)
-
-	client := &http.Client{Timeout: 20 * time.Second}
+	client := &http.Client{Timeout: 60 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return APITestResult{OK: false, Message: "无法连接: " + err.Error()}
+		return APITestResult{OK: false, Message: "模型连接失败或等待首个响应超时，请检查网络和 API 地址"}
 	}
 	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode == 401 || resp.StatusCode == 403 {
-		return APITestResult{
-			OK:       false,
-			Message:  "鉴权失败，请检查 API Key",
-			HTTPCode: resp.StatusCode,
-		}
-	}
 	if resp.StatusCode >= 400 {
-		return APITestResult{
-			OK:       false,
-			Message:  truncate(string(body), 300),
-			HTTPCode: resp.StatusCode,
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		message := fmt.Sprintf("模型请求失败（HTTP %d）", resp.StatusCode)
+		if resp.StatusCode == 401 {
+			message = "模型鉴权失败（401），请重新登录账号或检查 API Key"
 		}
+		var envelope struct{ Error struct{ Message string } }
+		if json.Unmarshal(body, &envelope) == nil && envelope.Error.Message != "" {
+			message = envelope.Error.Message
+		}
+		return APITestResult{OK: false, Message: message, HTTPCode: resp.StatusCode}
 	}
-
-	var parsed struct {
-		Data []struct {
-			ID string `json:"id"`
-		} `json:"data"`
+	// Stop at the first valid streamed choice; do not wait for the entire
+	// generation or require non-streaming support from the gateway.
+	valid := func(body []byte) bool {
+		var parsed struct{ Choices []json.RawMessage }
+		return json.Unmarshal(body, &parsed) == nil && len(parsed.Choices) > 0
 	}
-	names := []string{}
-	if json.Unmarshal(body, &parsed) == nil {
-		for _, m := range parsed.Data {
-			if m.ID != "" {
-				names = append(names, m.ID)
+	if strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "text/event-stream") {
+		scanner := bufio.NewScanner(io.LimitReader(resp.Body, 1<<20))
+		scanner.Buffer(make([]byte, 4096), 1<<20)
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if !strings.HasPrefix(line, "data:") {
+				continue
+			}
+			data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			if data == "[DONE]" {
+				break
+			}
+			if valid([]byte(data)) {
+				return APITestResult{OK: true, Message: "模型鉴权和流式响应已验证", HTTPCode: resp.StatusCode}
 			}
 		}
+	} else {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		if valid(body) {
+			return APITestResult{OK: true, Message: "模型鉴权和实际响应已验证", HTTPCode: resp.StatusCode}
+		}
 	}
+	return APITestResult{OK: false, Message: "网关未返回有效的模型响应", HTTPCode: resp.StatusCode}
 
-	return APITestResult{
-		OK:       true,
-		Message:  fmt.Sprintf("连接成功 (HTTP %d)", resp.StatusCode),
-		Models:   names,
-		HTTPCode: resp.StatusCode,
-	}
 }
 
 // ChatOnce calls the configured model (OpenAI-compatible).
@@ -120,6 +128,7 @@ func ChatOnce(ctx context.Context, cfg LLMConfig, systemPrompt, userMessage stri
 	}
 	msgs = append(msgs, schema.UserMessage(userMessage))
 
+	started := time.Now()
 	out, err := cm.Generate(ctx, msgs)
 	if err != nil {
 		return "", err
@@ -127,6 +136,7 @@ func ChatOnce(ctx context.Context, cfg LLMConfig, systemPrompt, userMessage stri
 	if out == nil {
 		return "", fmt.Errorf("empty model response")
 	}
+	recordChatUsage(modelName, out, time.Since(started))
 	return out.Content, nil
 }
 
@@ -177,4 +187,12 @@ func quickChatProbe(ctx context.Context, cfg LLMConfig, user string) (string, er
 		return "", fmt.Errorf("no choices in response")
 	}
 	return parsed.Choices[0].Message.Content, nil
+}
+
+func chatCompletionURL(base string) string {
+	base = strings.TrimRight(strings.TrimSpace(base), "/")
+	if strings.HasSuffix(base, "/chat/completions") {
+		return base
+	}
+	return base + "/chat/completions"
 }

@@ -130,7 +130,7 @@ func (rt *Runtime) matrixLegacyFollowup(ctx context.Context, runner *agent.Runne
 	}
 	cfg := rt.AgentLLMSettings()
 	mctx := agent.WithSessionMode(
-		agent.WithSessionID(ctx, agent.MatrixCoordinatorSession),
+		agent.BindRunContext(ctx, agent.MatrixCoordinatorSession),
 		agent.SessionMode{Profile: agent.ModeAppMatrix, Canvas: agent.CanvasDeep},
 	)
 	res, err := runner.Generate(mctx, cfg, agent.MatrixCoordinatorSession, prompt, nil)
@@ -161,7 +161,5 @@ func (rt *Runtime) publishMatrixOrchestrated(ev capability.Event, summary, orchE
 
 func (rt *Runtime) AgentLLMSettings() agent.LLMSettings {
 	cfg := rt.LLMConfig()
-	return agent.LLMSettings{
-		APIBase: cfg.APIBase, APIKey: cfg.APIKey, Model: cfg.Model, FallbackModel: cfg.FallbackModel,
-	}
+	return cfg.agentSettings()
 }

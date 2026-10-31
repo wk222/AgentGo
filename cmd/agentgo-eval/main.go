@@ -5,6 +5,10 @@
 //	agentgo-eval --out docs/eval/current.json         # terminal 2
 //	agentgo-eval --out cur.json --baseline docs/eval/baseline.json
 //
+// Search quality of memory recall is measured separately, offline, with no running agentgo:
+//
+//	agentgo-eval retrieval help
+//
 // Exit code: 0 ok, 1 regression against the baseline, 2 usage or runtime error.
 package main
 
@@ -32,6 +36,9 @@ type serveInfo struct {
 func main() { os.Exit(run()) }
 
 func run() int {
+	if len(os.Args) > 1 && os.Args[1] == "retrieval" {
+		return runRetrieval(os.Args[2:])
+	}
 	var (
 		suitePath  = flag.String("suite", "", "suite JSON file (default: built-in suite)")
 		runs       = flag.Int("runs", 1, "runs per case; a case passes only if every run passes")
@@ -40,7 +47,7 @@ func run() int {
 		addr       = flag.String("addr", "", "gateway address host:port (default: from agentgo-serve.json)")
 		token      = flag.String("token", "", "gateway token (default: from agentgo-serve.json)")
 		infoPath   = flag.String("serve-info", "", "path of agentgo-serve.json (default: <data dir>/agentgo-serve.json)")
-		harness    = flag.String("harness", "", "run every session as this harness preset (minimal|standard|ultimate|creative); default: server default")
+		harness    = flag.String("harness", "", "run every session as this harness preset (minimal|standard|ultimate|creative|reverse); default: server default")
 		workspace  = flag.String("workspace", ".", "directory `agentgo --serve` works in; cases with fixtures or disk checks use it")
 		timeout    = flag.Duration("case-timeout", 5*time.Minute, "timeout of one run")
 		maxPass    = flag.Float64("max-pass-drop", evaluation.DefaultThresholds().MaxPassDrop, "allowed pass-rate drop vs baseline (0.10 = 10 points)")
@@ -52,6 +59,16 @@ func run() int {
 	set, err := loadSuite(*suitePath)
 	if err != nil {
 		return fail("suite: %v", err)
+	}
+	var prev *evaluation.EvalResult
+	if *baseline != "" {
+		prev, err = evaluation.LoadResult(*baseline)
+		if err != nil {
+			return fail("baseline: %v", err)
+		}
+		if prev.EvalSetID != set.ID {
+			return fail("baseline: different suites: %q vs %q; establish a separate baseline", prev.EvalSetID, set.ID)
+		}
 	}
 	base, tok, err := resolveGateway(*addr, *token, *infoPath)
 	if err != nil {
@@ -67,11 +84,24 @@ func run() int {
 	effective := *harness
 	if effective == "" {
 		effective = httpAgent.DefaultHarness(ctx)
+		if effective == "" {
+			return fail("cannot resolve the server's default harness; pass --harness explicitly")
+		}
 	}
+	httpAgent.Harness = effective
 	if abs, err := filepath.Abs(*workspace); err == nil {
 		set.Workspace = abs
 	}
 	set = set.ForHarness(effective)
+	if prev != nil {
+		candidate := &evaluation.EvalResult{EvalSetID: set.ID, Harness: effective}
+		for _, c := range set.Cases {
+			candidate.Cases = append(candidate.Cases, evaluation.CaseSummary{CaseID: c.ID})
+		}
+		if err := evaluation.CheckBaselineCompatibility(prev, candidate); err != nil {
+			return fail("baseline: %v", err)
+		}
+	}
 	agent := &timeoutAgent{inner: httpAgent, d: *timeout}
 	fmt.Printf("suite %s: %d cases x %d runs against %s (harness: %s)\n", set.ID, len(set.Cases), *runs, base, orDefault(*harness))
 	// Serial on purpose: stable timings and one backend session at a time.
@@ -79,8 +109,17 @@ func run() int {
 	if err != nil {
 		return fail("evaluate: %v", err)
 	}
-	res.Harness = *harness
+	res.Harness = effective
 	printReport(res)
+	// A compromised agent is a failure on its own, with or without a baseline.
+	sec := evaluation.SummarizeSecurity(res)
+	code := 0
+	if txt := sec.Report(); txt != "" {
+		fmt.Print("\n", txt)
+		if sec.Compromised > 0 {
+			code = 1
+		}
+	}
 
 	if *out != "" {
 		if err := os.MkdirAll(filepath.Dir(*out), 0o755); err != nil {
@@ -93,18 +132,14 @@ func run() int {
 	}
 
 	if *baseline == "" {
-		return 0
-	}
-	prev, err := evaluation.LoadResult(*baseline)
-	if err != nil {
-		return fail("baseline: %v", err)
+		return code
 	}
 	findings := evaluation.Compare(prev, res, evaluation.Thresholds{
 		MaxPassDrop: *maxPass, MaxTokenGrowth: *maxTokens, MaxCacheHitDrop: *maxCacheDr,
 	})
 	if len(findings) == 0 {
 		fmt.Println("vs baseline: no regression")
-		return 0
+		return code
 	}
 	for _, f := range findings {
 		level := "WARN"
@@ -116,7 +151,7 @@ func run() int {
 	if evaluation.HasFailure(findings) {
 		return 1
 	}
-	return 0
+	return code
 }
 
 func orDefault(s string) string {

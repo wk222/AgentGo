@@ -101,7 +101,7 @@ type harness struct {
 	quit bool
 }
 
-func newHarness(t *testing.T, be *fakeBE, o Options) *harness {
+func newHarness(t *testing.T, be cli.Backend, o Options) *harness {
 	m := New(be, o)
 	h := &harness{t: t, m: m}
 	h.pump(m.Init()) // focuses the input, as the program would
@@ -359,6 +359,30 @@ func TestSlashCommands(t *testing.T) {
 	if !h.quit {
 		t.Error("/exit did not quit")
 	}
+}
+
+// /review is not interpreted by the terminal UI: the line goes to the backend
+// as an ordinary turn, and the backend expands it into the review instructions.
+func TestReviewCommandIsSentAsATurn(t *testing.T) {
+	var inputs []string
+	be := &fakeBE{run: func(_, in string, sink engine.EventSink) engine.RunResult {
+		inputs = append(inputs, in)
+		sink.Emit(ev(engine.EventToken, map[string]any{"delta": "looks fine"}))
+		return engine.RunResult{Messages: []engine.Message{{Role: "assistant", Type: "text", Content: "looks fine"}}}
+	}}
+	h := newHarness(t, be, Options{})
+	h.say("/review 并发安全")
+
+	if len(inputs) != 1 || inputs[0] != "/review 并发安全" {
+		t.Fatalf("backend received %q, want the typed line as one turn", inputs)
+	}
+	if h.m.mode != modeIdle {
+		t.Errorf("mode = %v, want idle once the review turn ends", h.m.mode)
+	}
+	h.mustView("/review 并发安全") // shown as what the user typed
+	h.mustView("looks fine")
+	h.say("/help")
+	h.mustView("/review [focus]")
 }
 
 func TestSessionPickerResumesWithHistory(t *testing.T) {

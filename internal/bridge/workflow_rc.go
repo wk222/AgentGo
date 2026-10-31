@@ -5,7 +5,6 @@ import (
 
 	"github.com/cloudwego/eino/callbacks"
 
-	"agentgo/internal/agent"
 	"agentgo/internal/core"
 	"agentgo/internal/workflow"
 )
@@ -19,7 +18,7 @@ func (r *Runtime) workflowRuntime() *core.WorkflowRuntime {
 	return &core.WorkflowRuntime{
 		Store: r.wfStore, Tools: r.toolReg, Approvals: r.approvals, Runner: r.agentRunner,
 		Bus: r.capBus, Sched: r.sched, Checkpoints: r.cpStore,
-		LLM: agent.LLMSettings{APIBase: cfg.APIBase, APIKey: cfg.APIKey, Model: cfg.Model, FallbackModel: cfg.FallbackModel},
+		LLM: cfg.agentSettings(),
 		ChatOnce: func(ctx context.Context, system, user string) (string, error) {
 			return ChatOnce(ctx, cfg, system, user)
 		},

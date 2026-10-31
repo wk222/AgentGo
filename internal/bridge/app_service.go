@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/google/uuid"
 
 	"agentgo/internal/coderuntime"
 	"agentgo/internal/config"
@@ -24,13 +24,11 @@ import (
 // AppService exposes AgentGo backend to the Wails frontend via IPC.
 type AppService struct {
 	rt              *Runtime
-	app             *application.App
-	engines         *engine.Router
+	app             desktopApp // Wails host in desktop builds; unused in the "web" build
 	plugins         *plugin.Host
 	desktopEventSeq atomic.Int64
 
 	muTools     sync.RWMutex
-	codetools   coderuntime.Toolbox
 	lspListener func(e coderuntime.LSPEvent)
 
 	unbindWorkspace func() // removes this service's binder from the Runtime
@@ -38,7 +36,11 @@ type AppService struct {
 
 func (s *AppService) setCodetools(tb coderuntime.Toolbox) {
 	s.muTools.Lock()
-	s.codetools = tb
+	if s.rt != nil {
+		s.rt.mu.Lock()
+		s.rt.codetools = tb
+		s.rt.mu.Unlock()
+	}
 	listener := s.lspListener
 	if tb != nil && listener != nil {
 		tb.SetLSPEventListener(listener)
@@ -47,38 +49,47 @@ func (s *AppService) setCodetools(tb coderuntime.Toolbox) {
 }
 
 func (s *AppService) getCodetools() coderuntime.Toolbox {
-	s.muTools.RLock()
-	defer s.muTools.RUnlock()
-	return s.codetools
+	if s.rt == nil {
+		return nil
+	}
+	return s.rt.codeToolbox()
 }
 
 func (s *AppService) setLSPListener(fn func(e coderuntime.LSPEvent)) {
 	s.muTools.Lock()
 	s.lspListener = fn
-	if s.codetools != nil && fn != nil {
-		s.codetools.SetLSPEventListener(fn)
+	if tb := s.getCodetools(); tb != nil && fn != nil {
+		tb.SetLSPEventListener(fn)
 	}
 	s.muTools.Unlock()
 }
 
 func NewAppService(rt *Runtime) *AppService {
-	s := &AppService{rt: rt, engines: engine.NewRouter()}
-	s.initPlugins() // eino (default engine) and, when installed, crush
+	if rt == nil {
+		rt = &Runtime{}
+	}
+	rt.mu.Lock()
+	if rt.engineRouter == nil {
+		rt.engineRouter = engine.NewRouter()
+	}
+	rt.mu.Unlock()
+	s := &AppService{rt: rt}
+	s.initPlugins() // desktop extensions join the runtime's native engine
 	return s
 }
 
-func (s *AppService) ServiceStartup(ctx context.Context, _ application.ServiceOptions) error {
-	s.app = application.Get()
+// startTaskEvents forwards background task events to the UI event stream.
+// Desktop builds call it from ServiceStartup, the web shell calls it directly.
+func (s *AppService) startTaskEvents() {
 	if s.rt.taskHub != nil {
 		s.rt.taskHub.AddEmitter(func(taskID string, ev taskhub.Event) {
-			if s.app != nil {
-				s.app.Event.Emit("task:event", map[string]any{
+			if s.eventsOn() {
+				s.emit("task:event", map[string]any{
 					"task_id": taskID, "seq": ev.Seq, "type": ev.Type, "payload": ev.Payload,
 				})
 			}
 		})
 	}
-	return nil
 }
 
 // --- DTOs for JS ---
@@ -163,6 +174,7 @@ func (s *AppService) LoadDeepSeekConfig(model string) map[string]any {
 		fallback = "deepseek-reasoner"
 	}
 	cfg := s.rt.LLMConfig()
+	cfg.ContextWindow, cfg.MaxOutputTokens = 0, 0
 	cfg.APIBase = "https://api.deepseek.com/v1"
 	cfg.Model = model
 	cfg.FallbackModel = fallback
@@ -217,9 +229,10 @@ func (s *AppService) SetLLMConfig(apiBase, apiKey, model, fallbackModel string) 
 	if strings.TrimSpace(model) != "" {
 		cfg.Model = strings.TrimSpace(model)
 	}
-	if strings.TrimSpace(fallbackModel) != "" {
-		cfg.FallbackModel = strings.TrimSpace(fallbackModel)
+	if cfg.Model != s.rt.LLMConfig().Model || cfg.APIBase != s.rt.LLMConfig().APIBase {
+		cfg.ContextWindow, cfg.MaxOutputTokens = 0, 0
 	}
+	cfg.FallbackModel = strings.TrimSpace(fallbackModel)
 	if err := s.rt.SetLLMConfig(cfg); err != nil {
 		return map[string]any{"success": false, "error": err.Error()}
 	}
@@ -227,8 +240,8 @@ func (s *AppService) SetLLMConfig(apiBase, apiKey, model, fallbackModel string) 
 }
 
 // TestLLM probes the OpenAI-compatible endpoint (e.g. https://api.openai.com/v1).
-func (s *AppService) TestLLM() APITestResult {
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+func (s *AppService) TestLLM(ctx context.Context) APITestResult {
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	return TestLLMConnection(ctx, s.rt.LLMConfig())
 }
@@ -274,7 +287,7 @@ func (s *AppService) ResolveApproval(approvalID string, approved bool, note stri
 
 // SendMessage runs workspace + memory + ReAct/LLM.
 func (s *AppService) SendMessage(userText string) SendMessageResult {
-	return s.sendMessageCore(context.Background(), "desktop", strings.TrimSpace(userText), nil, nil)
+	return s.SendMessageWithSession("desktop", strings.TrimSpace(userText), nil)
 }
 
 // OpenWorkflowWindow opens a new independent desktop window for the Workflow Flowgram editor.
@@ -314,34 +327,6 @@ func (s *AppService) OpenInnerAppWindow(name string) map[string]any {
 	return s.openUtilityWindow("innerapp-"+safeWindowName(app.Name), "Inner App - "+app.Name, "/?"+q.Encode(), 980, 720, 640, 420)
 }
 
-func (s *AppService) openUtilityWindow(name, title, windowURL string, width, height, minWidth, minHeight int) map[string]any {
-	if s.app == nil {
-		return map[string]any{"success": false, "error": "app not initialized"}
-	}
-	if win, ok := s.app.Window.GetByName(name); ok {
-		win.SetURL(windowURL).Show()
-		win.Focus()
-		return map[string]any{"success": true, "window": name, "reused": true}
-	}
-
-	s.app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name:      name,
-		Title:     title,
-		Width:     width,
-		Height:    height,
-		MinWidth:  minWidth,
-		MinHeight: minHeight,
-		URL:       windowURL,
-		Mac: application.MacWindow{
-			InvisibleTitleBarHeight: 50,
-			Backdrop:                application.MacBackdropTranslucent,
-			TitleBar:                application.MacTitleBarHiddenInset,
-		},
-	})
-
-	return map[string]any{"success": true, "window": name}
-}
-
 func safeWindowName(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
 	var b strings.Builder
@@ -367,7 +352,7 @@ func safeWindowName(s string) string {
 func memoryRecordFromTurn(user, assistant string) memory.Record {
 	now := time.Now().Unix()
 	return memory.Record{
-		ID:        fmt.Sprintf("turn_%d", now),
+		ID:        "turn_" + uuid.NewString(),
 		Content:   fmt.Sprintf("User: %s\nAssistant: %s", user, assistant),
 		Scope:     "session",
 		Modality:  "episode",

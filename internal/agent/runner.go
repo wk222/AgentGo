@@ -72,6 +72,7 @@ type Runner struct {
 	episodicCompressor *memory.EpisodicCompressor
 	subagentReg        *SubagentRegistry
 	sessStore          *sessions.Store
+	runtimeSessions    *runtimeSessionStore
 	sessionKernel      *sessions.SessionKernel
 	bgCoord            *BackgroundTaskCoordinator
 	paradigm           *ParadigmEngine
@@ -256,6 +257,11 @@ func (r *Runner) SetEpisodicCompressor(c *memory.EpisodicCompressor) {
 func (r *Runner) SetSessionsStore(s *sessions.Store) {
 	if r != nil {
 		r.sessStore = s
+		if s != nil {
+			r.runtimeSessions = newRuntimeSessionStore(s, r.workspaceRoot)
+		} else {
+			r.runtimeSessions = nil
+		}
 		r.loadPersistedSessionModes()
 	}
 }
@@ -268,6 +274,15 @@ func (r *Runner) ActiveRuns() int {
 		return 0
 	}
 	return r.runControl.Active()
+}
+
+// RunningSessions lists the sessions with an in-flight run, oldest first, with the
+// time each one registered. Like ActiveRuns it leaves out runs paused for approval.
+func (r *Runner) RunningSessions() []RunningSession {
+	if r == nil {
+		return nil
+	}
+	return r.runControl.Running()
 }
 
 // CancelSessionRun stops the in-flight ADK run for a session (desktop stop / gateway).
@@ -517,23 +532,36 @@ func (r *Runner) effectivePolicy() governance.Policy {
 
 func (r *Runner) effectivePolicyForCtx(ctx context.Context) governance.Policy {
 	p := r.effectivePolicy()
+	p.Control = p.NormalizeControl()
+	sm := SessionModeFromContext(ctx)
+	if ArmorBreakActiveFor(sm.Profile) {
+		p.Control = governance.ControlPolicyFromMode(string(governance.ControlOpen))
+		p.SessionAutoApprove = true
+	}
 	canvasPolicy := CanvasPolicyFromContext(ctx)
 	if canvasPolicy.MaxIterations > 0 {
 		if canvasPolicy.StuckLoopThreshold > 0 {
-			p.Control.StuckLoopKillThreshold = canvasPolicy.StuckLoopThreshold
-			p.Control.StuckLoopWarningThreshold = canvasPolicy.StuckLoopThreshold / 2
+			p.Control.StuckLoopKillThreshold = stricterToolLimit(p.Control.StuckLoopKillThreshold, canvasPolicy.StuckLoopThreshold)
+			p.Control.StuckLoopWarningThreshold = stricterToolLimit(p.Control.StuckLoopWarningThreshold, canvasPolicy.StuckLoopThreshold/2)
 			if p.Control.StuckLoopWarningThreshold < 2 {
 				p.Control.StuckLoopWarningThreshold = 2
 			}
 		}
 		if canvasPolicy.AgentDepth > 0 {
-			p.Control.MaxSubagentDepth = canvasPolicy.AgentDepth
+			p.Control.MaxSubagentDepth = stricterToolLimit(p.Control.MaxSubagentDepth, canvasPolicy.AgentDepth)
 		}
 		if canvasPolicy.MaxIterations > 0 {
-			p.Control.MaxCallsPerTool = canvasPolicy.MaxIterations * 2
+			p.Control.MaxCallsPerTool = stricterToolLimit(p.Control.MaxCallsPerTool, canvasPolicy.MaxIterations*2)
 		}
 	}
 	return p
+}
+
+func stricterToolLimit(current, limit int) int {
+	if current <= 0 || (limit > 0 && limit < current) {
+		return limit
+	}
+	return current
 }
 
 func copyRiskLevels(in map[string]governance.RiskLevel) map[string]governance.RiskLevel {
@@ -560,10 +588,12 @@ func copyBoolMap(in map[string]bool) map[string]bool {
 
 // LLMSettings mirrors bridge.LLMConfig without import cycle.
 type LLMSettings struct {
-	APIBase       string
-	APIKey        string
-	Model         string
-	FallbackModel string // optional Model Failover target
+	APIBase         string
+	APIKey          string
+	Model           string
+	FallbackModel   string // optional Model Failover target
+	ContextWindow   int    // selected model input + output limit, zero if unknown
+	MaxOutputTokens int    // reserved and enforced generation limit
 }
 
 // Generate runs a single-turn ReAct loop.
@@ -588,7 +618,7 @@ func (r *Runner) attachTraceCallbacks(ctx context.Context) context.Context {
 	}, NewTraceCallbackHandler(r.capBus))
 }
 
-func (r *Runner) run(ctx context.Context, cfg LLMSettings, sessionID, userText string, images []string, emit func(string)) (*RunResult, error) {
+func (r *Runner) run(ctx context.Context, cfg LLMSettings, sessionID, userText string, images []string, emit func(string), extraOpts ...adk.AgentRunOption) (*RunResult, error) {
 	if cfg.APIKey == "" {
 		return nil, fmt.Errorf("未配置 API Key")
 	}
@@ -609,7 +639,7 @@ func (r *Runner) run(ctx context.Context, cfg LLMSettings, sessionID, userText s
 	}
 
 	EmitTrace(runCtx, "start", "Runner", "adk", "ADK 对话环")
-	res, err := r.runADK(runCtx, cfg, sessionID, userText, images, emit)
+	res, err := r.runADK(runCtx, cfg, sessionID, userText, images, emit, extraOpts...)
 	if err == nil {
 		EmitTrace(runCtx, "end", "Runner", "adk", "")
 		return r.maybeContinue(runCtx, cfg, sessionID, res, emit)
@@ -634,6 +664,13 @@ func (r *Runner) maybeContinue(ctx context.Context, cfg LLMSettings, sessionID s
 		}
 	}
 	res.Content = content
+
+	// 破甲续跑：红队档下，无工具调用的拒绝/请示回复注入一次续跑指令。
+	var abErr error
+	res, abErr = r.maybeArmorBreak(ctx, cfg, sessionID, res, emit)
+	if abErr != nil {
+		return res, abErr
+	}
 
 	// Codex-parity: Check mid-turn steer inbox for user mid-flight guidance
 	if r.runControl != nil {
@@ -672,7 +709,7 @@ func (r *Runner) ContinueAfterApproval(ctx context.Context, cfg LLMSettings, ses
 	payload := &governance.ResumePayload{Approved: approved, Arguments: arguments}
 	if interruptID != "" && r.cpStore != nil {
 		if sessionID == MatrixCoordinatorSession {
-			return r.ResumeMatrixSupervisor(ctx, cfg, interruptID, payload)
+			return r.ResumeMatrixSupervisor(ctx, cfg, sessionID, interruptID, payload)
 		}
 		return r.ResumeInterrupt(ctx, cfg, sessionID, interruptID, payload)
 	}
@@ -694,33 +731,6 @@ func (r *Runner) ToolNames(ctx context.Context) []string {
 		}
 	}
 	return names
-}
-
-// MiddlewareNames documents the chain (maps to PyBot middleware stack conceptually).
-func MiddlewareNames() []string {
-	return []string{
-		"mode_profile",
-		"workspace_context",
-		"memory_inject",
-		"memory_ingest",
-		"governance_compose_tool_wrap",
-		"summarization",
-		"agentsmd",
-		"reduction",
-		"patch_tool_calls",
-		"eino_skill_mw",
-		"checkpoint_resume",
-		"tool_search",
-		"truncation_continue",
-		"taskhub_sse",
-		"ask_user",
-		"invoke_subagent",
-		"agentic_memory",
-		"agentic_workspace",
-		"agentic_message",
-		"loop_guard",
-		"capability_bus",
-	}
 }
 
 // Ensure tool package is referenced when registry empty at compile time.

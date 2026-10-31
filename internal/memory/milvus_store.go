@@ -1,3 +1,5 @@
+//go:build milvus
+
 package memory
 
 import (
@@ -8,9 +10,35 @@ import (
 
 	milvusindexer "github.com/cloudwego/eino-ext/components/indexer/milvus2"
 	milvusretriever "github.com/cloudwego/eino-ext/components/retriever/milvus2"
+	"github.com/cloudwego/eino-ext/components/retriever/milvus2/search_mode"
 	"github.com/cloudwego/eino/components/retriever"
 	"github.com/cloudwego/eino/schema"
+	"github.com/milvus-io/milvus/client/v2/milvusclient"
 )
+
+func connectMilvusStore(ctx context.Context, cfg BootConfig) (*MilvusStore, error) {
+	einoEmb := NewEinoEmbedder(EmbeddingConfig{
+		APIBase: cfg.APIBase, APIKey: cfg.APIKey, Model: cfg.EmbeddingModel,
+	})
+	if einoEmb == nil {
+		return nil, nil
+	}
+	clientCfg := &milvusclient.ClientConfig{Address: cfg.MilvusAddr}
+	idxCfg := &milvusindexer.IndexerConfig{
+		ClientConfig: clientCfg,
+		Collection:   cfg.MilvusCollection,
+		Embedding:    einoEmb,
+		Vector:       &milvusindexer.VectorConfig{Dimension: int64(cfg.VectorDim)},
+	}
+	retCfg := &milvusretriever.RetrieverConfig{
+		ClientConfig: clientCfg,
+		Collection:   cfg.MilvusCollection,
+		Embedding:    einoEmb,
+		TopK:         10,
+		SearchMode:   search_mode.NewApproximate(milvusretriever.COSINE),
+	}
+	return NewMilvusStore(ctx, idxCfg, retCfg)
+}
 
 // MilvusStore implements a memory store using Milvus as the backend
 // via eino-ext milvus2 retriever and indexer.

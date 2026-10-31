@@ -6,8 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"sync"
-	"time"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/components/tool"
@@ -30,6 +28,9 @@ type Policy struct {
 	BlockedTools   map[string]bool
 	Control        ControlPolicy
 	WorkspaceRoot  string
+	// SessionAutoApprove skips human approval for the current run (local red-team
+	// harness). Blocked tools stay blocked.
+	SessionAutoApprove bool
 }
 
 // requiresApproval is true for HIGH/CRITICAL tools (ADK + Compose middleware share this).
@@ -47,42 +48,17 @@ func (p Policy) requiresApproval(toolName string) bool {
 	}
 }
 
-// RuntimeBudget manages the session/global budget.
-type RuntimeBudget struct {
-	mu           sync.Mutex
-	dailySpent   float64
-	lastResetDay string
-}
-
-func (b *RuntimeBudget) CheckAndAdd(cost float64, max float64) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	today := time.Now().Format("2006-01-02")
-	if b.lastResetDay != today {
-		b.lastResetDay = today
-		b.dailySpent = 0
-	}
-
-	if b.dailySpent+cost > max {
-		return fmt.Errorf("budget exceeded: max %.2f, spent %.2f, requesting %.2f", max, b.dailySpent, cost)
-	}
-	b.dailySpent += cost
-	return nil
-}
-
 // GovernanceMiddleware intercepts high-risk tool calls during Agent execution.
 type GovernanceMiddleware struct {
 	adk.BaseChatModelAgentMiddleware
 	queue      *ApprovalQueue
 	policy     Policy
-	budget     *RuntimeBudget
 	validators *ValidatorChain
 	pipeline   *ToolPolicyPipeline
-	tracker    *ToolCallTracker
 }
 
-// NewGovernanceMiddleware creates a new GovernanceMiddleware with budget tracking.
+// NewGovernanceMiddleware constructs policy only. The queue owns execution
+// accounting; rebuilding an agent cannot reset its limits.
 func NewGovernanceMiddleware(queue *ApprovalQueue, policy Policy) *GovernanceMiddleware {
 	if policy.ToolRiskLevels == nil {
 		policy.ToolRiskLevels = make(map[string]RiskLevel)
@@ -93,14 +69,11 @@ func NewGovernanceMiddleware(queue *ApprovalQueue, policy Policy) *GovernanceMid
 	if policy.Control.Mode == "" {
 		policy.Control = policy.NormalizeControl()
 	}
-	tracker := NewToolCallTracker()
 	return &GovernanceMiddleware{
 		queue:      queue,
 		policy:     policy,
-		budget:     &RuntimeBudget{},
 		validators: DefaultValidatorChain(policy),
-		pipeline:   BuildDefaultToolPolicyPipeline(policy, tracker),
-		tracker:    tracker,
+		pipeline:   BuildDefaultToolPolicyPipeline(),
 	}
 }
 

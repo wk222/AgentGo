@@ -7,8 +7,6 @@ import (
 	"github.com/cloudwego/eino/adk/middlewares/dynamictool/toolsearch"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
-
-	"agentgo/internal/governance"
 )
 
 // BuildADKHandlers wires workspace/memory, official Eino middlewares, and optional toolsearch.
@@ -20,7 +18,12 @@ func (r *Runner) BuildADKHandlers(ctx context.Context, chatModel model.ToolCalli
 	}
 
 	var handlers []adk.ChatModelAgentMiddleware
+	execution := r.toolExecutionHandlers(ctx)
 	handlers = append(handlers, NewModeProfileMiddleware(r.SessionMode()))
+	// Armor rollback: no-op unless this run's context carries a rollback spec
+	// (armor-break continuation with the rollback_verify_steer strategy).
+	handlers = append(handlers, NewArmorRollbackMiddleware())
+	handlers = append(handlers, execution.errors)
 	if r.paradigm != nil {
 		handlers = append(handlers, NewParadigmMiddleware(r.paradigm))
 	}
@@ -36,28 +39,16 @@ func (r *Runner) BuildADKHandlers(ctx context.Context, chatModel model.ToolCalli
 		sm := SessionModeFromContext(ctx)
 		dyn := RegistryDynamicToolsForMode(r.toolReg, sm)
 		if len(dyn) > 0 {
-			ts, err := toolsearch.New(ctx, &toolsearch.Config{DynamicTools: dyn})
+			ts, err := toolsearch.New(ctx, toolSearchConfig(ctx, &toolsearch.Config{DynamicTools: dyn}))
 			if err != nil {
 				return handlers, err
 			}
 			handlers = append(handlers, ts)
 		}
 	}
-	if r.queue != nil {
-		// Single governance mount (the compose-level one was removed); canvas-aware policy.
-		handlers = append(handlers, governance.NewGovernanceMiddleware(r.queue, r.effectivePolicyForCtx(ctx)))
-	}
-	handlers = append(handlers, governance.NewSubagentMonotoneMiddleware())
+	handlers = append(handlers, execution.calls...)
 
-	// Note: patchtoolcalls is already registered at step 1 of BuildTypedMiddlewareStack.
-	if hm := NewADKToolHealMiddleware(); hm != nil {
-		handlers = append(handlers, hm)
-	}
-
-	// P2: tool call event emitter — broadcasts tool:call events to Wails frontend.
-	handlers = append(handlers, NewToolCallEventMiddleware())
-
-	// Session spine: six-section projection immediately before the model (innermost before SafeTool).
+	// Session spine: final model-context projection. Tool outcome conversion stays outside observers and governance.
 	var taskProvider func(context.Context) []string
 	if r.adminRunner != nil {
 		taskProvider = r.adminRunner.GetActiveTaskGoals
@@ -72,7 +63,5 @@ func (r *Runner) BuildADKHandlers(ctx context.Context, chatModel model.ToolCalli
 		DataDir:            r.dataDir,
 	}))
 
-	// Ch.05: innermost — tool errors become [tool error] strings for the model.
-	handlers = append(handlers, NewSafeToolMiddleware())
 	return handlers, nil
 }

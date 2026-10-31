@@ -4,21 +4,18 @@ import (
 	"agentgo/internal/core"
 	"context"
 
-	"github.com/wailsapp/wails/v3/pkg/application"
-
 	"agentgo/internal/agent"
 	"agentgo/internal/capability"
 )
 
 func matrixTraceContext(ctx context.Context, sessionID string) context.Context {
-	app := application.Get()
-	if app == nil {
+	if !eventsOn() {
 		return ctx
 	}
 	return agent.WithTraceEmitter(ctx, agent.TraceEmitterFromWails(func(p map[string]any) {
 		p["session_id"] = sessionID
 		p["matrix"] = true
-		app.Event.Emit("agent:trace", p)
+		emitEvent("agent:trace", p)
 	}))
 }
 
@@ -45,8 +42,7 @@ func (rt *Runtime) matrixRegisterPause(res *agent.RunResult, ev capability.Event
 		ResumeKind:  "matrix",
 		MatrixEvent: ev.Type + ":" + ev.Source,
 	})
-	app := application.Get()
-	if app == nil {
+	if !eventsOn() {
 		return
 	}
 	payload := map[string]any{
@@ -58,6 +54,6 @@ func (rt *Runtime) matrixRegisterPause(res *agent.RunResult, ev capability.Event
 		"source":       ev.Source,
 		"session_id":   ev.SessionID,
 	}
-	app.Event.Emit("approval:pending", payload)
-	app.Event.Emit("matrix:paused", payload)
+	emitEvent("approval:pending", payload)
+	emitEvent("matrix:paused", payload)
 }

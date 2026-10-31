@@ -4,7 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
+	"time"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/adk/middlewares/agentsmd"
@@ -39,33 +39,50 @@ func EinoSpillEnabled() bool {
 // BuildTypedMiddlewareStack builds a generic Eino middleware stack for either *schema.Message or *schema.AgenticMessage.
 func BuildTypedMiddlewareStack[M adk.MessageType](ctx context.Context, baseModel model.BaseModel[M], workspaceRoot, dataDir string, bgCoord *BackgroundTaskCoordinator) ([]adk.TypedChatModelAgentMiddleware[M], error) {
 	var stack []adk.TypedChatModelAgentMiddleware[M]
+	stack = append(stack, &evidenceMiddleware[M]{})
 	policy := CanvasPolicyFromContext(ctx)
+	var spMW *SpillMiddleware
+	if EinoSpillEnabled() {
+		if _, ok := any(new(M)).(**schema.Message); ok {
+			if store, err := BuildDefaultSpillStore(dataDir); err == nil {
+				spMW, _ = NewSpillMiddleware(store)
+			}
+		}
+	}
 
 	// 1. Patch suspended tool calls
-	if patchMW, err := patchtoolcalls.NewTyped[M](ctx, nil); err == nil && patchMW != nil {
+	if patchMW, err := patchtoolcalls.NewTyped[M](ctx, &patchtoolcalls.Config{RemoveOrphanResults: true, RemoveDuplicateResults: true, MarkSynthetic: true, PatchedToolResultGenerator: func(_ context.Context, _ string, _ string, _ *schema.ToolArgument) (*patchtoolcalls.PatchedToolResult, error) {
+		return &patchtoolcalls.PatchedToolResult{Content: "[Tool result unavailable] Execution and side effects are unknown. Verify actual state before retrying; do not treat a missing result as success."}, nil
+	}}); err == nil && patchMW != nil {
 		stack = append(stack, patchMW)
+	}
+
+	// Project structured source metadata before summarization can spend an
+	// extra model call on its expanded representation. Generic spill stays below.
+	if spMW != nil {
+		if typed, ok := any(&documentViewMiddleware{spill: spMW}).(adk.TypedChatModelAgentMiddleware[M]); ok {
+			stack = append(stack, typed)
+		}
 	}
 
 	// 2. Summarization (Eino official MW; threshold from ExecutionCanvas)
 	if baseModel != nil {
-		sumMW, err := summarization.NewTyped[M](ctx, &summarization.TypedConfig[M]{
-			Model:   baseModel,
-			Trigger: &summarization.TriggerCondition{ContextTokens: policy.SummarizationTokens},
-		})
+		sumMW, err := summarization.NewTyped[M](ctx, contextSummaryConfig(baseModel, policy))
 		if err != nil {
 			return stack, err
 		}
-		stack = append(stack, sumMW)
+		stack = append(stack, &resilientSummary[M]{TypedChatModelAgentMiddleware: sumMW, timeout: 20 * time.Second})
 	}
 
 	// 3. Agents.md injection
 	if EinoAgentsMDEnabled() {
-		paths := agentsMDPaths(workspaceRoot)
-		if len(paths) > 0 {
+		instructions := discoverInstructions(workspaceRoot, dataDir)
+		if len(instructions.Paths) > 0 {
 			am, err := agentsmd.NewTyped[M](ctx, &agentsmd.Config{
-				Backend:             newOSAgentsMDBackend(workspaceRoot),
-				AgentsMDFiles:       paths,
+				Backend:             newInstructionBackend(workspaceRoot, instructions),
+				AgentsMDFiles:       instructions.Paths,
 				AllAgentsMDMaxBytes: 120_000,
+				PerAgentsMDMaxBytes: 32_000,
 			})
 			if err != nil {
 				return stack, err
@@ -101,10 +118,7 @@ func BuildTypedMiddlewareStack[M adk.MessageType](ctx context.Context, baseModel
 
 	// 6. PlanTask Middleware (TaskCreate, TaskGet, TaskUpdate, TaskList)
 	if EinoPlanTaskEnabled() && policy.PlanTasks {
-		taskDir := filepath.Join(workspaceRoot, ".tasks")
-		if strings.TrimSpace(workspaceRoot) == "" {
-			taskDir = filepath.Join(dataDir, "tasks")
-		}
+		taskDir := planTaskDirectory(ctx, workspaceRoot, dataDir)
 		_ = os.MkdirAll(taskDir, 0o755)
 		ptMW, err := plantask.NewTyped[M](ctx, &plantask.Config{
 			Backend: newDiskPlantaskBackend(taskDir),
@@ -116,15 +130,9 @@ func BuildTypedMiddlewareStack[M adk.MessageType](ctx context.Context, baseModel
 	}
 
 	// 7. Spill Middleware (large tool output offloading with locator preview)
-	if EinoSpillEnabled() {
-		if _, ok := any(new(M)).(**schema.Message); ok {
-			if spStore, err := BuildDefaultSpillStore(dataDir); err == nil && spStore != nil {
-				if spMW, err := NewSpillMiddleware(spStore); err == nil && spMW != nil {
-					if typedSpill, ok := any(spMW).(adk.TypedChatModelAgentMiddleware[M]); ok {
-						stack = append(stack, typedSpill)
-					}
-				}
-			}
+	if spMW != nil {
+		if typedSpill, ok := any(spMW).(adk.TypedChatModelAgentMiddleware[M]); ok {
+			stack = append(stack, typedSpill)
 		}
 	}
 

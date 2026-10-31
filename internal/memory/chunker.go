@@ -2,12 +2,55 @@ package memory
 
 import (
 	"strings"
+	"unicode/utf8"
 )
 
 // ChunkContent splits a large text content into semantic chunks.
+//
+// maxChunkSize is measured in bytes, not characters: a Chinese character counts
+// as three, so for Chinese text 1200 means roughly 400 characters. overlap is
+// accepted so the function fits ChunkFunc and is not used: pieces end at header,
+// paragraph or sentence boundaries. Use ChunkContentRunes to measure in
+// characters.
 func ChunkContent(content string, maxChunkSize int, overlap int) []string {
+	return chunkBy(content, maxChunkSize, byteLen)
+}
+
+// ChunkContentRunes is ChunkContent with maxChunkSize measured in characters
+// (runes), which is the unit the document chunker in internal/docchunk uses.
+// Everything else is identical, so comparing the two isolates the unit.
+func ChunkContentRunes(content string, maxChunkSize int, overlap int) []string {
+	return chunkBy(content, maxChunkSize, utf8.RuneCountInString)
+}
+
+func byteLen(s string) int { return len(s) }
+
+// chunkBuf is a strings.Builder that also keeps its length in the caller's unit.
+type chunkBuf struct {
+	b    strings.Builder
+	n    int
+	size func(string) int
+}
+
+func (c *chunkBuf) Len() int { return c.n }
+
+func (c *chunkBuf) WriteString(s string) {
+	c.b.WriteString(s)
+	c.n += c.size(s)
+}
+
+func (c *chunkBuf) Reset() {
+	c.b.Reset()
+	c.n = 0
+}
+
+func (c *chunkBuf) String() string { return c.b.String() }
+
+// chunkBy is the splitter. size measures a string in whatever unit maxChunkSize
+// is in; it must be additive over concatenation, as byte and rune counts are.
+func chunkBy(content string, maxChunkSize int, size func(string) int) []string {
 	content = strings.TrimSpace(content)
-	if len(content) <= maxChunkSize {
+	if size(content) <= maxChunkSize {
 		return []string{content}
 	}
 
@@ -16,14 +59,14 @@ func ChunkContent(content string, maxChunkSize int, overlap int) []string {
 	var finalChunks []string
 
 	for _, sec := range sections {
-		if len(sec) <= maxChunkSize {
+		if size(sec) <= maxChunkSize {
 			finalChunks = append(finalChunks, sec)
 			continue
 		}
 
 		// 2. Split by paragraphs
 		paras := strings.Split(sec, "\n\n")
-		var currentChunk strings.Builder
+		currentChunk := chunkBuf{size: size}
 
 		for _, para := range paras {
 			para = strings.TrimSpace(para)
@@ -31,7 +74,7 @@ func ChunkContent(content string, maxChunkSize int, overlap int) []string {
 				continue
 			}
 
-			if currentChunk.Len()+len(para)+2 <= maxChunkSize {
+			if currentChunk.Len()+size(para)+2 <= maxChunkSize {
 				if currentChunk.Len() > 0 {
 					currentChunk.WriteString("\n\n")
 				}
@@ -42,7 +85,7 @@ func ChunkContent(content string, maxChunkSize int, overlap int) []string {
 					currentChunk.Reset()
 				}
 
-				if len(para) <= maxChunkSize {
+				if size(para) <= maxChunkSize {
 					currentChunk.WriteString(para)
 				} else {
 					// 3. Split by sentences if a single paragraph is too large
@@ -52,7 +95,7 @@ func ChunkContent(content string, maxChunkSize int, overlap int) []string {
 						if sent == "" {
 							continue
 						}
-						if currentChunk.Len()+len(sent)+1 <= maxChunkSize {
+						if currentChunk.Len()+size(sent)+1 <= maxChunkSize {
 							if currentChunk.Len() > 0 {
 								currentChunk.WriteString(" ")
 							}

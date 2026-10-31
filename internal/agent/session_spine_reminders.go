@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"agentgo/internal/sessions"
+
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/schema"
 )
@@ -12,10 +14,16 @@ import (
 // insert the reminder again on the next call, and the prompt would grow with every call
 // while its prefix kept changing (observed: +883 chars per call, 0% prefix-cache hits).
 // So reminders bypass the projection and are put back at the same place, untouched.
+//
+// Two things keep that placement valid. The projection owns a few messages of its own
+// (runtime context, tool feedback) that it renders after the conversation, so they are
+// not counted: the same count on both sides keeps the anchor on real conversation. And a
+// reminder is never placed between an assistant tool call and its results; providers
+// reject that prompt with HTTP 400 and the whole run fails.
 
 type spineReminder struct {
 	msg   *schema.Message
-	after int // non-reminder, non-system messages that follow it
+	after int // conversation messages (not system, reminder or projection context) that follow it
 }
 
 func isSystemReminder(m *schema.Message) bool {
@@ -24,6 +32,13 @@ func isSystemReminder(m *schema.Message) bool {
 	}
 	v, _ := m.Extra[adk.MessageExtraKeySystemReminder].(bool)
 	return v
+}
+
+// countsAsConversation reports whether m takes part in the "messages after the reminder"
+// count: not a system message, not a reminder, not a context message the projection
+// re-renders on every call.
+func countsAsConversation(m *schema.Message) bool {
+	return m != nil && m.Role != schema.System && !isSystemReminder(m) && sessions.ContextKind(m) == ""
 }
 
 // splitSystemReminders removes reminders from msgs and remembers where each one sat,
@@ -37,7 +52,7 @@ func splitSystemReminders(msgs []*schema.Message) (rest []*schema.Message, remin
 		}
 		after := 0
 		for _, n := range msgs[i+1:] {
-			if n != nil && !isSystemReminder(n) && n.Role != schema.System {
+			if countsAsConversation(n) {
 				after++
 			}
 		}
@@ -61,9 +76,14 @@ func restoreSystemReminders(out []*schema.Message, reminders []spineReminder) []
 		pos, cnt := len(out), 0
 		for pos > first && cnt < r.after {
 			pos--
-			if !isSystemReminder(out[pos]) {
+			if countsAsConversation(out[pos]) {
 				cnt++
 			}
+		}
+		// Never split an assistant tool call from its results: step back to the
+		// assistant message that issued them.
+		for pos > first && pos < len(out) && out[pos] != nil && out[pos].Role == schema.Tool {
+			pos--
 		}
 		out = append(out, nil)
 		copy(out[pos+1:], out[pos:])

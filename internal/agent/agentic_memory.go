@@ -1,14 +1,16 @@
 package agent
 
 import (
+	"agentgo/internal/config"
+	"agentgo/internal/sessions"
 	"context"
-	"fmt"
-	"time"
+	"log"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/schema"
 
 	"agentgo/internal/memory"
+	"agentgo/internal/promptbudget"
 )
 
 // AgenticMemoryMiddleware injects memory on Typed AgenticMessage ADK path.
@@ -26,28 +28,40 @@ func (m *AgenticMemoryMiddleware) BeforeModelRewriteState(
 	state *adk.TypedChatModelAgentState[*schema.AgenticMessage],
 	_ *adk.TypedModelContext[*schema.AgenticMessage],
 ) (context.Context, *adk.TypedChatModelAgentState[*schema.AgenticMessage], error) {
-	promptCtx, err := m.engine.ContextPrompt(ctx, SessionIDFromContext(ctx))
-	if err != nil || promptCtx == "" {
+	if m == nil || m.engine == nil || state == nil {
 		return ctx, state, nil
 	}
-	injected := false
-	for i, msg := range state.Messages {
-		if msg != nil && msg.Role == schema.AgenticRoleTypeSystem {
-			state.Messages[i] = schema.SystemAgenticMessage(msg.String() + "\n\n[Injected Memory Context]:\n" + promptCtx)
-			injected = true
-			break
+	if err := ctx.Err(); err != nil {
+		return ctx, state, err
+	}
+	header := "[Injected Memory Context]:\n"
+	ctx = memory.WithPromptBudget(ctx, max(0, memory.AutomaticTokenBudget()-promptbudget.Estimate(header)))
+	promptCtx, err := m.engine.ContextPrompt(ctx, SessionIDFromContext(ctx))
+	if ctx.Err() != nil {
+		return ctx, state, ctx.Err()
+	}
+	if err != nil {
+		promptCtx = ""
+	}
+	promptCtx = promptbudget.Excerpt(promptCtx, memory.PromptTokenBudget(ctx))
+	out := make([]*schema.AgenticMessage, 0, len(state.Messages)+1)
+	for _, msg := range state.Messages {
+		if msg != nil && msg.Extra["agentgo.memory_context"] == true {
+			continue
 		}
+		out = append(out, msg)
 	}
-	if !injected {
-		state.Messages = append([]*schema.AgenticMessage{
-			schema.SystemAgenticMessage("[Injected Memory Context]:\n" + promptCtx),
-		}, state.Messages...)
+	if promptCtx != "" {
+		msg := schema.SystemAgenticMessage(header + promptCtx)
+		msg.Extra = map[string]any{"agentgo.memory_context": true, "_eino_adk_runtime_generated_system_message": true}
+		out = append([]*schema.AgenticMessage{msg}, out...)
 	}
+	state.Messages = out
 	return ctx, state, nil
 }
 
 func (m *AgenticMemoryMiddleware) AfterAgent(ctx context.Context, state *adk.TypedChatModelAgentState[*schema.AgenticMessage]) (context.Context, error) {
-	if len(state.Messages) == 0 {
+	if m == nil || m.engine == nil || state == nil || len(state.Messages) == 0 {
 		return ctx, nil
 	}
 	last := state.Messages[len(state.Messages)-1]
@@ -58,12 +72,21 @@ func (m *AgenticMemoryMiddleware) AfterAgent(ctx context.Context, state *adk.Typ
 	if text == "" {
 		return ctx, nil
 	}
-	_ = m.engine.Ingest(ctx, memory.Record{
-		ID:       fmt.Sprintf("turn_%d", time.Now().UnixNano()),
-		Content:  text,
-		Scope:    SessionIDFromContext(ctx),
-		Modality: "episode",
-		Status:   "active",
-	})
+	if config.AutoLearn.On() {
+		for i := len(state.Messages) - 1; i >= 0; i-- {
+			msg := state.Messages[i]
+			if msg != nil && msg.Role == schema.AgenticRoleTypeUser && msg.Extra["agentgo.memory_context"] != true && msg.Extra[sessions.ExtraContextKind] == nil {
+				if p := memory.PipelineFromEngine(m.engine); p != nil {
+					if _, err := p.QueueLearning(ctx, SessionIDFromContext(ctx), "user_turn", msg.String(), "", ""); err != nil {
+						log.Printf("[memory] queue typed learning: %v", err)
+					}
+				}
+				break
+			}
+		}
+	}
+	if record, ok := assistantEpisodeRecord(SessionIDFromContext(ctx), text, "agentic_after_agent", nil); ok {
+		_ = m.engine.Ingest(ctx, record)
+	}
 	return ctx, nil
 }

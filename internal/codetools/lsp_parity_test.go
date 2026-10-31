@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -134,7 +135,13 @@ func TestNativeLSPToolsAgainstGopls(t *testing.T) {
 	}
 
 	// What Crush's tools answered for the same session (golden_test.go). Only
-	// against the gopls it was recorded with: its wording moves between releases.
+	// against the gopls it was recorded with: its wording moves between releases,
+	// and only for the architecture it was recorded on: gopls tags diagnostics of
+	// any other GOARCH, e.g. "... in return statement [386]".
+	if runtime.GOARCH != "amd64" {
+		t.Logf("GOARCH %s: skipping the Crush comparison (recorded on amd64)", runtime.GOARCH)
+		return
+	}
 	want := loadGolden(t)
 	if v := goplsVersion(); v != want.GoplsVersion {
 		t.Logf("gopls %q differs from the recording's %q; skipping the Crush comparison", v, want.GoplsVersion)

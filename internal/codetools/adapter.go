@@ -31,7 +31,7 @@ func ToolName(crushName string) string {
 // IsMutating reports whether a Crush tool changes files.
 func IsMutating(crushName string) bool {
 	switch crushName {
-	case "edit", "multiedit", "write", "lsp_rename", "lsp_replace_symbol":
+	case "edit", "multiedit", "write", "lsp_rename", "lsp_replace_symbol", "revert_file_changes":
 		return true
 	}
 	return false

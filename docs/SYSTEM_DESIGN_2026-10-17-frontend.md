@@ -134,6 +134,8 @@ keep-alive：`code` 与 `workflow` 标 `keepAlive`（切走不销毁，保住 Mo
 
 M3 之前随时可停，每个里程碑独立可发布。
 
+**实施偏差（2026-10-17 回填）**：原生 `alert/confirm` 的替换提前到 M1 完成；"替换内联 SVG / 统一图标"推迟（未做）；M4 的"内联样式收进 CSS"未做；M5 实际内容是 `ChatPanel` 的 `provide/inject`。M0 只存了一张预览截图，没有三尺寸截图集。详见 `docs/plan.md` 阶段 G 与 `docs/FRONTEND.md` §5。
+
 ## 9. 风险与未验证项
 
 - **切换视图销毁状态**（第 1 节最后一行）只读代码推断，M0 先实测再定 keep-alive 范围。

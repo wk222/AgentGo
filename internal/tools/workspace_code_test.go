@@ -82,8 +82,13 @@ func TestWorkspacePathRejectsTraversal(t *testing.T) {
 	if _, _, err := resolveWorkspacePath(root, "../../outside.txt", false, false); err == nil {
 		t.Fatal("expected traversal to be rejected")
 	}
-	if _, _, err := resolveWorkspacePath(root, filepath.Join(root, "absolute.txt"), false, false); err == nil {
-		t.Fatal("expected absolute path to be rejected")
+	// An absolute path is fine when it points into the workspace, and refused when
+	// it points anywhere nobody approved (approved folders: workspace_path_grant_test.go).
+	if _, _, err := resolveWorkspacePath(root, filepath.Join(root, "absolute.txt"), false, false); err != nil {
+		t.Fatalf("an absolute path inside the workspace is just a workspace file: %v", err)
+	}
+	if _, _, err := resolveWorkspacePath(root, filepath.Join(t.TempDir(), "absolute.txt"), false, false); err == nil {
+		t.Fatal("expected an absolute path outside the workspace to be rejected")
 	}
 }
 

@@ -2,8 +2,11 @@ package ideruntime_test
 
 import (
 	"context"
+	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -68,10 +71,29 @@ func TestGitService_Status(t *testing.T) {
 	}
 	defer sup.Close()
 
-	// Use actual agentgo repo root
-	repoRoot, err := filepath.Abs("../..")
-	if err != nil {
-		t.Fatal(err)
+	// A source archive has no .git directory. Exercise a private fixture instead
+	// of depending on the checkout or its current branch.
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	repoRoot := t.TempDir()
+	t.Cleanup(func() {
+		if runtime.GOOS == "windows" {
+			_ = filepath.WalkDir(repoRoot, func(path string, d fs.DirEntry, err error) error {
+				if err == nil && !d.IsDir() && d.Type()&os.ModeSymlink == 0 {
+					_ = os.Chmod(path, 0600)
+				}
+				return nil
+			})
+		}
+	})
+	for _, args := range [][]string{
+		{"init", "-b", "agentgo-test-fixture"},
+	} {
+		cmd := exec.Command("git", append([]string{"-C", repoRoot}, args...)...)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git fixture: %v: %s", err, output)
+		}
 	}
 
 	fs, err := ideruntime.NewWorkspaceFS(repoRoot)
@@ -89,7 +111,7 @@ func TestGitService_Status(t *testing.T) {
 		t.Fatalf("GetStatus failed: %v", err)
 	}
 
-	if status.Branch == "" {
+	if status.Branch != "agentgo-test-fixture" {
 		t.Errorf("expected branch to be detected, got empty")
 	}
 

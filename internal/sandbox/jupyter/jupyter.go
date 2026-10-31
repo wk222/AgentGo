@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"agentgo/internal/processutil"
 )
 
 // JupyterExecutor spawns and manages a Jupyter kernelgateway background server and WebSocket client.
@@ -57,6 +59,7 @@ func NewJupyterExecutor(kernelStr string, port int) (*JupyterExecutor, error) {
 	}
 
 	cmd := exec.CommandContext(ctx, "python", args...)
+	processutil.HideWindow(cmd)
 	// Combined output handles stdout/stderr together
 	var outBuf bytes.Buffer
 	cmd.Stdout = &outBuf
@@ -147,6 +150,7 @@ func (je *JupyterExecutor) Close() error {
 
 func checkJupyterGateway() error {
 	cmd := exec.Command("python", "-m", "jupyter", "kernelgateway", "--version")
+	processutil.HideWindow(cmd)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("Jupyter gateway server is not installed. Please install it with `pip install jupyter_kernel_gateway`")
 	}

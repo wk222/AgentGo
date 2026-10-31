@@ -22,8 +22,6 @@ import (
 	"agentgo/internal/tools"
 	"agentgo/internal/workflow"
 	"agentgo/internal/workspace"
-
-	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 func (rt *Runtime) agentPlugins() []plugin.Plugin {
@@ -103,6 +101,12 @@ func (rt *Runtime) agentPlugins() []plugin.Plugin {
 					return ChatOnce(ctx, cfg, system, user)
 				}
 				runner.SetJournalCaller(journalCaller)
+				if tracer := runner.UsageTracer(); tracer != nil {
+					// Calls made outside the agent loop (memory upkeep, workflow nodes, inline edits) count too.
+					c.Effect("chat-usage-sink", setChatUsageSink(func(m string, prompt, cached, completion, reasoning int, took time.Duration) {
+						tracer.Record(m, "", prompt, cached, completion, reasoning, took)
+					}))
+				}
 				if rt.hybrid != nil {
 					if pipe := rt.hybrid.Pipeline(); pipe != nil {
 						runner.SetEpisodicCompressor(memory.NewEpisodicCompressor(pipe, journalCaller))
@@ -209,55 +213,104 @@ func (rt *Runtime) registerBuiltinTools(c *plugin.Context, reg *tools.Registry, 
 	onApp := func(name, mode, appID string) {
 		bus.RegisterAppMatrixGrant(name, mode, appID)
 	}
-	_ = tools.RegisterPyBotModeTools(reg, rt.dynStore, wsRoot, rt.dataDir, func(kind, name, scope string) {
+	// Tool-family registration failures must not vanish into `_ =`: the app
+	// would start with capabilities silently missing and no trace anywhere.
+	// Collect them, log each one, and print a summary count at the end.
+	var regErrs []string
+	noteReg := func(what string, err error) {
+		if err != nil {
+			regErrs = append(regErrs, what+": "+err.Error())
+			applog.Warn("tool registration failed: %s: %v", what, err)
+		}
+	}
+	noteReg("RegisterPyBotModeTools", tools.RegisterPyBotModeTools(reg, rt.dynStore, wsRoot, rt.dataDir, func(kind, name, scope string) {
 		bus.Register(kind, name, scope, nil)
-	}, onCompiled, onApp, wfSave)
-	_ = reg.SyncDynamicFromStore(rt.dynStore)
+	}, onCompiled, onApp, wfSave))
+	noteReg("SyncDynamicFromStore", reg.SyncDynamicFromStore(rt.dynStore))
 	if config.LegacyDynExec.On() {
-		_ = tools.RegisterDynamicPythonExec(reg, rt.dynStore, sandboxDir)
+		noteReg("RegisterDynamicPythonExec", tools.RegisterDynamicPythonExec(reg, rt.dynStore, sandboxDir))
 	}
 	_ = capability.NewMatrixCoordinator(bus, rt.onCapabilityEvent)
 
 	appStore := rt.appStore
-	_ = tools.RegisterMatrixOrchestrationTools(reg, appStore, &matrixRunnerAdapter{rt: rt})
-	_ = tools.RegisterMatrixAliasTools(reg, appStore, &matrixRunnerAdapter{rt: rt})
+	noteReg("RegisterMatrixOrchestrationTools", tools.RegisterMatrixOrchestrationTools(reg, appStore, &matrixRunnerAdapter{rt: rt}))
+	noteReg("RegisterMatrixAliasTools", tools.RegisterMatrixAliasTools(reg, appStore, &matrixRunnerAdapter{rt: rt}))
 	onInnerApp := func(a apps.InnerApp) {
 		bus.Register("app", a.Name, "inner", map[string]string{
 			"kind": a.Kind, "app_id": a.ID,
 		})
 	}
-	_ = tools.RegisterInnerAppTools(reg, appStore, rt, onInnerApp)
+	noteReg("RegisterInnerAppTools", tools.RegisterInnerAppTools(reg, appStore, rt, onInnerApp))
 	scaffolder := apps.NewScaffolder(rt.appsRoot, appStore)
-	_ = tools.RegisterInnerAppScaffoldTools(reg, &tools.InnerAppScaffold{
+	noteReg("RegisterInnerAppScaffoldTools", tools.RegisterInnerAppScaffoldTools(reg, &tools.InnerAppScaffold{
 		Scaffolder: scaffolder,
 		OnUpsert:   onInnerApp,
-	})
+	}))
 	iterBuilder := &apps.IterativeBuilder{Scaffolder: scaffolder, Pinger: rt.appPinger()}
-	_ = agent.RegisterAppBuilderTools(reg, runner, iterBuilder, llm, agent.SessionIDFromContext, onInnerApp)
-	_ = tools.RegisterWorkflowTools(reg, wfStore, rt)
+	noteReg("RegisterAppBuilderTools", agent.RegisterAppBuilderTools(reg, runner, iterBuilder, llm, agent.SessionIDFromContext, onInnerApp))
+	noteReg("RegisterWorkflowTools", tools.RegisterWorkflowTools(reg, wfStore, rt))
 	agentPackEngine := &agentpack.Engine{
-		WF:        wfStore,
-		Dyn:       rt.dynStore,
-		Apps:      appStore,
-		Reg:       reg,
-		AppsRoot:  rt.appsRoot,
-		Workspace: wsRoot,
-		OutDir:    filepath.Join(rt.dataDir, "shared"),
+		WF:          wfStore,
+		Dyn:         rt.dynStore,
+		Apps:        appStore,
+		Reg:         reg,
+		AppsRoot:    rt.appsRoot,
+		Workspace:   wsRoot,
+		OutDir:      filepath.Join(rt.dataDir, "shared"),
+		VersionsDir: filepath.Join(rt.dataDir, "extension-versions"),
+		OnReload: func() error {
+			if rt.skillLoader != nil {
+				rt.skillLoader.Reload()
+			}
+			return rt.SyncWorkflowTools()
+		},
 	}
 	rt.agentPack = agentPackEngine
-	_ = agentpack.RegisterTools(reg, agentPackEngine)
-	_ = tools.RegisterRememberTool(reg, func(ctx context.Context, rec memory.Record) error {
+	noteReg("agentpack.RegisterTools", agentpack.RegisterTools(reg, agentPackEngine))
+	if err := agentpack.RegisterEvolutionTools(reg, agentPackEngine); err != nil {
+		return err
+	}
+	if err := tools.RegisterSkillEvolveTool(reg, wsRoot); err != nil {
+		return err
+	}
+	for _, declaration := range []struct {
+		name     string
+		mutating bool
+	}{{"extension_catalog", false}, {"manage_extension_versions", true}, {"save_workflow_definition", true}} {
+		c.Effect("extension-static-"+declaration.name, tools.RegisterStaticTool(declaration.name, declaration.mutating))
+		c.Effect("extension-traits-"+declaration.name, governance.RegisterToolTraits(declaration.name, governance.ToolTraits{Source: "extensions", Mutating: declaration.mutating}))
+	}
+
+	// Compaction keeps a path ledger; which tools change files is declared above that package.
+	c.Effect("sessions-file-mutation", sessions.SetFileMutationLookup(func(name string) bool {
+		t, ok := governance.ToolTraitsOf(name)
+		return ok && t.Mutating
+	}))
+
+	noteReg("RegisterRememberTool", tools.RegisterRememberTool(reg, func(ctx context.Context, rec memory.Record) error {
 		return mem.Ingest(ctx, rec)
-	})
-	_ = tools.RegisterRecallTool(reg, func(ctx context.Context, query string, opts memory.RecallOptions) ([]memory.Record, error) {
+	}))
+	if pipe := memory.PipelineFromEngine(mem); pipe != nil {
+		noteReg("RegisterDocumentLearningTools", tools.RegisterDocumentLearningTools(reg, pipe, agent.SessionIDFromContext, rt.WorkspaceRoot))
+		c.Effect("learning-neighbors-static", tools.RegisterStaticTool("read_learned_neighbors", false))
+		c.Effect("learning-neighbors-traits", governance.RegisterToolTraits("read_learned_neighbors", governance.ToolTraits{Source: "memory", Mutating: false}))
+		c.Effect("learning-document-static", tools.RegisterStaticTool("learn_document", true))
+		c.Effect("learning-document-traits", governance.RegisterToolTraits("learn_document", governance.ToolTraits{Source: "memory", Mutating: true}))
+		c.Effect("learning-status-static", tools.RegisterStaticTool("memory_learning_status", false))
+		c.Effect("learning-status-traits", governance.RegisterToolTraits("memory_learning_status", governance.ToolTraits{Source: "memory", Mutating: false}))
+	}
+	noteReg("RegisterRecallTool", tools.RegisterRecallTool(reg, func(ctx context.Context, query string, opts memory.RecallOptions) ([]memory.Record, error) {
 		if opts.Scope == "" {
 			opts.Scope = agent.SessionIDFromContext(ctx)
 		}
 		return mem.Recall(ctx, query, opts)
-	})
-	_ = tools.RegisterA2UITool(reg, rt.interactStore, rt.renderA2UI)
-	_ = agent.RegisterSubagentTool(reg, runner, llm, agent.SessionIDFromContext)
-	_ = registerActivateSkillOnRegistry(reg, rt.skillLoader)
+	}))
+	noteReg("RegisterA2UITool", tools.RegisterA2UITool(reg, rt.interactStore, rt.renderA2UI))
+	noteReg("RegisterSubagentTool", agent.RegisterSubagentTool(reg, runner, llm, agent.SessionIDFromContext))
+	noteReg("registerActivateSkillOnRegistry", registerActivateSkillOnRegistry(reg, rt.skillLoader))
+	if len(regErrs) > 0 {
+		applog.Warn("tool registration: %d registration(s) failed at startup: %v", len(regErrs), regErrs)
+	}
 	return c.Provide(svcToolset, true)
 }
 
@@ -274,16 +327,16 @@ func (rt *Runtime) renderA2UI(ctx context.Context, ev tools.A2UIRenderEvent) {
 		// Broadcast the A2UI event over the gateway
 		rt.gatewayBroker.Publish("a2ui", "render", tools.MarshalRenderEventJSON(ev))
 	}
-	if app := application.Get(); app != nil {
+	if eventsOn() {
 		payload := tools.MarshalRenderEvent(ev)
 		if sessionID != "" {
 			payload["session_id"] = sessionID
 		}
-		app.Event.Emit("a2ui:render", payload)
+		emitEvent("a2ui:render", payload)
 	}
 	if ev.InteractID != "" && sessionID != "" {
-		if app := application.Get(); app != nil {
-			app.Event.Emit("chat:paused", map[string]any{
+		if eventsOn() {
+			emitEvent("chat:paused", map[string]any{
 				"session_id":  sessionID,
 				"interact_id": ev.InteractID,
 				"reason":      "a2ui_interaction",

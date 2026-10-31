@@ -38,6 +38,7 @@ func (r *Runner) appBuilderTools() []tool.BaseTool {
 }
 
 func (r *Runner) buildAppBuilderAgent(ctx context.Context, cfg LLMSettings) (adk.Agent, error) {
+	ctx = withLLMBudget(ctx, cfg)
 	toolList := r.appBuilderTools()
 	if len(toolList) == 0 {
 		return nil, fmt.Errorf("app_builder: no file tools registered")
@@ -57,6 +58,7 @@ func (r *Runner) buildAppBuilderAgent(ctx context.Context, cfg LLMSettings) (adk
 
 // RunAppBuilderAgent runs the isolated app_builder ADK agent for one task prompt.
 func (r *Runner) RunAppBuilderAgent(ctx context.Context, cfg LLMSettings, sessionID, userText string) (content string, err error) {
+	ctx = withLLMBudget(ctx, cfg)
 	if r.cpStore == nil {
 		return "", fmt.Errorf("checkpoint store unavailable")
 	}
@@ -67,7 +69,7 @@ func (r *Runner) RunAppBuilderAgent(ctx context.Context, cfg LLMSettings, sessio
 	if sessionID == "" {
 		sessionID = "app_builder"
 	}
-	ctx = WithSessionMode(WithSessionID(ctx, sessionID), SessionMode{
+	ctx = WithSessionMode(BindRunContext(ctx, sessionID), SessionMode{
 		Profile: ModeAssistant, Canvas: CanvasDeep,
 	})
 
@@ -80,6 +82,9 @@ func (r *Runner) RunAppBuilderAgent(ctx context.Context, cfg LLMSettings, sessio
 		CheckPointStore: r.cpStore,
 		EnableStreaming: false,
 	})
+	if r.runControl != nil {
+		defer r.runControl.Clear(sessionID)
+	}
 	iter := runner.Query(ctx, userText, r.queryOptions(ctx, sessionID)...)
 	out, _, _, err := r.drainADKEvents(ctx, iter, nil)
 	return strings.TrimSpace(out), err
@@ -87,6 +92,7 @@ func (r *Runner) RunAppBuilderAgent(ctx context.Context, cfg LLMSettings, sessio
 
 // BuildInnerAppFull: scaffold + auto-fix + optional app_builder LLM + final verify.
 func (r *Runner) BuildInnerAppFull(ctx context.Context, cfg LLMSettings, sessionID string, b *apps.IterativeBuilder, opt apps.IterativeBuildOptions) apps.IterativeBuildResult {
+	ctx = withLLMBudget(ctx, cfg)
 	if b == nil {
 		return apps.IterativeBuildResult{Success: false, Error: "iterative builder nil"}
 	}

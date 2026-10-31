@@ -61,7 +61,12 @@ func WriteXlsx(w io.Writer, sheets []Sheet) error {
 		}
 	}
 	f.SetActiveSheet(0)
-	return f.Write(w)
+	data, err := finishWorkbook(f)
+	if err != nil {
+		return err
+	}
+	_, err = w.Write(data)
+	return err
 }
 
 func fillSheet(f *excelize.File, name string, s Sheet, headStyle int) error {
@@ -104,6 +109,14 @@ func fillSheet(f *excelize.File, name string, s Sheet, headStyle int) error {
 			w = maxColumnChar
 		}
 		if err := f.SetColWidth(name, col, col, w+2); err != nil {
+			return err
+		}
+	}
+	if len(s.Rows) > 0 && cols > 0 {
+		// excelize leaves the dimension at A1; readers that trust it (streaming
+		// parsers, previewers) would otherwise see an empty sheet.
+		corner, _ := excelize.CoordinatesToCellName(cols, len(s.Rows))
+		if err := f.SetSheetDimension(name, "A1:"+corner); err != nil {
 			return err
 		}
 	}
