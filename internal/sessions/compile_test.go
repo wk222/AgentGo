@@ -165,7 +165,7 @@ func TestCompileProjectedView_CompactionCheckpointPreservesGoalAndToolLedger(t *
 		schema.UserMessage("请分析 D:\\target.exe 的登录逻辑，不要使用轮询"),
 		schema.AssistantMessage("", []schema.ToolCall{{
 			ID:       "tc1",
-			Function: schema.FunctionCall{Name: "re_triage", Arguments: `{"path":"D:\\target.exe","case":"mw"}`},
+			Function: schema.FunctionCall{Name: "re_triage", Arguments: `{"path":"D:\\target.exe","case":"demo"}`},
 		}}),
 		schema.ToolMessage("pe32 nsis", "tc1"),
 		schema.UserMessage("继续看 HAR"),

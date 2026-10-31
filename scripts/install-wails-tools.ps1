@@ -1,8 +1,11 @@
-# 将 Wails CLI 与 NSIS 安装到 D:\dev，并写入用户 PATH / Go 环境变量。
-# 用法: powershell -ExecutionPolicy Bypass -File scripts/install-wails-tools.ps1
+# 将 Wails CLI 与 NSIS 安装到 -DevRoot 指定的目录，并写入用户 PATH / Go 环境变量。
+# 用法: powershell -ExecutionPolicy Bypass -File scripts/install-wails-tools.ps1 -DevRoot <工具根目录>
+#       （也可以先设环境变量 AGENTGO_DEV_ROOT；选一个空间充裕的盘，不要放系统盘。）
+param([string]$DevRoot = $env:AGENTGO_DEV_ROOT)
 
 $ErrorActionPreference = "Stop"
-$DevRoot = "D:\dev"
+if (-not $DevRoot) { throw 'Pass -DevRoot <folder> (or set AGENTGO_DEV_ROOT): where the Go tools, the module cache and NSIS should live.' }
+$DevRoot = [IO.Path]::GetFullPath($DevRoot)
 $GoBin = Join-Path $DevRoot "go\bin"
 $GoModCache = Join-Path $DevRoot "go\pkg\mod"
 $GoPath = Join-Path $DevRoot "go"

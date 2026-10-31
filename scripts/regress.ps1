@@ -7,8 +7,9 @@
 #>
 param(
     [switch]$SkipMcp,
-    # Legacy Go toolchain that builds the Windows 7 release (go-legacy-win7).
-    [string]$Win7Go = 'E:\tools\go-win7\go-legacy-win7\bin\go.exe'
+    # Legacy Go toolchain that builds the Windows 7 release (go-legacy-win7): full path to its bin\go.exe.
+    # Default: the AGENTGO_WIN7_GO environment variable. Without it the Win7 build guard below is skipped with a warning.
+    [string]$Win7Go = $env:AGENTGO_WIN7_GO
 )
 
 $ErrorActionPreference = 'Continue'
@@ -36,7 +37,7 @@ try {
     # it that way here too, so a dependency that needs cgo, or an import only the
     # newer Go can compile, shows up today and not on release day. Skipped when
     # that toolchain is not installed.
-    if (Test-Path -LiteralPath $Win7Go) {
+    if ($Win7Go -and (Test-Path -LiteralPath $Win7Go)) {
         Write-Host "== go build -tags web ./... (legacy Win7 toolchain, cgo off) =="
         $saved = @{ CGO_ENABLED = $env:CGO_ENABLED; GOTOOLCHAIN = $env:GOTOOLCHAIN; GOWORK = $env:GOWORK }
         $env:CGO_ENABLED = '0'; $env:GOTOOLCHAIN = 'local'; $env:GOWORK = 'off'
@@ -49,7 +50,7 @@ try {
             }
         }
     } else {
-        Write-Warning "legacy Win7 Go toolchain not found at '$Win7Go', skipping the Win7 build guard"
+        Write-Warning "legacy Win7 Go toolchain not found (set AGENTGO_WIN7_GO or pass -Win7Go; got '$Win7Go'), skipping the Win7 build guard"
     }
 } finally { Pop-Location }
 

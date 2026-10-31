@@ -28,14 +28,18 @@ type ToolSpec struct {
 
 // catalog is an allowlist: re_tool_run refuses anything not named here. There is no
 // generic shell and no interpreter (python/dotnet/node) on purpose.
+//
+// Dirs holds conventional install roots only. A tool that lives anywhere else is pointed at with
+// RE_TOOL_<NAME> or an entry in <home>/tools.json (see resolve), never with a folder from one
+// person's machine written in here.
 var catalog = []ToolSpec{
 	{Name: "ghidra-headless", Class: "static", Exes: []string{"analyzeHeadless.bat", "analyzeHeadless"}, Purpose: "Ghidra headless import/analyze/export script"},
 	{Name: "jadx", Class: "static", Exes: []string{"jadx.bat", "jadx"}, Version: []string{"--version"}, Purpose: "APK/DEX -> Java"},
 	{Name: "apktool", Class: "static", Exes: []string{"apktool.bat", "apktool"}, Version: []string{"--version"}, Purpose: "APK resources/smali"},
-	{Name: "ilspycmd", Class: "static", Exes: []string{"ilspycmd.exe", "ilspycmd"}, Dirs: []string{`E:\tools\ilspy`}, Version: []string{"--version"}, Env: []string{"DOTNET_ROLL_FORWARD=Major"}, Purpose: ".NET assembly -> C#"},
+	{Name: "ilspycmd", Class: "static", Exes: []string{"ilspycmd.exe", "ilspycmd"}, Version: []string{"--version"}, Env: []string{"DOTNET_ROLL_FORWARD=Major"}, Purpose: ".NET assembly -> C#"},
 	{Name: "rizin", Class: "static", Exes: []string{"rizin.exe", "rizin"}, Version: []string{"-v"}, Purpose: "native disasm/analysis (batch with -qc)"},
 	{Name: "r2", Class: "static", Exes: []string{"radare2.exe", "r2.exe", "r2"}, Version: []string{"-v"}, Purpose: "radare2 (batch with -qc)"},
-	{Name: "idat", Class: "static", Exes: []string{"idat.exe", "idat64.exe", "idat"}, Dirs: []string{`E:\Program Files\IDA Professional 9.3`}, Purpose: "IDA text-mode (-A -S script)"},
+	{Name: "idat", Class: "static", Exes: []string{"idat.exe", "idat64.exe", "idat"}, Purpose: "IDA text-mode (-A -S script)"},
 	{Name: "objdump", Class: "static", Exes: []string{"objdump.exe", "objdump"}, Version: []string{"--version"}, Purpose: "GNU objdump"},
 	{Name: "diec", Class: "static", Exes: []string{"diec.exe", "diec"}, Purpose: "Detect-It-Easy console (packer/compiler id)"},
 	{Name: "capa", Class: "static", Exes: []string{"capa.exe", "capa"}, Version: []string{"--version"}, Purpose: "capability detection"},

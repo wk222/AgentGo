@@ -10,7 +10,7 @@ import (
 // opened by hand in PowerPoint, Excel or WPS (or read with python-pptx and
 // openpyxl) whenever the writers change:
 //
-//	OFFICEDOC_EXPORT_DIR=E:\tmp\office-samples go test -run TestExportSamples ./internal/officedoc
+//	OFFICEDOC_EXPORT_DIR=<dir> go test -run TestExportSamples ./internal/officedoc
 func TestExportSamples(t *testing.T) {
 	dir := os.Getenv("OFFICEDOC_EXPORT_DIR")
 	if dir == "" {
