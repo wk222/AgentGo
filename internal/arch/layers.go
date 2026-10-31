@@ -51,6 +51,7 @@ var PackageLayer = map[string]Layer{
 	"plugin":                          LayerFoundation, // plugin host: services, scopes, event middleware; stdlib only
 	"hostui":                          LayerFoundation, // browser launch + native folder dialog for the browser build; stdlib only
 	"pathgrant":                       LayerFoundation, // folders the user let a run reach outside its workspace; stdlib only
+	"linktest":                        LayerFoundation, // test-only: gives tests another spelling of a folder (a link, a Windows 8.3 short name); stdlib only
 	"webshell":                        LayerConsumer,   // serves the UI to a browser: HTTP/SSE stand-in for the Wails runtime; stdlib only
 	"docindex":                        LayerAssets,     // SQLite full-text index of parsed document chunks behind search_documents
 	"browsercontrol":                  LayerAssets,     // drives a local Chrome/Edge over the DevTools protocol (pure Go) for the browser_* tools

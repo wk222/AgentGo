@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"log"
 	"path/filepath"
-	"runtime"
-	"strings"
 
 	"agentgo/internal/governance"
 	"agentgo/internal/skills"
@@ -80,12 +78,13 @@ func (r *Runtime) workspaceBusyReason() string {
 	return ""
 }
 
+// sameWorkspacePath says whether two spellings name the same folder. A plain
+// string comparison is not enough: the runtime holds the resolved root, while a
+// caller may still pass a short Windows name, a symlink or another letter case,
+// and treating those as a different workspace would restart tools, drop
+// checkpoints and refuse the switch for no reason.
 func sameWorkspacePath(a, b string) bool {
-	a, b = filepath.Clean(a), filepath.Clean(b)
-	if a == b {
-		return true
-	}
-	return runtime.GOOS == "windows" && strings.EqualFold(a, b)
+	return workspace.SamePath(a, b)
 }
 
 // SetWorkspaceRoot switches the workspace as one unit: refuse while busy,

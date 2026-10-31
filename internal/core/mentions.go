@@ -25,7 +25,10 @@ type MentionSources struct {
 // A mention is @name or @"a path with spaces". Names keep letters of any script
 // (a dropped "工作簿1.xlsx" must stay whole) plus the characters a path or a
 // file name like "报表(1).xlsx" is made of; CJK punctuation and spaces end it.
-var mentionRegex = regexp.MustCompile(`@(?:"([^"\r\n]+)"|([\p{L}\p{N}_\-\.\/\\:()（）\[\]]+))`)
+// "~" is part of a Windows short name (C:\Users\RUNNER~1\...), which is how a
+// temporary or attachment folder is often spelled; a "~" ending a mention is
+// sentence punctuation and is trimmed by mentionTarget.
+var mentionRegex = regexp.MustCompile(`@(?:"([^"\r\n]+)"|([\p{L}\p{N}_\-\.\/\\:()（）\[\]~]+))`)
 
 // mentionTarget picks the captured name out of a mentionRegex match and drops
 // the sentence punctuation or unbalanced closing bracket that trails it.
@@ -33,7 +36,7 @@ func mentionTarget(m []string) string {
 	if m[1] != "" {
 		return strings.TrimSpace(m[1])
 	}
-	t := strings.TrimRight(m[2], ".,;:!?")
+	t := strings.TrimRight(m[2], ".,;:!?~")
 	for {
 		last, ok := lastRune(t)
 		if !ok || (last != ')' && last != '）') {
@@ -42,7 +45,7 @@ func mentionTarget(m []string) string {
 		if strings.Count(t, "(")+strings.Count(t, "（") >= strings.Count(t, ")")+strings.Count(t, "）") {
 			return t
 		}
-		t = strings.TrimRight(t[:len(t)-len(string(last))], ".,;:!?")
+		t = strings.TrimRight(t[:len(t)-len(string(last))], ".,;:!?~")
 	}
 }
 

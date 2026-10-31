@@ -137,14 +137,26 @@ func registerWorkspaceCodeTools(r *Registry, workspaceRoot string) error {
 	return nil
 }
 
-func resolveWorkspacePath(root, input string, allowRoot, mustExist bool) (string, string, error) {
+// canonicalRoot is the workspace root as the path jail sees it: absolute, with
+// symlinks and short names resolved. Every full path the jail returns is spelled
+// this way, so anything computed from those paths (a relative name to show, a
+// containment test) must be relative to this and not to the root as it was passed.
+func canonicalRoot(root string) (string, error) {
 	rootAbs, err := filepath.Abs(strings.TrimSpace(root))
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
 	rootAbs, err = filepath.EvalSymlinks(rootAbs)
 	if err != nil {
-		return "", "", fmt.Errorf("resolve workspace root: %w", err)
+		return "", fmt.Errorf("resolve workspace root: %w", err)
+	}
+	return rootAbs, nil
+}
+
+func resolveWorkspacePath(root, input string, allowRoot, mustExist bool) (string, string, error) {
+	rootAbs, err := canonicalRoot(root)
+	if err != nil {
+		return "", "", err
 	}
 	rootInfo, err := os.Stat(rootAbs)
 	if err != nil {
@@ -293,6 +305,13 @@ func searchWorkspace(root string, in searchWorkspaceInput) (searchWorkspaceOutpu
 	if err != nil {
 		return searchWorkspaceOutput{}, err
 	}
+	// target is spelled canonically, so the names shown must be relative to the
+	// canonical root; against the raw one a symlinked or short-named workspace
+	// would print "../../..".
+	rootAbs, err := canonicalRoot(root)
+	if err != nil {
+		return searchWorkspaceOutput{}, err
+	}
 	limit := in.MaxResults
 	if limit <= 0 {
 		limit = 50
@@ -330,7 +349,7 @@ func searchWorkspace(root string, in searchWorkspaceInput) (searchWorkspaceOutpu
 		if err != nil || !info.Mode().IsRegular() || info.Size() > maxAgentSourceBytes {
 			return nil
 		}
-		rel, err := filepath.Rel(root, path)
+		rel, err := filepath.Rel(rootAbs, path)
 		if err != nil {
 			return nil
 		}

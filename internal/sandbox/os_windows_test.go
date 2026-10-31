@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 
@@ -223,18 +224,67 @@ func TestWindowsTempIsPrivate(t *testing.T) {
 	}
 }
 
+// tokenInfo reads one information class of a token.
+func tokenInfo(t *testing.T, tok windows.Token, class uint32) []byte {
+	t.Helper()
+	var n uint32
+	if err := windows.GetTokenInformation(tok, class, nil, 0, &n); err != windows.ERROR_INSUFFICIENT_BUFFER {
+		t.Fatalf("GetTokenInformation(%d) size query: %v", class, err)
+	}
+	buf := make([]byte, n)
+	if err := windows.GetTokenInformation(tok, class, &buf[0], n, &n); err != nil {
+		t.Fatalf("GetTokenInformation(%d): %v", class, err)
+	}
+	return buf
+}
+
+// The token a confined command runs under is asked directly. Asking `whoami`
+// from inside the confined command was fragile: a Low-integrity token may not
+// look up group names on every machine (it is refused on a hosted CI runner), and
+// the answer was matched against English text. That the confined process really
+// runs at Low is proven by effect in the write and registry tests above.
 func TestWindowsTokenIsLowIntegrityWithoutPrivileges(t *testing.T) {
-	out, code := runWin(t, workspace(t), `whoami /groups & whoami /priv`)
-	if code != 0 {
-		t.Fatalf("exit %d: %s", code, out)
+	tok, err := sandboxToken()
+	if err != nil {
+		t.Skipf("no sandbox token here: %v", err)
 	}
-	if !strings.Contains(out, `Mandatory Label\Low Mandatory Level`) {
-		t.Errorf("not running at Low integrity:\n%s", out)
+
+	label := (*windows.Tokenmandatorylabel)(unsafe.Pointer(&tokenInfo(t, tok, windows.TokenIntegrityLevel)[0]))
+	if !label.Label.Sid.IsWellKnown(windows.WinLowLabelSid) {
+		t.Errorf("not at Low integrity: %s", label.Label.Sid)
 	}
-	for _, line := range strings.Split(out, "\n") {
-		f := strings.Fields(line)
-		if len(f) > 0 && strings.HasPrefix(f[0], "Se") && strings.HasSuffix(f[0], "Privilege") && f[0] != "SeChangeNotifyPrivilege" {
-			t.Errorf("unexpected privilege kept: %s", strings.TrimSpace(line))
+
+	var changeNotify windows.LUID
+	if err := windows.LookupPrivilegeValue(nil, windows.StringToUTF16Ptr("SeChangeNotifyPrivilege"), &changeNotify); err != nil {
+		t.Fatal(err)
+	}
+	privs := tokenInfo(t, tok, windows.TokenPrivileges)
+	list := (*windows.Tokenprivileges)(unsafe.Pointer(&privs[0]))
+	for _, p := range unsafe.Slice(&list.Privileges[0], list.PrivilegeCount) {
+		if p.Luid != changeNotify {
+			t.Errorf("unexpected privilege kept: LUID %d:%d (only SeChangeNotifyPrivilege may stay)", p.Luid.HighPart, p.Luid.LowPart)
+		}
+	}
+	if list.PrivilegeCount == 0 {
+		t.Error("SeChangeNotifyPrivilege should stay: ordinary programs cannot live without it")
+	}
+
+	// Administrators, when the user belongs to it, is deny-only: the token cannot
+	// use the group to pass an access check, only to be refused by one.
+	admin, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	groups, err := tok.GetTokenGroups()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, g := range groups.AllGroups() {
+		if !g.Sid.Equals(admin) {
+			continue
+		}
+		if g.Attributes&windows.SE_GROUP_USE_FOR_DENY_ONLY == 0 || g.Attributes&windows.SE_GROUP_ENABLED != 0 {
+			t.Errorf("Administrators must be deny-only in the sandbox token, attributes = %#x", g.Attributes)
 		}
 	}
 }
