@@ -45,7 +45,7 @@ jobs:
           # tag v1.2.0 -> 1.2.0; a manual run on a branch gets a throwaway version
           $ver = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { "0.0.0-ci.$env:GITHUB_RUN_NUMBER" }
           ./scripts/release-windows.ps1 -Version $ver -SkipTests
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         if: startsWith(github.ref, 'refs/tags/')
         with:
           generate_release_notes: true
