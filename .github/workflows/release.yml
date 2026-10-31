@@ -1,5 +1,7 @@
 name: Release
 
+# Windows builds only, on purpose. Linux and macOS are still compiled on every push by ci.yml (go-portable).
+# The Windows 7 packages are not built here: they need the legacy toolchain, see scripts/release-win7.ps1.
 on:
   push:
     tags: ["v*"]
@@ -56,60 +58,3 @@ jobs:
         with:
           name: agentgo-windows
           path: dist/*.exe
-
-  cua-portable:
-    # computer-use sidecar 是纯 Go，可以跨平台出二进制
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - { goos: linux, goarch: amd64 }
-          - { goos: linux, goarch: arm64 }
-          - { goos: darwin, goarch: arm64 }
-    env:
-      CGO_ENABLED: "0"
-      GOOS: ${{ matrix.goos }}
-      GOARCH: ${{ matrix.goarch }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-      - run: go build -trimpath -ldflags "-s -w" -o agentgo-cua-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/agentgo-cua
-      - uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
-        with:
-          files: agentgo-cua-*
-
-  cli-portable:
-    # 终端客户端带 -tags web 之后不依赖 Wails（只有 internal/bridge/host_desktop.go 引用它），
-    # 纯 Go，可以在 Linux 上交叉编译出 Linux 与 macOS 的二进制
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - { goos: linux, goarch: amd64 }
-          - { goos: linux, goarch: arm64 }
-          - { goos: darwin, goarch: arm64 }
-          - { goos: darwin, goarch: amd64 }
-    env:
-      CGO_ENABLED: "0"
-      GOOS: ${{ matrix.goos }}
-      GOARCH: ${{ matrix.goarch }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-      - run: go build -trimpath -tags web -ldflags "-s -w" -o agentgo-cli-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/agentgo-cli
-      - uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
-        with:
-          files: agentgo-cli-*
-      - uses: actions/upload-artifact@v4
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        with:
-          name: agentgo-cli-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: agentgo-cli-${{ matrix.goos }}-${{ matrix.goarch }}
