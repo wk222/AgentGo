@@ -193,7 +193,7 @@ create_pptx(template=...)    pptx_template.go       分析：loadTemplate → an
   标题、logo 和页码和原模板一致。真实模型（本机默认 Azure 部署，`agentgo-cli run -yolo`）读技能后先 `inspect_pptx layouts=true`
   看版式，再 `create_pptx template=...`，一次生成 7 页（含一页 `svg` 流程图并把标题交给标题占位符），`inspect_pptx` 无 issue；WPS 导出核对版面干净。
   只跑了这一个模板、一个模型，不代表其他模板和模型的成功率。
-- 重新导出样例：`OFFICEDOC_EXPORT_DIR=E:\tmp\office-samples go test -run TestExportSamples ./internal/officedoc`。
+- 重新导出样例：`OFFICEDOC_EXPORT_DIR=<导出目录> go test -run TestExportSamples ./internal/officedoc`。
 
 ## 经验
 

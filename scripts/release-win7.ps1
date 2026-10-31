@@ -2,9 +2,12 @@ param(
  [ValidatePattern('^[a-zA-Z0-9][a-zA-Z0-9._-]*$')]
  [string]$Version = '0.1.0-win7.1',
  # go-legacy-win7 toolchain (https://github.com/thongtech/go-legacy-win7). The stock Go 1.21+ cannot target Windows 7.
- [string]$Go = 'E:\tools\go-win7\go-legacy-win7\bin\go.exe',
+ # Full path to its bin\go.exe; default: the AGENTGO_WIN7_GO environment variable. There is deliberately no fallback to the
+ # go on PATH: that would quietly build an executable that does not start on Windows 7.
+ [string]$Go = $env:AGENTGO_WIN7_GO,
  [string]$Npm = 'npm.cmd',
- [string]$GoCache = 'E:\tmp\gocache-win7',
+ # Build cache of that toolchain. Default: AGENTGO_WIN7_GOCACHE, else <LocalAppData>\agentgo\gocache-win7.
+ [string]$GoCache = $(if ($env:AGENTGO_WIN7_GOCACHE) { $env:AGENTGO_WIN7_GOCACHE } else { Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'agentgo\gocache-win7' }),
  [ValidateRange(1,16)]
  [int]$TestParallelism = 2,
  [switch]$SkipTests,
@@ -23,6 +26,7 @@ $archive = $releaseRoot + '.zip'
 foreach ($target in @($releaseRoot,$archive)) {
  if (Test-Path -LiteralPath $target) { throw "Target already exists; choose another version or remove your own old output: $target" }
 }
+if (-not $Go) { throw 'Legacy Go toolchain not configured: pass -Go <path to go-legacy-win7\bin\go.exe> or set AGENTGO_WIN7_GO' }
 if (-not (Test-Path -LiteralPath $Go)) { throw "Legacy Go toolchain not found: $Go" }
 $privateInputs = @(
  Get-ChildItem -Path (Join-Path $projectRoot 'internal/bridge/*_private*.go') -ErrorAction SilentlyContinue
@@ -53,7 +57,7 @@ try {
  $goVersion = (& $Go version)
  if ($goVersion -notmatch 'go1\.') { throw "Unexpected go version output: $goVersion" }
  if (-not $SkipTests) {
-  & $Go test @modArgs -tags web "-p=$TestParallelism" @testTargets -count=1 -timeout=180s
+  & $Go test @modArgs -tags web "-p=$TestParallelism" @testTargets -count=1 -timeout=10m   # per test binary: a hang detector, not a speed check (internal/agent alone runs 130-180 s)
   if ($LASTEXITCODE -ne 0) { throw 'Go tests (-tags web) failed' }
   & $Npm --prefix frontend run typecheck
   if ($LASTEXITCODE -ne 0) { throw 'Frontend typecheck failed' }

@@ -14,7 +14,7 @@
 - 小/中项目单文件不超过 900 行；超了按功能拆。当前 `frontend/src/wails.ts`（1309 行）、`internal/agent/runner.go`（接近上限）要留意，新代码不往里堆。
 - `internal` 分层硬规则：除 `bridge` 外不得 import `bridge`；资产层（`apps`/`workflow`/`tools`）不得 import `agent`；`agent` 不得 import `bridge`。改完跑 `go test ./internal/arch/...`。
 - 不使用子 Agent、不设定时任务；长任务用后台命令 + 等待，不在对话里轮询。
-- 缓存与构建目录不放 C 盘（C 盘紧张）；临时脚本和参考仓放 `D:\reference_repos`。
+- 缓存与构建目录不放 C 盘（C 盘紧张）；临时脚本和参考仓放在别的盘的专用目录。
 - 终端统一用 pwsh7；复杂文本处理写 Python 脚本；`git commit -m` 的信息里不要带会被 PowerShell 误解析的引号结构。
 - 回复一律简体中文；改完要写 MD 记录问题与下一步（本文第 5 节）。
 

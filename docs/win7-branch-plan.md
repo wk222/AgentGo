@@ -17,7 +17,7 @@ Win7 没有可用的 WebView2，所以这个版本不开原生窗口：`AgentGo-
 - IE 访问会得到“请安装 Chrome 109 / Firefox 115 ESR”的提示页。
 
 ## 工具链
-`thongtech/go-legacy-win7` v1.27.2-1，解压在 `E:\tools\go-win7\go-legacy-win7`（下载需走 `socks5h://127.0.0.1:10808`）。
+`thongtech/go-legacy-win7` v1.27.2-1，解压到任意目录，用环境变量 `AGENTGO_WIN7_GO` 指向它的 `bin\go.exe`（`scripts/release-win7.ps1`、`scripts/regress.ps1` 都读它；构建缓存目录用 `AGENTGO_WIN7_GOCACHE` 指定）。
 打包：`scripts/release-win7.ps1`（用 legacy Go、`-tags web` 跑全部 Go 测试、前端检查与构建、编译、校验）。
 
 ## 办公工具随包内置（内网电脑也能用）

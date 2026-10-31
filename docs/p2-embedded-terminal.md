@@ -104,7 +104,7 @@ agentgo-tui (一个进程)
 ## 5. 历史:曾经的阻塞(已解决,留作经验)
 
 - 当时 agentgo 的 `go.mod` 没有 TUI 依赖,且本机 DNS 不通,`go mod tidy` 无法完成。网络恢复后一次 `go mod tidy` 即成功。
-- 原因:agentgo 的 `go.mod` 目前没有 TUI 依赖(bubbletea/v2、lipgloss/v2、bubbles/v2、ultraviolet、x/term、colorprofile…)。本机当时 DNS 不通(goproxy.cn / proxy.golang.org 均无法解析,本地代理端口 7897/7890/10809/10808 都连不上),`go mod tidy` 无法完成。
+- 原因:agentgo 的 `go.mod` 目前没有 TUI 依赖(bubbletea/v2、lipgloss/v2、bubbles/v2、ultraviolet、x/term、colorprofile…)。本机当时 DNS 不通(goproxy.cn / proxy.golang.org 均无法解析,本机常用的本地代理端口都连不上),`go mod tidy` 无法完成。
 - 试过且**失败**的离线办法(别重复):
   1. `GOPROXY=off go mod tidy` / `-mod=mod`:需要缓存里没有的旧模块 `go.mod`(`imaging@v1.6.2 → x/image@2019`、`x/vcr` 等)。
   2. 用脚本把 crush 的 require 取高版本合并进 agentgo `go.mod`,再逐个剔除缓存缺失的测试依赖:剔掉 8 个后仍卡在 `imaging → x/image@2019`(老式非剪枝模块触发完整模块图加载)。

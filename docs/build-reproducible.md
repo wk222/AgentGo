@@ -21,29 +21,29 @@ go build -o bin/agentgo.exe ./cmd/agentgo
 
 需要安装 [Wails v3 CLI](https://v3.wails.io/)（命令名一般为 `wails3`）。
 
-**推荐：安装到 D 盘（本机已配置）**
+**推荐：装到空间充裕的盘（下面用 `<工具根目录>` 表示，不要放系统盘）**
 
 ```powershell
 cd agentgo
-powershell -ExecutionPolicy Bypass -File scripts/install-wails-tools.ps1
+powershell -ExecutionPolicy Bypass -File scripts/install-wails-tools.ps1 -DevRoot <工具根目录>
 # 新开终端后：
 wails3 doctor
 ```
 
 | 路径 | 内容 |
 |------|------|
-| `D:\dev\go\bin\wails3.exe` | Wails CLI |
-| `D:\dev\go\pkg\mod` | Go 模块缓存（GOMODCACHE） |
-| `D:\dev\nsis\makensis.exe` | NSIS 打包 |
+| `<工具根目录>\go\bin\wails3.exe` | Wails CLI |
+| `<工具根目录>\go\pkg\mod` | Go 模块缓存（GOMODCACHE） |
+| `<工具根目录>\nsis\makensis.exe` | NSIS 打包 |
 
-用户 PATH 已追加 `D:\dev\go\bin` 与 `D:\dev\nsis`（需**新开终端**生效）。
+脚本会把 `<工具根目录>\go\bin` 与 `<工具根目录>\nsis` 追加到用户 PATH（需**新开终端**生效）。
 
 手动安装：
 
 ```powershell
-$env:GOBIN="D:\dev\go\bin"; $env:GOMODCACHE="D:\dev\go\pkg\mod"
+$env:GOBIN="<工具根目录>\go\bin"; $env:GOMODCACHE="<工具根目录>\go\pkg\mod"
 go install github.com/wailsapp/wails/v3/cmd/wails3@latest
-winget install NSIS.NSIS --location D:\dev\nsis
+winget install NSIS.NSIS --location <工具根目录>\nsis
 wails3 doctor
 ```
 

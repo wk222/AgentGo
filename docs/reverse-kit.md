@@ -1,7 +1,7 @@
 # agentgo-re：自有逆向 MCP（`re_*` 工具集）设计与经验
 
 > 日期：2026-10-21　状态：v0.1.0 已可用（`go test ./internal/rekit` 全绿，已在真实 APK/DLL/HAR 上冒烟）
-> 参考库本地副本：`D:\youxiyanjiu\refs\{open-reverselab,rea,recurse,reagent}`（浅克隆，只读参考）
+> 参考库本地副本：`<本机目录>\refs\{open-reverselab,rea,recurse,reagent}`（浅克隆，只读参考）
 
 ## 0. 一句话结论
 
@@ -23,7 +23,7 @@
 1. **APK/Unity 定性**：Mono 还是 IL2CPP、有无壳、Managed DLL 是否被改（1.3.0 的 `Assembly-CSharp.dll` 头 `B2 A5` = `MZ ^ 0xFF`，你当时靠反汇编 `libmono.so` 才发现）。→ `re_apk_inspect` + `re_xor_probe`
 2. **HAR 优先的协议逆向**（网梯、大众云学：`sv.gson/cv.gson` 计时、AES-ECB `learnspaceaes123`、频次/倍速风控）。→ `re_har_summary` / `re_har_entry`
 3. **长链路结论靠人脑维护**：每次都新开一个 `*_summary.md`。→ 案件账本 `re_evidence_*` + `re_report`
-4. **外部工具一堆、路径各异**（ilspycmd 在 `E:\tools\ilspy`、IDA 在 `E:\Program Files`…）。→ `re_env` + `re_tool_run` 白名单
+4. **外部工具一堆、路径各异**（ilspycmd、IDA 各装在哪都有可能；用 `RE_TOOL_<名字>` 环境变量或案件目录下的 `tools.json` 指给它）。→ `re_env` + `re_tool_run` 白名单
 5. **大样本**（2.5GB arm64 APK）。→ 只读 zip 中央目录，实测 0.1 秒出结果
 
 ## 2. 工具清单（13 个，刻意不做"一个操作一个工具"）
@@ -54,16 +54,16 @@
 - `yingzhiren_v1.17.0_arm64_2k_mod.apk`（2.5GB）：包名 `m.Sgame.yzr`、versionCode 38、arm64、`Unity IL2CPP`，约 0.1 秒。
 - `E:\2026-10-20-210112.har`（大众云学）：`re_har_summary` 直接聚合出 `/train/class/*.gson` 等接口及 `accountid/cookie` 请求头；**该文件带 UTF-8 BOM，初版解析失败，已修并加回归测试**。
 - `ilspycmd` 首次运行失败："You must install or update .NET"（它要 .NET 6，机器只有更新的）。已改为该工具默认带 `DOTNET_ROLL_FORWARD=Major`，之后 2.3 秒列出全部类，输出落盘 53KB、只回传 700 字。
-- 案件 `yzr` 已写入 3 条账本并生成 `D:\youxiyanjiu\re_cases\cases\yzr\REPORT.md`。
+- 案件 `yzr` 已写入 3 条账本并生成 `<案件目录>\cases\yzr\REPORT.md`。
 
 ## 4. 使用
 
 ```powershell
 cd C:\Users\user\Documents\GitHub\agentgo
-go build -o bin\agentgo-re.exe ./cmd/agentgo-re      # GOCACHE 已在 D:\dev\go，不占 C 盘
+go build -o bin\agentgo-re.exe ./cmd/agentgo-re      # GOCACHE 放在别的盘，不占 C 盘
 go test ./internal/rekit
-python scripts\re_smoke.py list --home D:\youxiyanjiu\re_cases
-python scripts\re_smoke.py re_apk_inspect path=D:/x/game.apk --home D:\youxiyanjiu\re_cases
+python scripts\re_smoke.py list --home <案件目录>
+python scripts\re_smoke.py re_apk_inspect path=D:/x/game.apk --home <案件目录>
 ```
 
 挂载方式（双通道：内置插件 + 独立 MCP Server）：
@@ -75,7 +75,7 @@ python scripts\re_smoke.py re_apk_inspect path=D:/x/game.apk --home D:\youxiyanj
      - **Schema 隔离**：`re_*` 工具仅在 `ModeReverse`（及 `ModeAdmin`）下进入静态常驻工具表，避免在日常对话（`minimal`/`standard`/`creative`）中消耗约 2,500 tokens 的工具 Schema。
      - **只读画布门控**：在 `ModeReverse × CanvasFocused` 下自动隐藏 4 个会产生副作用的工具（`re_xor_probe`、`re_evidence_add`、`re_report`、`re_tool_run`），保留 7 个纯静态只读探查工具。
      - **系统提示词契约**：`ModeHints()` 在 `ModeReverse` 下自动注入 `[Reverse Harness Contract]`（四级认知阶梯、静态优先探查顺序、严禁原位覆写样本）。
-   - 默认案件目录跟随当前工作区 `<workspace>/.agentgo-re`（切换工作区自动跟随，无需重载插件），也可通过 `AGENTGO_RE_HOME=D:\youxiyanjiu\re_cases` 全局指定（避开 C 盘）。
+   - 默认案件目录跟随当前工作区 `<workspace>/.agentgo-re`（切换工作区自动跟随，无需重载插件），也可通过 `AGENTGO_RE_HOME=<案件目录>` 全局指定（避开 C 盘）。
 2. **外部 MCP 客户端挂载（Cursor / Claude Code 等）**：
    - `configs/agentgo-re.mcp.json` 已写好，复制其中的 `command/args` 到 Cursor 或 Claude Code 的 MCP 配置即可。
    - 工作流提示词同步沉淀在 `skills/reverse-engineering/SKILL.md`。

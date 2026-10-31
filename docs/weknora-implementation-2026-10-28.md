@@ -62,7 +62,7 @@
 
 WeKnora 可借鉴的是三层各自独立、证据相互关联的设计：
 
-| 顺序 | 源码参考（相对 E:/src/WeKnora） | AgentGo 应吸收的行为 |
+| 顺序 | 源码参考（相对 WeKnora 源码根目录） | AgentGo 应吸收的行为 |
 | --- | --- | --- |
 | W1 网页正文 | `internal/agent/tools/web_fetch.go`、`internal/infrastructure/web_fetch` | 读取用户给定 URL 或搜索结果；分页读取同一快照、批次独立失败、明确失败类型、正文提取、来源哈希与回读入口 |
 | W2 搜索协议 | `internal/agent/tools/web_search.go`、`internal/types/web_search_filters.go` | 统一 provider 接口；来源域名与可得日期；明确区分 snippet 和已读取正文；不支持的时间/地区过滤明确报错，不静默忽略 |

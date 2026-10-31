@@ -162,7 +162,7 @@ $env:CRUSH_CLIENT_SERVER = "1"; crush -H tcp://127.0.0.1:18770
 - `project/needs-init` 固定返回 false,否则 TUI 会弹 AGENTS.md 初始化对话框(AgentGo 自己管项目上下文)。
 
 **工具链(`scripts/crushproto/`,升级 Crush 后可整套重录)**
-`record.ps1`(真 server + 录制代理 + 自动批准 + 抓夹具)、`rec_proxy.py`、`capture_fixtures.py`、`summarize.py`、`oapi.py`(查 OpenAPI)、`drive_tui.py`(用 pywinpty+pyte 驱动真 TUI 并读屏;依赖装在 `D:\dev\pytools`,`PYTHONPATH` 指过去)。
+`record.ps1`(真 server + 录制代理 + 自动批准 + 抓夹具)、`rec_proxy.py`、`capture_fixtures.py`、`summarize.py`、`oapi.py`(查 OpenAPI)、`drive_tui.py`(用 pywinpty+pyte 驱动真 TUI 并读屏;依赖装在单独的目录,用 `PYTHONPATH` 指过去)。
 
 **安全坑(已修)**:`POST /v1/workspaces` 的请求/响应里带**整份进程环境变量**(含 API Key)。录制代理与夹具抓取脚本现在默认剔除 `env`;夹具测试断言不含 env 与 `sk-`。早先未脱敏的录制文件已删除。
 

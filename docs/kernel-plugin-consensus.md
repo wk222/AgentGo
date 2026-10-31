@@ -1,7 +1,7 @@
 # AgentGo「全能终端」内核与插件共识方案 v1
 
 > 状态:定稿(2026-10-10)。由项目作者与 Muse(muse.ai 架构顾问)三轮讨论形成,
-> 并已对照真实代码核对。原始往返记录:`D:\tools\muse-cli\prompts\agentgo_plugin_a{1,2,3}.md`。
+> 并已对照真实代码核对。原始往返记录:`prompts\agentgo_plugin_a{1,2,3}.md`（在 muse-cli 的本机目录里）。
 > 与 `plugin-architecture-plan.md` 的关系:本文是它的收敛与修订;P0/P1 已完成部分不重做,
 > 其中「5.3.3 没有跨轮历史」已过时,以代码为准。
 

@@ -48,7 +48,7 @@
 **验证**
 
 - 单元测试：`internal/core/commands_test.go`、`internal/tools/workspace_changes_test.go`（临时 git 仓库，含中文文件名、autocrlf 警告、截断）、`internal/bridge/context_expander_test.go`、`internal/tui/tui_test.go`、前端 `scripts/user-text.test.cjs`。
-- 真实模型，临时仓库 `E:\tmp\review-ws`：基线提交里有两个"旧"缺陷（空切片会 panic），工作区改动里新引入两个缺陷（修改过的文件里新增函数 `TopN` 切片多取一个；新建的未跟踪文件 `export.go` 里忽略写文件错误并恒返回 nil），另有一处纯改名。结果：
+- 真实模型，临时仓库 `review-ws`：基线提交里有两个"旧"缺陷（空切片会 panic），工作区改动里新引入两个缺陷（修改过的文件里新增函数 `TopN` 切片多取一个；新建的未跟踪文件 `export.go` 里忽略写文件错误并恒返回 nil），另有一处纯改名。结果：
   - 两个新缺陷都报了，行号对得上（`stats.go:29`、`export.go:11-12`）；
   - 旧缺陷和改名都没报；
   - 结论是"先修完再合入"，"没能核实的部分"老实写了"未运行测试"；
@@ -122,7 +122,7 @@
 
 **产物**（`bin\`）：`agentgo-0.1.0-win7.10-windows7-amd64.zip`（网页版，21.7 MB）、`agentgo-0.1.0-win7.10-wails-windows-amd64.zip`（桌面版，22.5 MB），各带 `.sha256`；`AgentGo-win7.exe`、`AgentGo.exe` 是同一份 exe 的解压副本。压缩包里的 exe、`SHA256SUMS.txt`、`.sha256` 文件和打包日志里的哈希两两核对一致；`README.md` 含新建文件、指令文件、命令上限三段新说明；`build-info.json` 记录版本、构建时间、源码提交 `bc0d806` 和"工作区有未提交改动"。
 
-**复验**（网页版 exe，临时数据目录，真实模型 `qwen/qwen3.7-max`；脚本在 `E:\tmp`，用完删除了数据目录和配置副本）
+**复验**（网页版 exe，临时数据目录，真实模型 `qwen/qwen3.7-max`；脚本放在临时目录，用完删除了数据目录和配置副本）
 
 | 检查 | 结果 |
 | --- | --- |

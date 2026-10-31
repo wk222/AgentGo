@@ -49,8 +49,8 @@ go build -o agentgo.exe ./cmd/agentgo
 # 2. 避免 C 盘爆仓，重定向 Electron 缓存至 D 盘 (可选但强烈建议)
 $env:ELECTRON_MIRROR="https://npmmirror.com/mirrors/electron/"
 $env:ELECTRON_BUILDER_BINARIES_MIRROR="https://npmmirror.com/mirrors/electron-builder-binaries/"
-$env:ELECTRON_CACHE="D:\devtools\electron-cache"
-$env:ELECTRON_BUILDER_CACHE="D:\devtools\electron-builder-cache"
+$env:ELECTRON_CACHE="<缓存目录>\electron-cache"
+$env:ELECTRON_BUILDER_CACHE="<缓存目录>\electron-builder-cache"
 
 # 3. 进入前端并编译产物
 cd frontend

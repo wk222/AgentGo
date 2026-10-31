@@ -177,7 +177,7 @@ runShell → sandbox.Confine → Command(policy)
 
 ---
 
-## 4. 本机实测结论（Windows 11 26300，标准用户、未提权，探针在 `E:\tmp\agentgo_arch\labelprobe`）
+## 4. 本机实测结论（Windows 11 26300，标准用户、未提权，探针放在临时目录里）
 
 ### 4.1 标签怎么传播
 
@@ -210,7 +210,7 @@ runShell → sandbox.Confine → Command(policy)
 
 ### 4.4 一个会咬人的前提
 
-打低标签需要对目录有 `WRITE_OWNER`。在用户配置目录下（本仓库所在位置）用户是完全控制，可以；在 `E:\tmp` 这种只继承了“Authenticated Users：修改”的目录里，**`SetNamedSecurityInfo` 返回拒绝访问**（本机已复现）。所以放在非用户目录的项目要先改权限，设计里选择报错说明，不自动改用户的 ACL。
+打低标签需要对目录有 `WRITE_OWNER`。在用户配置目录下（本仓库所在位置）用户是完全控制，可以；在盘根下的临时目录这种只继承了“Authenticated Users：修改”的目录里，**`SetNamedSecurityInfo` 返回拒绝访问**（本机已复现）。所以放在非用户目录的项目要先改权限，设计里选择报错说明，不自动改用户的 ACL。
 
 ### 4.5 这台机器上已有 OpenAI Codex 的 Windows 沙箱
 

@@ -124,7 +124,7 @@ agentgo-eval --runs 3 --out docs/eval/baseline.json
 ### 如何自己复查前缀稳定性
 
 ```powershell
-$env:AGENTGO_DUMP_LLM_DIR = 'D:\tmp\agentgo-dump'   # 把每次发往模型的请求体写成文件（含完整提示词，勿提交、勿放公共目录）
+$env:AGENTGO_DUMP_LLM_DIR = '<目录>\agentgo-dump'   # 把每次发往模型的请求体写成文件（含完整提示词，勿提交、勿放公共目录）
 agentgo --serve
 # 跑一遍评测，然后逐字节比较相邻请求的公共前缀；任何一次"系统消息变了"都是缓存杀手
 ```
@@ -142,8 +142,8 @@ agentgo --serve
 `agentgo-eval` 走网关、对着仓库只读，覆盖不到"改文件 → 跑测试 → 验磁盘"。这类回归用 `scripts/ab_codetools.py`：每次运行拷一份小 Go 夹具到临时目录，让 `agentgo-cli run -yolo -json` 真干活（找定义/改常量/修 bug 并跑测试/LSP 诊断与引用/读行/新建文件/重命名/glob），再按磁盘文件与答案自动判分，同时记录工具名和调用数。
 
 ```powershell
-go build -o D:\tmp\agentgo-cli.exe ./cmd/agentgo-cli
-python scripts/ab_codetools.py --b D:/tmp/agentgo-cli.exe --runs 3          # 只验当前构建
+go build -o <目录>\agentgo-cli.exe ./cmd/agentgo-cli
+python scripts/ab_codetools.py --b <目录>/agentgo-cli.exe --runs 3          # 只验当前构建
 python scripts/ab_codetools.py --a 旧版.exe --b 新版.exe --runs 3           # 两个构建对比
 ```
 

@@ -13,8 +13,8 @@ import (
 // drives it over the real pipe. Read-only (screenshot + zoom), but it does
 // capture the screen, so it only runs when AGENTGO_CUA_SIDECAR_EXE is set:
 //
-//	go build -o E:\tmp\agentgo-cua.exe ./cmd/agentgo-cua
-//	$env:AGENTGO_CUA_SIDECAR_EXE='E:\tmp\agentgo-cua.exe'; go test -run Sidecar ./internal/computeruse
+//	go build -o <dir>\agentgo-cua.exe ./cmd/agentgo-cua
+//	$env:AGENTGO_CUA_SIDECAR_EXE='<dir>\agentgo-cua.exe'; go test -run Sidecar ./internal/computeruse
 func TestSidecarProcessE2E(t *testing.T) {
 	exe := os.Getenv("AGENTGO_CUA_SIDECAR_EXE")
 	if exe == "" {

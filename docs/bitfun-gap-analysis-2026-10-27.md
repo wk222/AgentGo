@@ -11,7 +11,7 @@
 
 ## 怎么比的，以及边界
 
-- OpenBitFun 一侧来自 `D:\reference_repos\OpenBitFun` 的 README、`docs/interactive-capabilities` 能力目录和 `src` 目录结构。**没有运行它**，所以只对比"有没有这类能力"，不对比体验和稳定性。
+- OpenBitFun 一侧来自 OpenBitFun 仓库（本机克隆）的 README、`docs/interactive-capabilities` 能力目录和 `src` 目录结构。**没有运行它**，所以只对比"有没有这类能力"，不对比体验和稳定性。
 - AgentGo 一侧来自代码和真实运行。真实运行用的是公司网关上的 `qwen/qwen3.7-max`，在浏览器版里实际对话、审批、导出、看用量、生成诊断包。
 - 开发机是 Windows 11，没有真实的 Windows 7 机器，Win7 浏览器版只验证到"用 legacy Go 工具链能编过并通过测试"。
 

@@ -1,6 +1,6 @@
 """A/B: the same coding tasks through two agentgo-cli builds, real model.
 
-  python scripts/ab_codetools.py --a D:/tmp/agentgo-cli-crush.exe --b D:/tmp/agentgo-cli.exe --runs 2
+  python scripts/ab_codetools.py --a <dir>/agentgo-cli-crush.exe --b <dir>/agentgo-cli.exe --runs 2
 
 Each run gets a fresh copy of a small Go fixture. A task passes when its checker
 (on the files / answer text) says so; tool names and counts are recorded so
@@ -192,7 +192,7 @@ def main():
     ap.add_argument("--runs", type=int, default=2)
     ap.add_argument("--only", default="")
     ap.add_argument("--timeout", type=int, default=300)
-    ap.add_argument("--tmp", default="D:/tmp/ab-fixture")
+    ap.add_argument("--tmp", default=os.path.join(tempfile.gettempdir(), "ab-fixture"), help="scratch folder for the fixture copies")
     ap.add_argument("--out", default="")
     a = ap.parse_args()
 
