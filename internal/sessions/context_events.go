@@ -25,21 +25,40 @@ type ContextEventRecord struct {
 
 // AppendContextEvents commits a complete event batch or nothing. Bootstrap is
 // conditional on an empty log, so legacy history can be imported only once.
+//
+// The transaction is BEGIN IMMEDIATE on purpose. Several processes (two
+// agentgo-cli terminals, the desktop app plus a CLI) share one agentgo.db, and
+// every batch reads MAX(seq) before it writes. Under WAL a deferred transaction
+// takes its read snapshot first; when another process commits in between, this
+// transaction's first write fails with SQLITE_BUSY_SNAPSHOT (517), which
+// busy_timeout does not retry because retrying cannot help. Taking the write
+// lock up front makes concurrent batches wait their turn instead of failing.
 func (s *Store) AppendContextEvents(ctx context.Context, sid, scope string, records []ContextEventRecord, bootstrap bool) error {
 	if sid == "" || scope == "" {
 		return errors.New("empty context session or scope")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	conn, err := s.db.Conn(ctx)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.WithoutCancel(ctx), "ROLLBACK")
+		}
+	}()
 	var seq int64
-	if err = tx.QueryRowContext(ctx, "SELECT COALESCE(MAX(seq),0) FROM chat_context_events WHERE session_id=? AND scope=?", sid, scope).Scan(&seq); err != nil {
+	if err = conn.QueryRowContext(ctx, "SELECT COALESCE(MAX(seq),0) FROM chat_context_events WHERE session_id=? AND scope=?", sid, scope).Scan(&seq); err != nil {
 		return err
 	}
 	if bootstrap && seq > 0 {
-		return nil
+		committed = true
+		_, err = conn.ExecContext(context.WithoutCancel(ctx), "COMMIT")
+		return err
 	}
 	seen := map[string]bool{}
 	for _, r := range records {
@@ -51,7 +70,7 @@ func (s *Store) AppendContextEvents(ctx context.Context, sid, scope string, reco
 		}
 		seen[r.ID] = true
 		seq++
-		_, err = tx.ExecContext(ctx, "INSERT INTO chat_context_events(session_id,scope,seq,event_id,kind,payload) VALUES(?,?,?,?,?,?)", sid, scope, seq, r.ID, r.Kind, r.Payload)
+		_, err = conn.ExecContext(ctx, "INSERT INTO chat_context_events(session_id,scope,seq,event_id,kind,payload) VALUES(?,?,?,?,?,?)", sid, scope, seq, r.ID, r.Kind, r.Payload)
 		if err != nil {
 			if strings.Contains(err.Error(), "UNIQUE constraint failed") {
 				return fmt.Errorf("%w: %s", ErrContextEventExists, r.ID)
@@ -59,7 +78,9 @@ func (s *Store) AppendContextEvents(ctx context.Context, sid, scope string, reco
 			return err
 		}
 	}
-	return tx.Commit()
+	committed = true
+	_, err = conn.ExecContext(context.WithoutCancel(ctx), "COMMIT")
+	return err
 }
 
 func (s *Store) LoadContextEvents(ctx context.Context, sid, scope, after string, reverse bool, kinds []string, limit int) ([]ContextEventRecord, bool, error) {

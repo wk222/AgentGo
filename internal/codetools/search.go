@@ -19,6 +19,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -109,6 +110,25 @@ type grepMatch struct {
 	lineText string
 }
 
+// resolveRoot turns the model's "path" argument into the tree to search. A
+// missing path means the workspace; a relative one is joined onto it. Anything
+// else would search the process working directory, which is unrelated to the
+// folder the user opened (and, started from a drive root, quietly walks all of
+// it). code_ls has always resolved this way, so grep and glob follow it.
+func (s *searcher) resolveRoot(p string) string {
+	p = strings.TrimSpace(expandPath(p))
+	if p == "" {
+		return s.WorkDir
+	}
+	if filepath.IsAbs(p) || (runtime.GOOS == "windows" && strings.HasPrefix(filepath.ToSlash(p), "/")) {
+		return p
+	}
+	if s.WorkDir == "" {
+		return p
+	}
+	return filepath.Join(s.WorkDir, p)
+}
+
 func (s *searcher) grepTool() coderuntime.Tool {
 	return coderuntime.Tool{
 		Name: "grep",
@@ -121,17 +141,53 @@ func (s *searcher) grepTool() coderuntime.Tool {
 			"literal_text": prop("boolean", "If true, the pattern will be treated as literal text with special regex characters escaped. Default is false."),
 		}, "pattern"),
 		Parallel: true,
-		Run: func(ctx context.Context, _, _, argsJSON string) (coderuntime.ToolResult, error) {
+		Run: func(ctx context.Context, sessionID, callID, argsJSON string) (coderuntime.ToolResult, error) {
 			var a grepArgs
 			if r, bad := decode(argsJSON, &a); bad {
 				return r, nil
 			}
-			return s.grep(ctx, a), nil
+			return s.grep(ctx, sessionID, callID, a), nil
 		},
 	}
 }
 
-func (s *searcher) grep(ctx context.Context, a grepArgs) coderuntime.ToolResult {
+// outsideWorkDir reports whether abs falls outside the workspace the tools are
+// bound to; ok is false when the answer cannot be decided.
+func (s *searcher) outsideWorkDir(abs string) (outside, ok bool) {
+	if strings.TrimSpace(s.WorkDir) == "" {
+		return false, false
+	}
+	root, err := filepath.Abs(s.WorkDir)
+	if err != nil {
+		return false, false
+	}
+	rel, err := filepath.Rel(root, abs)
+	if err != nil {
+		return true, true
+	}
+	return rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)), true
+}
+
+// allowRoot applies the same gate code_ls has always had: searching outside the
+// workspace has to be approved. Without it grep and glob read any file on the
+// machine, including when the operator turned code-tool actions off.
+func (s *searcher) allowRoot(ctx context.Context, sessionID, callID, tool, action, root string) (string, bool) {
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return toolErr(fmt.Sprintf("error resolving search path: %v", err)).Content, false
+	}
+	outside, known := s.outsideWorkDir(abs)
+	if !known || !outside {
+		return "", true
+	}
+	if s.Approve != nil && !s.Approve(ctx, coderuntime.FSRequest{SessionID: sessionID, CallID: callID, Tool: tool, Action: action,
+		Path: abs, Description: "Search outside working directory: " + abs}) {
+		return "User denied permission", false
+	}
+	return "", true
+}
+
+func (s *searcher) grep(ctx context.Context, sessionID, callID string, a grepArgs) coderuntime.ToolResult {
 	if a.Pattern == "" {
 		return toolErr("pattern is required")
 	}
@@ -139,7 +195,10 @@ func (s *searcher) grep(ctx context.Context, a grepArgs) coderuntime.ToolResult 
 	if a.LiteralText {
 		pattern = regexp.QuoteMeta(pattern)
 	}
-	root := cmp.Or(a.Path, s.WorkDir)
+	root := s.resolveRoot(a.Path)
+	if msg, ok := s.allowRoot(ctx, sessionID, callID, "grep", "search", root); !ok {
+		return toolErr(msg)
+	}
 
 	ctx, cancel := context.WithTimeout(ctx, s.GrepTimeout)
 	defer cancel()
@@ -153,7 +212,15 @@ func (s *searcher) grep(ctx context.Context, a grepArgs) coderuntime.ToolResult 
 	}
 
 	var out strings.Builder
-	fmt.Fprintf(&out, "Found %d matches\n", len(matches))
+	// The count goes in the first line, where a model reads a total. When the
+	// limit cut the list, that line has to say so: "Found 100 matches" alone was
+	// read as "there are 100 matches in all" and answered a counting question
+	// with the page size.
+	if truncated {
+		fmt.Fprintf(&out, "Found %d matches (truncated at the %d-match limit: more matches exist)\n", len(matches), grepLimit)
+	} else {
+		fmt.Fprintf(&out, "Found %d matches\n", len(matches))
+	}
 	current := ""
 	for _, m := range matches {
 		if current != m.path {
@@ -178,7 +245,7 @@ func (s *searcher) grep(ctx context.Context, a grepArgs) coderuntime.ToolResult 
 		}
 	}
 	if truncated {
-		out.WriteString("\n(Results are truncated. Consider using a more specific path or pattern.)")
+		out.WriteString("\n(Results are truncated. Consider using a more specific path or pattern, or a count tool, for a total.)")
 	}
 	return toolOK(out.String())
 }
@@ -378,21 +445,24 @@ func (s *searcher) globTool() coderuntime.Tool {
 			"path":    prop("string", "The directory to search in. Defaults to the current working directory."),
 		}, "pattern"),
 		Parallel: true,
-		Run: func(ctx context.Context, _, _, argsJSON string) (coderuntime.ToolResult, error) {
+		Run: func(ctx context.Context, sessionID, callID, argsJSON string) (coderuntime.ToolResult, error) {
 			var a globArgs
 			if r, bad := decode(argsJSON, &a); bad {
 				return r, nil
 			}
-			return s.glob(ctx, a), nil
+			return s.glob(ctx, sessionID, callID, a), nil
 		},
 	}
 }
 
-func (s *searcher) glob(ctx context.Context, a globArgs) coderuntime.ToolResult {
+func (s *searcher) glob(ctx context.Context, sessionID, callID string, a globArgs) coderuntime.ToolResult {
 	if a.Pattern == "" {
 		return toolErr("pattern is required")
 	}
-	root := cmp.Or(a.Path, s.WorkDir)
+	root := s.resolveRoot(a.Path)
+	if msg, ok := s.allowRoot(ctx, sessionID, callID, "glob", "search", root); !ok {
+		return toolErr(msg)
+	}
 	ctx, cancel := context.WithTimeout(ctx, s.GlobTimeout)
 	defer cancel()
 
@@ -408,6 +478,7 @@ func (s *searcher) glob(ctx context.Context, a globArgs) coderuntime.ToolResult 
 	}
 	out := strings.Join(files, "\n")
 	if truncated {
+		out = fmt.Sprintf("%d files (truncated at the %d-file limit: more files exist)\n", len(files), globLimit) + out
 		out += "\n\n(Results are truncated. Consider using a more specific path or pattern.)"
 	}
 	return toolOK(out)

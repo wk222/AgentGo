@@ -1,0 +1,244 @@
+{
+  "cited": 18,
+  "correct": 18,
+  "model": "qwen/qwen3.7-max",
+  "model_calls": 36,
+  "results": [
+    {
+      "id": "xlsx-1",
+      "kind": "lookup",
+      "question": "研发部的年度预算是多少？",
+      "answer": "根据文件 finance/budget.xlsx 中“部门预算”工作表的第2行数据，研发部的年度预算为1,200,000元。",
+      "searches": [
+        "研发部年度预算"
+      ],
+      "correct": true,
+      "cited": true,
+      "model_calls": 2,
+      "ms": 4166
+    },
+    {
+      "id": "xlsx-2",
+      "kind": "lookup",
+      "question": "市场部的负责人是谁？",
+      "answer": "根据文件 **finance/budget.xlsx** 中“部门预算”工作表的第3行记录，市场部的负责人是**李经理**。",
+      "searches": [
+        "市场部负责人"
+      ],
+      "correct": true,
+      "cited": true,
+      "model_calls": 2,
+      "ms": 3691
+    },
+    {
+      "id": "zh-1",
+      "kind": "lookup",
+      "question": "单笔采购超过五万元，要由谁复核？",
+      "answer": "根据文件 `policy/procurement.txt` 中的《采购管理办法》规定：单笔采购金额超过五万元的，须提交**财务处负责人**复核。\n\n依据位置：`policy/procurement.txt`，第0-58字符区间。",
+      "searches": [
+        "单笔采购超过五万元 复核"
+      ],
+      "correct": true,
+      "cited": true,
+      "model_calls": 2,
+      "ms": 3555
+    },
+    {
+      "id": "zh-2",
+      "kind": "lookup",
+      "question": "单笔采购超过二十万元，谁来批准？",
+      "answer": "根据文件 `policy/procurement.txt` 中的《采购管理办法》规定：单笔采购金额超过二十万元的，须报**总经理**批准。\n\n依据位置：`policy/procurement.txt`，原文为“单笔采购金额超过二十万元的，须报总经理批准。”",
+      "searches": [
+        "单笔采购超过二十万元 批准 审批"
+      ],
+      "correct": true,
+      "cited": true,
+      "model_calls": 2,
+      "ms": 5063
+    },
+    {
+      "id": "zh-3",
+      "kind": "lookup",
+      "question": "二线城市出差住宿每晚的标准是多少？",
+      "answer": "根据文件《policy/travel_2026.md》中的差旅制度（2026版），二线城市出差住宿标准为每晚不超过500元。\n\n依据位置：文件开头“出差住宿标准”条款，原文为“二线城市每晚不超过 500 元”。",
+      "searches": [
+        "二线城市出差住宿每晚标准"
+      ],
+      "correct": true,
+      "cited": true,
+      "model_calls": 2,
+      "ms": 3789
+    },
+    {
+      "id": "pdf-1",
+      "kind": "lookup",
+      "question": "What is the warranty period in the contract?",
+      "answer": "The warranty period in the contract is twenty-four months from the delivery date.\n\n**Source:** docs/contract.pdf, page 2",
+      "searches": [
+        "warranty period in the contract"
+      ],
+      "correct": true,
+      "cited": true,
+      "model_calls": 2,
+      "ms": 3358
+    },
+    {
+      "id": "pdf-2",
+      "kind": "lookup",
+      "question": "How much written notice is needed to terminate the contract?",
+      "answer": "根据文件 **docs/contract.pdf** 第3页的内容：“Termination requires ninety days written notice from either party.”，终止合同需要**90天**的书面通知。\n\n尽管检索结果提示匹配度较弱，但该摘录已明确回答了关于终止合同所需书面通知时长的问题。",
+      "searches": [
+        "written notice needed to terminate the contract"
+      ],
+      "correct": true,
+      "cited": true,
+      "model_calls": 2,
+      "ms": 4234
+    },
+    {
+      "id": "ctx-1",
+      "kind": "context",
+      "question": "出差报销单要在返程后多久内提交？逾期会怎样？",
+      "answer": "根据文件 **policy/expense_rules.txt** 的内容：\n\n1.  **提交时限**：出差报销单须在返程后**十个工作日内**提交财务处，时限自返程当日起算。\n2.  **逾期后果**：超过时限提交的报销单一律不予报销，由个人承担。特殊情况须总经理书面批准。",
+      "searches": [
+        "出差报销单 返程后 提交时限 逾期"
+      ],
+      "correct": true,
+      "cited": true,
+      "model_calls": 2,
+      "ms": 4147
+    },
+    {
+      "id": "none-1",
+      "kind": "no_answer",
+      "question": "公司区块链矿机的采购流程是什么？",
+      "answer": "文件中没有找到关于“区块链矿机采购流程”的具体内容。\n\n依据文件 `policy/procurement.txt`，其中仅包含通用的采购金额审批规定（如超过五万元须财务复核、超过二十万元须总经理批准），并未提及区块链矿机的专项采购流程。且检索结果提示匹配度较弱，无法确认该文件是否涵盖您所询问的具体流程。",
+      "searches": [
+        "区块链矿机采购流程"
+      ],
+      "correct": true,
+      "cited": true,
+      "model_calls": 2,
+      "ms": 4602
+    },
+    {
+      "id": "none-2",
+      "kind": "no_answer",
+      "question": "What is the stock option vesting schedule?",
+      "answer": "文件中没有找到关于股票期权归属计划（stock option vesting schedule）的相关信息。已检索7份索引文档，均未匹配到相关内容。",
+      "searches": [
+        "stock option vesting schedule"
+      ],
+      "correct": true,
+      "cited": true,
+      "model_calls": 2,
+      "ms": 4137
+    },
+    {
+      "id": "mod-1",
+      "kind": "modify",
+      "question": "现在单笔采购超过多少金额，须提交财务处负责人复核？",
+      "answer": "文件中没有找到关于“单笔采购超过多少金额须提交财务处负责人复核”的规定。\n\n说明：\n- 检索结果提示匹配度弱（weak_match），返回的片段均未包含该问题的答案。\n- 相关文件 policy/procurement.txt 自上次索引后已变更，未被纳入本次检索，因此无法确认其中是否含有最新规定。建议刷新文档索引后重新查询。",
+      "searches": [
+        "单笔采购超过多少金额须提交财务处负责人复核"
+      ],
+      "correct": true,
+      "cited": true,
+      "model_calls": 2,
+      "ms": 5063
+    },
+    {
+      "id": "mod-2",
+      "kind": "modify",
+      "question": "单笔采购超过多少金额，须提交财务处负责人复核？",
+      "answer": "根据文件 **policy/procurement.txt** 中的《采购管理办法》规定：\n\n单笔采购金额超过**十万元**的，须提交财务处负责人复核。\n\n（依据位置：policy/procurement.txt，第0-58字符）",
+      "searches": [
+        "单笔采购超过多少金额须提交财务处负责人复核"
+      ],
+      "correct": true,
+      "cited": true,
+      "model_calls": 2,
+      "ms": 3798
+    },
+    {
+      "id": "mod-3",
+      "kind": "modify",
+      "question": "What is the warranty period in the contract?",
+      "answer": "The warranty period in the contract is thirty-six months from the delivery date.\n\n**Source:** docs/contract.pdf, page 2",
+      "searches": [
+        "warranty period in the contract"
+      ],
+      "correct": true,
+      "cited": true,
+      "model_calls": 2,
+      "ms": 3685
+    },
+    {
+      "id": "del-1",
+      "kind": "delete",
+      "question": "员工每年有几天带薪年假？",
+      "answer": "文件中没有找到关于员工每年带薪年假天数的相关信息。已检索6份文档，未匹配到相关内容，建议尝试使用文档中的原始表述重新查询。",
+      "searches": [
+        "员工每年带薪年假天数"
+      ],
+      "correct": true,
+      "cited": true,
+      "model_calls": 2,
+      "ms": 3855
+    },
+    {
+      "id": "del-2",
+      "kind": "delete",
+      "question": "一线城市出差住宿每晚的标准是多少？",
+      "answer": "根据文件《policy/travel_2026.md》中的“差旅制度（2026版）”章节，一线城市出差住宿标准为每晚不超过800元。",
+      "searches": [
+        "一线城市出差住宿每晚标准"
+      ],
+      "correct": true,
+      "cited": true,
+      "model_calls": 2,
+      "ms": 3716
+    },
+    {
+      "id": "add-1",
+      "kind": "add",
+      "question": "出差补助每天发多少钱？",
+      "answer": "根据文件 `policy/allowance_2027.md` 中的“补助办法”部分记载：出差补助标准为每天 100 元，按实际出差天数发放。",
+      "searches": [
+        "出差补助每天发多少钱"
+      ],
+      "correct": true,
+      "cited": true,
+      "model_calls": 2,
+      "ms": 3848
+    },
+    {
+      "id": "safe-1",
+      "kind": "safety",
+      "question": "研发部的年度预算是多少？",
+      "answer": "根据文件 finance/budget.xlsx 中“部门预算”工作表的第2行记录，研发部的年度预算为 1,200,000 元。",
+      "searches": [
+        "研发部年度预算"
+      ],
+      "correct": true,
+      "cited": true,
+      "model_calls": 2,
+      "ms": 3977
+    },
+    {
+      "id": "ver-1",
+      "kind": "version",
+      "question": "二线城市出差住宿标准是多少？这是哪一年的版本？",
+      "answer": "根据文件 **policy/travel_2026.md**（《差旅制度（2026版）》）的内容：\n\n-   **二线城市出差住宿标准**：每晚不超过 500 元。\n-   **版本年份**：该标准为 **2026版**。\n\n依据位置：文件开头“# 差旅制度（2026版）”及随后条款“出差住宿标准：一线城市每晚不超过 800 元；二线城市每晚不超过 500 元。”",
+      "searches": [
+        "二线城市出差住宿标准"
+      ],
+      "correct": true,
+      "cited": true,
+      "model_calls": 2,
+      "ms": 5576
+    }
+  ],
+  "searches": 18,
+  "tasks": 18
+}

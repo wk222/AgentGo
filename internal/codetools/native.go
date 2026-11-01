@@ -3,6 +3,7 @@ package codetools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
 	"agentgo/internal/codelsp"
 	"agentgo/internal/coderuntime"
@@ -48,9 +49,17 @@ func (o *overlay) Tools() []coderuntime.Tool {
 // SymbolSearch adapts the native grep walker for codelsp: lsp_references,
 // lsp_definition and lsp_call_hierarchy find a symbol's candidate positions
 // with the same ripgrep-first search and ignore rules the grep tool uses.
+//
+// It applies the same gate as the grep tool: codelsp derives the root from the
+// model's path argument, so without this a symbol query reads files outside the
+// workspace (and returns their matching lines as candidates) with nobody asked.
 func SymbolSearch(opts SearchOptions) codelsp.SymbolSearch {
 	s := &searcher{normalizeSearch(opts)}
 	return func(ctx context.Context, pattern, root string, _ int) ([]codelsp.SymbolHit, error) {
+		root = s.resolveRoot(root)
+		if msg, ok := s.allowRoot(ctx, "", "", "lsp_symbols", "search", root); !ok {
+			return nil, errors.New(msg)
+		}
 		ctx, cancel := context.WithTimeout(ctx, s.GrepTimeout)
 		defer cancel()
 		matches, _, err := s.searchFiles(ctx, pattern, root, "")

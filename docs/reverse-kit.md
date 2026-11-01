@@ -14,8 +14,6 @@
 | [Dryxio/reagent](https://github.com/Dryxio/reagent) | Python / MIT | **自治**函数还原：reverser→checker→修复循环，候选代码过"构建+测试+结构校验+parity(GREEN/YELLOW/RED)"四道门 | **"门控"概念**：高置信结论必须挂一个客观检查（本库的 `gate` 字段）；候选只写 overlay 不动原工程 | 全自动 LLM 循环（先把工具层做扎实）；依赖 ghidra-bridge |
 | [LING71671/open-reverselab](https://github.com/LING71671/open-reverselab) | Python+Markdown / **GPL-3.0** | "可执行知识库"：180+ 篇攻击面文章 + `reverse_lab_tools` MCP（`@mcp.tool` 共 109 个，集中在一个 ~1750 行的 .py） | **目录即约定**（samples/exports/reports）、环境探测、上下文链 `CLAUDE.md→AGENTS.md→AI-USAGE.md` | **不拷贝任何代码**（GPL-3.0 会传染）；109 个工具的"工具菜单"式接口对模型是负担 |
 
-> 你的 Cursor 里已挂着 `user-reverse_lab_tools`，其工具名（`triage_pe`、`ghidra_headless_analyze`、`sample_full_workup`、`kb_router`…）与 open-reverselab README 描述吻合，所以"装 open-reverselab"这件事你实际上已经有了。`agentgo-re` 定位是**补它做不到的**：证据账本、HAR 优先、XOR 掩码识别、APK/Unity 专项，并且是 Go 单文件二进制、能被 agentgo 自己的 MCP 加载器直接挂载。
-
 ## 1. 为什么这样设计：从你最近的项目反推需求
 
 对 `yingzhiren/` 里的笔记（`REVERSE_ANALYSIS_AND_PLAN.md`、`MIGRATION_2017_4_AUDIT.md`、`ARM64_2K_APK_NOTES.md`、`webtrn_reverse_summary.md`、`yxlearning_reverse_summary.md`）归纳，你反复在做的是同几件事：

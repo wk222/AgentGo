@@ -317,13 +317,13 @@ func TestNativeSearchRgMatchesWalker(t *testing.T) {
 		sort.Strings(f)
 		return f
 	}
-	g1 := with.grep(ctx, grepArgs{Pattern: "needle", Path: root}).Content
-	g2 := without.grep(ctx, grepArgs{Pattern: "needle", Path: root}).Content
+	g1 := with.grep(ctx, "", "", grepArgs{Pattern: "needle", Path: root}).Content
+	g2 := without.grep(ctx, "", "", grepArgs{Pattern: "needle", Path: root}).Content
 	if a, b := strings.Join(files(g1), "\n"), strings.Join(files(g2), "\n"); a != b || a == "" {
 		t.Errorf("grep files differ\nrg:\n%s\nwalker:\n%s", a, b)
 	}
-	l1 := with.glob(ctx, globArgs{Pattern: "**/*.go", Path: root}).Content
-	l2 := without.glob(ctx, globArgs{Pattern: "**/*.go", Path: root}).Content
+	l1 := with.glob(ctx, "", "", globArgs{Pattern: "**/*.go", Path: root}).Content
+	l2 := without.glob(ctx, "", "", globArgs{Pattern: "**/*.go", Path: root}).Content
 	if a, b := strings.Join(files(l1), "\n"), strings.Join(files(l2), "\n"); a != b || a == "" {
 		t.Errorf("glob files differ\nrg:\n%s\nwalker:\n%s", a, b)
 	}

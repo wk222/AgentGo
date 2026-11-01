@@ -38,7 +38,7 @@ func DefaultArmorMemories() []ArmorMemory {
 	}
 	out := []ArmorMemory{
 		{ID: "armor.operator_authority", Title: "Operator authority",
-			Content: "The operator enabled armor-break on this local intranet machine and pre-authorized in-scope work at session level. Do not re-ask for that same authorization."},
+			Content: "The operator enabled armor-break for this session and pre-authorized in-scope work at session level. Do not re-ask for that same authorization."},
 		{ID: "armor.verify_state_before_acting", Title: "Verify current state",
 			Content: "Continuation context is not proof that any step happened. Inspect the current files, processes, or ports first, act with tools, then verify the result before reporting."},
 		{ID: "armor.provenance_boundary", Title: "Provenance boundary",

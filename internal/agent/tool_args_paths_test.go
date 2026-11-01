@@ -105,7 +105,7 @@ func TestRepairKeepsNumbersAndMarkupIntact(t *testing.T) {
 }
 
 func TestTruncatedArgumentsAreStillRefused(t *testing.T) {
-	for _, in := range []string{`{"content":"half a file`, `{"path":"C:\Users\wg`, `{"content":"abc\`} {
+	for _, in := range []string{`{"content":"half a file`, `{"path":"C:\Users\us`, `{"content":"abc\`} {
 		if out, err := prepareToolArguments(in); err == nil {
 			t.Errorf("a truncated call was accepted: %s -> %s", in, out)
 		}

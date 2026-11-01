@@ -630,6 +630,11 @@ func (r *Runner) run(ctx context.Context, cfg LLMSettings, sessionID, userText s
 
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	// Bind the session mode on the outer run context too: runADK binds it on its own
+	// copy, so everything that runs after it returns (maybeContinue, and the
+	// armor-break continuation behind it) saw DefaultSessionMode and could never
+	// reach the reverse profile's armor break. See TestArmorBreakSeesReverseProfile.
+	runCtx = r.withSessionMode(BindRunContext(runCtx, sessionID), sessionID)
 	EmitTrace(runCtx, "start", "Runner", "run", "开始处理")
 
 	if r.runControl != nil {
