@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/components/tool/utils"
 
 	"agentgo/internal/config"
@@ -114,16 +113,13 @@ func registerExecuteBash(r *Registry, workspaceRoot string) error {
 			if cmdStr == "" {
 				return bashOutput{}, fmt.Errorf("empty command")
 			}
-			wasInterrupted, _, _ := tool.GetInterruptState[any](ctx)
-			if !wasInterrupted {
-				return bashOutput{}, tool.Interrupt(ctx, map[string]string{
-					"tool": "execute_bash", "command": cmdStr,
-				})
-			}
-			isResume, hasData, approved := tool.GetResumeContext[bool](ctx)
-			if isResume && hasData && !approved {
-				return bashOutput{Stderr: "user denied", ExitCode: 1}, nil
-			}
+			// Approval is the governance middleware's job (execute_bash is in its
+			// always-approve list; a session that waives approval, such as the
+			// reverse harness, is let through by policy). This tool used to add its
+			// own tool.Interrupt on top: when policy had already waived approval it
+			// still paused, with an interrupt id that is not in the approval queue,
+			// so the pause could never be approved ("not found or already
+			// resolved") and every shell command in those sessions failed.
 
 			// If sandbox docker is active and available, run inside Docker container
 			if config.SandboxDocker.On() && sandbox.IsDockerAvailable(ctx) {
