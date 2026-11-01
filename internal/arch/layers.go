@@ -72,6 +72,7 @@ var PackageLayer = map[string]Layer{
 	"taskhub":                         LayerAssets,
 	"scheduler":                       LayerAssets,
 	"trigger":                         LayerAssets,
+	"threadsub":                       LayerAssets,
 	"admin":                           LayerAssets,
 	"terminal":                        LayerAssets,
 	"evaluation":                      LayerAssets,
