@@ -1,7 +1,6 @@
 # agentgo-re：自有逆向 MCP（`re_*` 工具集）设计与经验
 
 > 日期：2026-10-21　状态：v0.1.0 已可用（`go test ./internal/rekit` 全绿，已在真实 APK/DLL/HAR 上冒烟）
-> 参考库本地副本：`<本机目录>\refs\{open-reverselab,rea,recurse,reagent}`（浅克隆，只读参考）
 
 ## 0. 一句话结论
 
@@ -14,15 +13,15 @@
 | [Dryxio/reagent](https://github.com/Dryxio/reagent) | Python / MIT | **自治**函数还原：reverser→checker→修复循环，候选代码过"构建+测试+结构校验+parity(GREEN/YELLOW/RED)"四道门 | **"门控"概念**：高置信结论必须挂一个客观检查（本库的 `gate` 字段）；候选只写 overlay 不动原工程 | 全自动 LLM 循环（先把工具层做扎实）；依赖 ghidra-bridge |
 | [LING71671/open-reverselab](https://github.com/LING71671/open-reverselab) | Python+Markdown / **GPL-3.0** | "可执行知识库"：180+ 篇攻击面文章 + `reverse_lab_tools` MCP（`@mcp.tool` 共 109 个，集中在一个 ~1750 行的 .py） | **目录即约定**（samples/exports/reports）、环境探测、上下文链 `CLAUDE.md→AGENTS.md→AI-USAGE.md` | **不拷贝任何代码**（GPL-3.0 会传染）；109 个工具的"工具菜单"式接口对模型是负担 |
 
-## 1. 为什么这样设计：从你最近的项目反推需求
+## 1. 为什么这样设计：从常见逆向工作流反推需求
 
-对 `yingzhiren/` 里的笔记（`REVERSE_ANALYSIS_AND_PLAN.md`、`MIGRATION_2017_4_AUDIT.md`、`ARM64_2K_APK_NOTES.md`、`webtrn_reverse_summary.md`、`yxlearning_reverse_summary.md`）归纳，你反复在做的是同几件事：
+逆向工作反复出现的是同几件事：
 
-1. **APK/Unity 定性**：Mono 还是 IL2CPP、有无壳、Managed DLL 是否被改（1.3.0 的 `Assembly-CSharp.dll` 头 `B2 A5` = `MZ ^ 0xFF`，你当时靠反汇编 `libmono.so` 才发现）。→ `re_apk_inspect` + `re_xor_probe`
-2. **HAR 优先的协议逆向**（网梯、大众云学：`sv.gson/cv.gson` 计时、AES-ECB `learnspaceaes123`、频次/倍速风控）。→ `re_har_summary` / `re_har_entry`
-3. **长链路结论靠人脑维护**：每次都新开一个 `*_summary.md`。→ 案件账本 `re_evidence_*` + `re_report`
-4. **外部工具一堆、路径各异**（ilspycmd、IDA 各装在哪都有可能；用 `RE_TOOL_<名字>` 环境变量或案件目录下的 `tools.json` 指给它）。→ `re_env` + `re_tool_run` 白名单
-5. **大样本**（2.5GB arm64 APK）。→ 只读 zip 中央目录，实测 0.1 秒出结果
+1. **APK/Unity 定性**：Mono 还是 IL2CPP、有无壳、托管程序集是否被改（例如文件头 `MZ` 被整体异或成别的字节，不看反汇编很难发现）。→ `re_apk_inspect` + `re_xor_probe`
+2. **HAR 优先的协议逆向**：先看抓包里的接口、签名类请求头、计时与风控字段，再决定要不要下到客户端里去找算法。→ `re_har_summary` / `re_har_entry`
+3. **长链路结论靠人脑维护**：每个案子都新开一份总结文档，结论与证据分离、过期结论不好撤。→ 案件账本 `re_evidence_*` + `re_report`
+4. **外部工具一堆、路径各异**：反编译器、反汇编器装在哪都有可能；用 `RE_TOOL_<名字>` 环境变量或案件目录下的 `tools.json` 指给它。→ `re_env` + `re_tool_run` 白名单
+5. **大样本**（数 GB 的 APK）：只读 zip 中央目录，不解压，通常零点几秒出结果。
 
 ## 2. 工具清单（13 个，刻意不做"一个操作一个工具"）
 
@@ -46,22 +45,22 @@
 - `inference` 若声称 `confidence=high`，必须有 `gate`（客观检查，如"解码后 sha256 与既有文件逐字节一致""diff_exec 3205/3205"）。
 - `supersedes` 取代旧记录，旧记录默认不出现在列表/报告里；`unknown` 带 `next_step`，报告第四节即"下一步"。
 
-## 3. 验证实录（2026-10-21，均为真实文件）
+## 3. 验证（均在真实文件上做过冒烟，不是只跑单元测试）
 
-- `m.Sgame.yzr_1.3.0…apk`：`re_apk_inspect` **自动**指出 `assets/bin/Data/Managed/Assembly-CSharp.dll` 头 `b2a56fff…`、单字节假设 `0xFF`；`re_xor_probe` 解码后 SHA-256 = `cbd4f4f7…6263`，与你之前手工得到的 `Assembly-CSharp.orig.dll` **逐字节相同**。
-- `yingzhiren_v1.17.0_arm64_2k_mod.apk`（2.5GB）：包名 `m.Sgame.yzr`、versionCode 38、arm64、`Unity IL2CPP`，约 0.1 秒。
-- `E:\2026-10-20-210112.har`（大众云学）：`re_har_summary` 直接聚合出 `/train/class/*.gson` 等接口及 `accountid/cookie` 请求头；**该文件带 UTF-8 BOM，初版解析失败，已修并加回归测试**。
-- `ilspycmd` 首次运行失败："You must install or update .NET"（它要 .NET 6，机器只有更新的）。已改为该工具默认带 `DOTNET_ROLL_FORWARD=Major`，之后 2.3 秒列出全部类，输出落盘 53KB、只回传 700 字。
-- 案件 `yzr` 已写入 3 条账本并生成 `<案件目录>\cases\yzr\REPORT.md`。
+- **被异或的托管程序集**：`re_apk_inspect` 能自动指出文件头被单字节异或的程序集并给出假设密钥；`re_xor_probe` 解码出的副本，SHA-256 与手工还原得到的原文件逐字节相同。
+- **数 GB 的 arm64 IL2CPP APK**：包名、versionCode、ABI、引擎一次读出，约 0.1 秒。
+- **HAR**：`re_har_summary` 直接聚合出接口列表与签名类请求头名；**真实文件带 UTF-8 BOM，初版解析失败，已修并加回归测试**。
+- **ilspycmd**：首次运行报 "You must install or update .NET"（它要旧版运行时，机器上只有更新的）。该工具现在默认带 `DOTNET_ROLL_FORWARD=Major`，之后几秒内列出全部类，输出落盘、只回传头尾。
+- 以上结论都写进了案件账本，并生成了 `REPORT.md`。
 
 ## 4. 使用
 
 ```powershell
-cd C:\Users\user\Documents\GitHub\agentgo
-go build -o bin\agentgo-re.exe ./cmd/agentgo-re      # GOCACHE 放在别的盘，不占 C 盘
+cd <repo>
+go build -o bin\agentgo-re.exe ./cmd/agentgo-re    
 go test ./internal/rekit
 python scripts\re_smoke.py list --home <案件目录>
-python scripts\re_smoke.py re_apk_inspect path=D:/x/game.apk --home <案件目录>
+python scripts\re_smoke.py re_apk_inspect path=<path>/game.apk --home <案件目录>
 ```
 
 挂载方式（双通道：内置插件 + 独立 MCP Server）：
@@ -73,7 +72,7 @@ python scripts\re_smoke.py re_apk_inspect path=D:/x/game.apk --home <案件目�
      - **Schema 隔离**：`re_*` 工具仅在 `ModeReverse`（及 `ModeAdmin`）下进入静态常驻工具表，避免在日常对话（`minimal`/`standard`/`creative`）中消耗约 2,500 tokens 的工具 Schema。
      - **只读画布门控**：在 `ModeReverse × CanvasFocused` 下自动隐藏 4 个会产生副作用的工具（`re_xor_probe`、`re_evidence_add`、`re_report`、`re_tool_run`），保留 7 个纯静态只读探查工具。
      - **系统提示词契约**：`ModeHints()` 在 `ModeReverse` 下自动注入 `[Reverse Harness Contract]`（四级认知阶梯、静态优先探查顺序、严禁原位覆写样本）。
-   - 默认案件目录跟随当前工作区 `<workspace>/.agentgo-re`（切换工作区自动跟随，无需重载插件），也可通过 `AGENTGO_RE_HOME=<案件目录>` 全局指定（避开 C 盘）。
+   - 默认案件目录跟随当前工作区 `<workspace>/.agentgo-re`（切换工作区自动跟随，无需重载插件），也可通过 `AGENTGO_RE_HOME=<案件目录>` 全局指定。
 2. **外部 MCP 客户端挂载（Cursor / Claude Code 等）**：
    - `configs/agentgo-re.mcp.json` 已写好，复制其中的 `command/args` 到 Cursor 或 Claude Code 的 MCP 配置即可。
    - 工作流提示词同步沉淀在 `skills/reverse-engineering/SKILL.md`。
@@ -84,7 +83,7 @@ python scripts\re_smoke.py re_apk_inspect path=D:/x/game.apk --home <案件目�
 - `re_strings` 的 UTF-16 只扫 2 字节对齐，跨窗口边界的字符串可能被截断。
 - 壳/引擎判断来自**压缩包内文件名**，不是行为证据；`re_apk_inspect` 不执行任何代码。
 - `re_triage` 对 ELF/Mach-O 只做头部级解析，不替代 Ghidra/IDA。
-- ghidra-headless 的路径本机未找到（`re_env` 会标 `found:false`），需要你用 `RE_TOOL_GHIDRA_HEADLESS` 或 `<home>\tools.json` 指定。
+- 没装 ghidra-headless 或不在 PATH 时，`re_env` 会标 `found:false`；用 `RE_TOOL_GHIDRA_HEADLESS` 或 `<home>\tools.json` 指定。
 - 账本是单进程追加写（带进程内互斥）；多个 agentgo-re 同时写同一案件不保证 id 不冲突。
 
 ## 6. 下一步（按价值排序）

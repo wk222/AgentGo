@@ -11,7 +11,7 @@ import (
 )
 
 // magic is a well-known file signature used to detect single-byte XOR/NOT masking
-// (e.g. the Yingzhiren Mono Assembly-CSharp.dll whose "MZ" became B2 A5 = MZ ^ 0xFF).
+// (e.g. a Unity Mono Assembly-CSharp.dll whose "MZ" became B2 A5 = MZ ^ 0xFF).
 type magic struct {
 	Name string
 	Sig  []byte
