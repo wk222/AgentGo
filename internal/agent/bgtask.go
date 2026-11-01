@@ -36,6 +36,8 @@ type BackgroundTaskCoordinator struct {
 	workspaceRoot   string
 	dataDir         string
 	closeOnce       sync.Once
+	doneMu          sync.RWMutex
+	onDone          func(BackgroundDone)
 }
 
 // ShutdownReason is the error recorded on commands that were still running when
@@ -144,21 +146,59 @@ func (c *BackgroundTaskCoordinator) StartBash(ctx context.Context, command strin
 	if err != nil {
 		return "", err
 	}
+	session := SessionIDFromContext(ctx)
+	c.doneMu.RLock()
+	onDone := c.onDone
+	c.doneMu.RUnlock()
+
+	// The work can end before Run has returned the task ID, so it waits for it.
+	var (
+		idMu    sync.Mutex
+		taskID  string
+		idReady = make(chan struct{})
+	)
 	task, err := c.localRunner.Run(ctx, &backgroundlocal.Input{
 		Description:     command,
 		Kind:            "bash",
 		Payload:         payload,
 		RunInBackground: true,
 		// No parent session: the manager only accepts one when it has a
-		// session-event sender, and nothing here waits for a notification; the
-		// model collects the result with task_output.
+		// session-event sender. The finished command reaches the session through
+		// onDone (see bgWake) or the model collects it with task_output.
 	}, func(workCtx context.Context, _ backgroundtask.ExecutionRuntime) (string, error) {
-		return work(workCtx)
+		res, werr := work(workCtx)
+		if onDone != nil {
+			select {
+			case <-idReady:
+			case <-time.After(2 * time.Second):
+			}
+			idMu.Lock()
+			id := taskID
+			idMu.Unlock()
+			status, exit, out := bashResultSummary(res, werr)
+			onDone(BackgroundDone{SessionID: session, Kind: "bash", ID: id, Title: command, Status: status, ExitCode: exit, Output: out})
+		}
+		return res, werr
 	})
 	if err != nil {
+		close(idReady)
 		return "", err
 	}
+	idMu.Lock()
+	taskID = task.Spec.ID
+	idMu.Unlock()
+	close(idReady)
 	return task.Spec.ID, nil
+}
+
+// SetDoneHandler sets the function called when a task started by StartBash ends.
+func (c *BackgroundTaskCoordinator) SetDoneHandler(fn func(BackgroundDone)) {
+	if c == nil {
+		return
+	}
+	c.doneMu.Lock()
+	c.onDone = fn
+	c.doneMu.Unlock()
 }
 
 // Manager returns the active background task manager.

@@ -44,6 +44,7 @@ func NewServer(cfg Config, backend Backend) *Server {
 	mux.HandleFunc("/api/v1/inner-apps", s.handleInnerApps)
 	mux.HandleFunc("/api/v1/inner-apps/", s.handleInnerApps)
 	s.registerTriggerRoutes(mux)
+	s.registerThreadRoutes(mux)
 	s.http = &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           corsMiddleware(authMiddleware(cfg.Token, mux)),

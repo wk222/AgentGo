@@ -75,6 +75,8 @@ type Runner struct {
 	runtimeSessions    *runtimeSessionStore
 	sessionKernel      *sessions.SessionKernel
 	bgCoord            *BackgroundTaskCoordinator
+	bgWake             *bgWake
+	watchdog           *Watchdog
 	paradigm           *ParadigmEngine
 	heartbeat          *HeartbeatManager
 	usageTracer        *ledger.ModelUsageTracer
@@ -138,9 +140,14 @@ func NewRunner(mem memory.Engine, ws *workspace.ContextMiddleware, queue *govern
 		keyMgr:             DefaultKeyManager(),
 	}
 
+	r.bgWake = newBGWake(func(id string) bool { return !r.runControl.IsRunning(id) })
 	r.wireBackgroundBash()
 
 	tools.SetJobWakeupHandler(func(job *tools.MonitoredJob) {
+		r.bgWake.done(BackgroundDone{
+			SessionID: job.SessionID, Kind: "job", ID: job.ID, Title: job.Name,
+			Status: job.Status, ExitCode: job.ExitCode, Output: job.LastOutputTail,
+		})
 		if capBus != nil {
 			capBus.Publish(capability.Event{
 				Type:   "job.completed",
@@ -169,6 +176,7 @@ func (r *Runner) Close() error {
 	if r.heartbeat != nil {
 		r.heartbeat.Stop()
 	}
+	r.stopWatchdog()
 	// Commands the agent started in the background die with it: their state is
 	// in memory, so nothing could pick them up again.
 	if r.bgCoord != nil {
@@ -230,6 +238,15 @@ func (r *Runner) SetBackgroundTaskCoordinator(coord *BackgroundTaskCoordinator) 
 	}
 }
 
+// SetBackgroundWakeHandler sets what happens when a background task finished
+// while its session was busy or away and the agent has not read the result:
+// the handler starts one turn in that session with the given message.
+func (r *Runner) SetBackgroundWakeHandler(fn func(sessionID, text string)) {
+	if r != nil && r.bgWake != nil {
+		r.bgWake.setHandler(fn)
+	}
+}
+
 // wireBackgroundBash gives execute_bash the coordinator's background runner.
 // Without a coordinator (or with EINO background tasks switched off, which also
 // removes task_output) the tool keeps running every command in the foreground.
@@ -241,6 +258,7 @@ func (r *Runner) wireBackgroundBash() {
 		r.toolReg.SetBackgroundBash(nil)
 		return
 	}
+	r.bgCoord.SetDoneHandler(r.bgWake.done)
 	r.toolReg.SetBackgroundBash(r.bgCoord.StartBash)
 }
 

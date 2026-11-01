@@ -63,3 +63,31 @@ func TestStartBashWithoutCoordinatorFails(t *testing.T) {
 	_, err := c.StartBash(context.Background(), "echo x", func(context.Context) (string, error) { return "", nil })
 	require.Error(t, err)
 }
+
+// A command that ends reports itself with the session that started it and its
+// real task ID, so the wake-up can name it and skip it if the agent read it.
+func TestStartBashReportsItsEndWithSessionAndID(t *testing.T) {
+	dir := t.TempDir()
+	coord, err := NewBackgroundTaskCoordinator(dir, dir)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = coord.Close() })
+
+	got := make(chan BackgroundDone, 1)
+	coord.SetDoneHandler(func(d BackgroundDone) { got <- d })
+
+	ctx := WithSessionID(context.Background(), "sess-42")
+	id, err := coord.StartBash(ctx, "echo hi", func(context.Context) (string, error) {
+		return `{"stdout":"hi","stderr":"","exit_code":0}`, nil
+	})
+	require.NoError(t, err)
+
+	select {
+	case d := <-got:
+		require.Equal(t, "sess-42", d.SessionID)
+		require.Equal(t, id, d.ID)
+		require.Equal(t, "completed", d.Status)
+		require.Contains(t, d.Output, "hi")
+	case <-time.After(3 * time.Second):
+		t.Fatal("no completion report")
+	}
+}

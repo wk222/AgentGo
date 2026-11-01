@@ -87,11 +87,14 @@ func (r *Runner) drainADKEvents(ctx context.Context, iter *adk.AsyncIterator[*ad
 // Only io.EOF completes a model stream successfully; partial output is retained
 // alongside transport/cancellation errors and is never reported as a full answer.
 func (r *Runner) drainADKEventsWithCallbacks(ctx context.Context, iter *adk.AsyncIterator[*adk.AgentEvent], emit func(string) error, interrupted func(string, *PendingApproval) error) (content string, pause *PendingApproval, interruptID string, err error) {
+	act := runActivityFrom(ctx)
+	r.runControl.track(SessionIDFromContext(ctx), act)
 	for {
 		ev, ok := iter.Next()
 		if !ok {
 			break
 		}
+		act.touch()
 		if ev.Err != nil {
 			if willRetry(ev.Err) {
 				continue // the model call is being repeated; the next event carries the new attempt
@@ -166,6 +169,7 @@ func (r *Runner) drainADKEventsWithCallbacks(ctx context.Context, iter *adk.Asyn
 					}
 					break
 				}
+				act.touch()
 				if chunk != nil {
 					if len(chunk.ToolCalls) > 0 {
 						markToolUsed(ctx)

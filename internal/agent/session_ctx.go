@@ -23,6 +23,7 @@ func BindRunContext(ctx context.Context, sessionID string) context.Context {
 		sessionID = "desktop"
 	}
 	ctx = WithSessionID(ctx, sessionID)
+	ctx = withRunActivity(ctx)
 	ctx = context.WithValue(ctx, runIDKey{}, newRunID())
 	traceCtx := ctx
 	ctx = governance.WithAuditObserver(ctx, func(callID, action, tool, result, risk, explanation string) {
