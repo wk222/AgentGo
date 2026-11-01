@@ -96,12 +96,15 @@ func registerEcho(r *Registry) error {
 type bashInput struct {
 	Command        string `json:"command" jsonschema:"required,description=Shell command to run in workspace"`
 	TimeoutSeconds int    `json:"timeout_seconds,omitempty" jsonschema:"description=Optional time limit for this command in seconds. The maximum is 1800."`
+	// RunInBackground returns a task ID at once instead of waiting.
+	RunInBackground bool `json:"run_in_background,omitempty" jsonschema:"description=Start the command and return a task ID immediately instead of waiting for it. Use it for slow commands (builds, test suites, long scripts) and whenever several commands do not depend on each other: start them all in one reply and they run at the same time; read each result later with task_output. Do not use it when the next step needs the output right away."`
 }
 
 type bashOutput struct {
 	Stdout   string `json:"stdout"`
 	Stderr   string `json:"stderr"`
 	ExitCode int    `json:"exit_code"`
+	Message  string `json:"message,omitempty"` // set when the command was started in the background
 }
 
 func registerExecuteBash(r *Registry, workspaceRoot string) error {
@@ -121,30 +124,41 @@ func registerExecuteBash(r *Registry, workspaceRoot string) error {
 			// so the pause could never be approved ("not found or already
 			// resolved") and every shell command in those sessions failed.
 
-			// If sandbox docker is active and available, run inside Docker container
-			if config.SandboxDocker.On() && sandbox.IsDockerAvailable(ctx) {
-				image := config.SandboxImageBash.Get()
-				if image == "" {
-					image = "node:20-alpine"
+			if in.RunInBackground {
+				if out, started, err := startBashInBackground(ctx, r, root, cmdStr, in.TimeoutSeconds); started {
+					return out, err
 				}
-				stdout, stderr, exitCode, err := sandbox.RunInContainer(ctx, image, root, "/workspace", []string{"sh", "-c", cmdStr}, nil)
-				if err != nil {
-					return bashOutput{}, err
-				}
-				return bashOutput{
-					Stdout:   stripANSIString(stdout),
-					Stderr:   stripANSIString(stderr),
-					ExitCode: exitCode,
-				}, nil
-			} else if config.SandboxDocker.On() {
-				fmt.Println("[sandbox] WARNING: Docker Sandbox Mode requested but Docker daemon is unreachable. Falling back to local execution.")
 			}
-
-			return cleanBashOutput(runShell(ctx, root, cmdStr, shellTimeout(in.TimeoutSeconds)))
+			return execBash(ctx, root, cmdStr, in.TimeoutSeconds)
 		})
 	if err != nil {
 		return err
 	}
 	r.AddTool(t)
 	return nil
+}
+
+// execBash runs one command to completion: in the Docker sandbox when that is
+// on and reachable, otherwise as a local process tree.
+func execBash(ctx context.Context, root, cmdStr string, timeoutSeconds int) (bashOutput, error) {
+	// If sandbox docker is active and available, run inside Docker container
+	if config.SandboxDocker.On() && sandbox.IsDockerAvailable(ctx) {
+		image := config.SandboxImageBash.Get()
+		if image == "" {
+			image = "node:20-alpine"
+		}
+		stdout, stderr, exitCode, err := sandbox.RunInContainer(ctx, image, root, "/workspace", []string{"sh", "-c", cmdStr}, nil)
+		if err != nil {
+			return bashOutput{}, err
+		}
+		return bashOutput{
+			Stdout:   stripANSIString(stdout),
+			Stderr:   stripANSIString(stderr),
+			ExitCode: exitCode,
+		}, nil
+	} else if config.SandboxDocker.On() {
+		fmt.Println("[sandbox] WARNING: Docker Sandbox Mode requested but Docker daemon is unreachable. Falling back to local execution.")
+	}
+
+	return cleanBashOutput(runShell(ctx, root, cmdStr, shellTimeout(timeoutSeconds)))
 }
