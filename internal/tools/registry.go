@@ -37,6 +37,9 @@ type Registry struct {
 
 	jobsOnce sync.Once // the background jobs started through this registry (job_monitor.go)
 	jobs     *jobMonitor
+
+	bashBGMu sync.RWMutex // see bash_background.go
+	bashBG   BackgroundBashStarter
 }
 
 // NewRegistry creates a new empty tool registry.

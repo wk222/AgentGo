@@ -224,6 +224,7 @@ var (
 	CallTrace       = newBool("AGENTGO_CALL_TRACE", false, GroupDebug, "keep a per-call trace of each tool call (raw args, repaired args, policy, result, compaction, usage) for the debug view; also switchable at runtime")
 	ArmorBreak      = newBool("AGENTGO_ARMOR_BREAK", false, GroupDebug, "enable local red-team harness preset (破甲); the reverse profile enables armor break by default without this flag")
 	ArmorConfirm    = newBool("AGENTGO_ARMOR_CONFIRM", true, GroupDebug, "reverse profile: when a turn ends in a refusal with no tool output, ask whether to start the rollback-and-inject continuation instead of doing it silently (set 0 to restore the automatic continuation)")
+	PromiseNudge    = newBool("AGENTGO_PROMISE_NUDGE", true, GroupDebug, "when a run that used tools ends on a sentence that only promises the next action (\"now I will write the file\") without calling a tool, ask the model once to actually do it; set 0 to disable")
 	ArmorBreakExtra = newStr("AGENTGO_ARMOR_BREAK_EXTRA", "", GroupDebug, "optional extra system suffix appended only in 破甲 mode (local testing)")
 	TestLLMBase     = newStr("AGENTGO_TEST_BASE", "", GroupDebug, "cmd/llmtest: API base to check instead of the saved configuration")
 	TestLLMKey      = newStr("AGENTGO_TEST_KEY", "", GroupDebug, "cmd/llmtest: API key for AGENTGO_TEST_BASE")

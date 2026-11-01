@@ -138,6 +138,8 @@ func NewRunner(mem memory.Engine, ws *workspace.ContextMiddleware, queue *govern
 		keyMgr:             DefaultKeyManager(),
 	}
 
+	r.wireBackgroundBash()
+
 	tools.SetJobWakeupHandler(func(job *tools.MonitoredJob) {
 		if capBus != nil {
 			capBus.Publish(capability.Event{
@@ -224,7 +226,22 @@ func (r *Runner) BackgroundTaskCoordinator() *BackgroundTaskCoordinator {
 func (r *Runner) SetBackgroundTaskCoordinator(coord *BackgroundTaskCoordinator) {
 	if r != nil {
 		r.bgCoord = coord
+		r.wireBackgroundBash()
 	}
+}
+
+// wireBackgroundBash gives execute_bash the coordinator's background runner.
+// Without a coordinator (or with EINO background tasks switched off, which also
+// removes task_output) the tool keeps running every command in the foreground.
+func (r *Runner) wireBackgroundBash() {
+	if r == nil || r.toolReg == nil {
+		return
+	}
+	if r.bgCoord == nil || !EinoBackgroundTaskEnabled() {
+		r.toolReg.SetBackgroundBash(nil)
+		return
+	}
+	r.toolReg.SetBackgroundBash(r.bgCoord.StartBash)
 }
 
 // SetAdminRunner sets the AdminRunner for the SessionSpineMiddleware task injection.
@@ -676,6 +693,9 @@ func (r *Runner) maybeContinue(ctx context.Context, cfg LLMSettings, sessionID s
 	if abErr != nil {
 		return res, abErr
 	}
+
+	// 说了要动手却没调用工具就收尾：追加一次续跑，让它真的去做。
+	res = r.maybePromiseNudge(ctx, cfg, sessionID, res, emit)
 
 	// Codex-parity: Check mid-turn steer inbox for user mid-flight guidance
 	if r.runControl != nil {

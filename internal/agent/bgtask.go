@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -70,8 +71,11 @@ func NewBackgroundTaskCoordinator(workspaceRoot, dataDir string) (*BackgroundTas
 	toolReg := backgroundtool.NewRegistry()
 
 	ctx := context.Background()
+	// The manager resolves a task's executor through this registry; without it
+	// every task fails with "executor ... is unavailable".
 	mgr, err := backgroundtask.New(ctx, &backgroundtask.Config{
-		Tasks: store,
+		Tasks:     store,
+		Executors: executors,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("init backgroundtask manager failed: %w", err)
@@ -126,6 +130,35 @@ func NewBackgroundTaskCoordinator(workspaceRoot, dataDir string) (*BackgroundTas
 		workspaceRoot:   workspaceRoot,
 		dataDir:         dataDir,
 	}, nil
+}
+
+// StartBash runs work as a background task and returns its task ID at once. It
+// is how execute_bash honours run_in_background: the model gets the ID, runs
+// other things meanwhile, and collects the result with task_output. The task
+// outlives the calling turn but not the process (see Close).
+func (c *BackgroundTaskCoordinator) StartBash(ctx context.Context, command string, work func(context.Context) (string, error)) (string, error) {
+	if c == nil || c.localRunner == nil {
+		return "", errors.New("background tasks are not available")
+	}
+	payload, err := json.Marshal(map[string]any{"version": 1, "command": command})
+	if err != nil {
+		return "", err
+	}
+	task, err := c.localRunner.Run(ctx, &backgroundlocal.Input{
+		Description:     command,
+		Kind:            "bash",
+		Payload:         payload,
+		RunInBackground: true,
+		// No parent session: the manager only accepts one when it has a
+		// session-event sender, and nothing here waits for a notification; the
+		// model collects the result with task_output.
+	}, func(workCtx context.Context, _ backgroundtask.ExecutionRuntime) (string, error) {
+		return work(workCtx)
+	})
+	if err != nil {
+		return "", err
+	}
+	return task.Spec.ID, nil
 }
 
 // Manager returns the active background task manager.
