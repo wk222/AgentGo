@@ -17,6 +17,13 @@ func init() {
 	// which made every approval-requiring tool call fail the whole run.
 	gob.Register(map[string]any{})
 	gob.Register([]any{})
+	// When one model reply carries several tool calls that all need approval
+	// (e.g. three execute_bash at once), the ToolsNode interrupt state holds a
+	// map[string]string (callID → output) as an interface value, and the save
+	// failed with "type not registered for interface: map[string]string",
+	// dropping the run into tool-less chat.
+	gob.Register(map[string]string{})
+	gob.Register([]string{})
 }
 
 // resumePayloadFrom reads the approval decision handed to ResumeWithParams.
