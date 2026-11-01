@@ -64,6 +64,9 @@ func (r *Recovery) resumabilityProblem(ctx context.Context, pr PendingRun) strin
 	if pr.ResumeKind == "workflow" {
 		return "" // resumed through the workflow engine, which validates its own checkpoint
 	}
+	if pr.ToolName == governance.ArmorBreakToolName {
+		return "" // a question about the next step: resuming it starts a fresh run, no checkpoint involved
+	}
 	if pr.InterruptID == "" {
 		return "该审批没有对应的检查点标识，无法恢复；工具没有被执行"
 	}

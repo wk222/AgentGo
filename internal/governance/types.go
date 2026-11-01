@@ -18,6 +18,11 @@ const (
 	KindCustom          InterruptKind = "custom"
 )
 
+// ArmorBreakToolName is the pseudo tool name of the "start the jailbreak?"
+// decision (see internal/agent/armor_confirm.go). It is a question about what to
+// do next, not a paused tool call, so resuming it needs no agent checkpoint.
+const ArmorBreakToolName = "armor_break"
+
 // ResumePayload is the structured data returned when an interrupt/approval is resolved.
 type ResumePayload struct {
 	Approved   bool                   `json:"approved"`

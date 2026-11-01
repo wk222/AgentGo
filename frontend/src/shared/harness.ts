@@ -20,7 +20,7 @@ export const DEFAULT_HARNESSES: readonly HarnessDef[] = [
   { id: 'standard', name: '标准', label: '标准 Standard', desc: '日常多步工程任务：规划 → 执行 → 验证', profile: 'assistant', canvas: 'balanced' },
   { id: 'ultimate', name: '极致', label: '极致 Ultimate', desc: '复杂任务深度拆解、全量工具协同与闭环自检', profile: 'admin', canvas: 'deep' },
   { id: 'creative', name: '创造', label: '创造 Creative', desc: '构建、预览与迭代 Inner App 及工作流', profile: 'app_matrix', canvas: 'balanced' },
-  { id: 'reverse', name: '逆向', label: '逆向 Reverse', desc: '证据分级（观察/推导/推断/未知）、静态优先探查与门控校验；默认开启破甲（自动批准 + 反拒答回退续跑）', profile: 'reverse', canvas: 'balanced' },
+  { id: 'reverse', name: '逆向', label: '逆向 Reverse', desc: '证据分级（观察/推导/推断/未知）、静态优先探查与门控校验；默认开启破甲（自动批准；模型拒答且没有工具输出时，先问是否越狱，同意后才回退续跑）', profile: 'reverse', canvas: 'balanced' },
 ]
 
 const store = shallowRef<readonly HarnessDef[]>(DEFAULT_HARNESSES)

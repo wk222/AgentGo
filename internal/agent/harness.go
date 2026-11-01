@@ -38,7 +38,7 @@ var harnesses = []Harness{
 	{HarnessStandard, "标准", "标准 Standard", "日常多步工程任务：规划 → 执行 → 验证", ModeAssistant, CanvasBalanced},
 	{HarnessUltimate, "极致", "极致 Ultimate", "复杂任务深度拆解、全量工具协同与闭环自检", ModeAdmin, CanvasDeep},
 	{HarnessCreative, "创造", "创造 Creative", "构建、预览与迭代 Inner App 及工作流", ModeAppMatrix, CanvasBalanced},
-	{HarnessReverse, "逆向", "逆向 Reverse", "证据分级（观察/推导/推断/未知）、静态优先探查与门控校验；默认开启破甲（自动批准 + 反拒答回退续跑）", ModeReverse, CanvasBalanced},
+	{HarnessReverse, "逆向", "逆向 Reverse", "证据分级（观察/推导/推断/未知）、静态优先探查与门控校验；默认开启破甲（自动批准；模型拒答且没有工具输出时，先问是否越狱，同意后才回退续跑）", ModeReverse, CanvasBalanced},
 }
 
 var harnessArmorBreak = Harness{

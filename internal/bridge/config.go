@@ -103,9 +103,7 @@ func loadAppConfig(dataDir string) (LLMConfig, GovernanceConfig, WorkspaceConfig
 		}
 	}
 	if cfg.APIKey == "" {
-		if k := config.APIKey.Get(); k != "" {
-			cfg.APIKey = k
-		} else if azKey := os.Getenv("AZURE_OPENAI_API_KEY"); azKey != "" {
+		if azKey := os.Getenv("AZURE_OPENAI_API_KEY"); azKey != "" {
 			if azEp := os.Getenv("AZURE_OPENAI_API_ENDPOINT"); azEp != "" {
 				cfg.APIKey = azKey
 				if cfg.APIBase == "" || cfg.APIBase == "https://api.openai.com/v1" {
@@ -116,6 +114,12 @@ func loadAppConfig(dataDir string) (LLMConfig, GovernanceConfig, WorkspaceConfig
 				}
 			}
 		}
+	}
+	// The flag is declared as "overrides config.json when set", and launchers
+	// (cmd/*, tests, CI) rely on that to point a process at another key without
+	// rewriting the user's saved configuration. It wins over the stored key.
+	if k := config.APIKey.Get(); k != "" {
+		cfg.APIKey = k
 	}
 	return cfg, gov, ws
 }

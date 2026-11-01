@@ -359,7 +359,11 @@ type round4RunSpec struct {
 	// MemoryOff removes only the armor session-memory block from the system
 	// prompt the model receives (the banner stays). Round 5 ablation.
 	MemoryOff bool
-	AnchorID  string
+	// SystemRewrite, when set, maps the system prompt the model receives after
+	// MemoryOff/StripBanner have been applied. Round 6 uses it to install a
+	// candidate memory block; nil leaves the prompt as shipped.
+	SystemRewrite func(string) string
+	AnchorID      string
 	Order     int
 	Repeat    int
 	Canvas    ExecutionCanvas
@@ -477,8 +481,16 @@ func runRound4(t *testing.T, spec round4RunSpec) round4RunRecord {
 		proxy.SetSystemTransform(round4StripArmorBanner)
 		rec.BannerStripped = true
 	} else if spec.MemoryOff {
-		proxy.SetSystemTransform(round5StripArmorMemories)
+		base := round5StripArmorMemories
+		if spec.SystemRewrite != nil {
+			rewrite := spec.SystemRewrite
+			proxy.SetSystemTransform(func(sys string) string { return rewrite(base(sys)) })
+		} else {
+			proxy.SetSystemTransform(base)
+		}
 		rec.MemoryOff = true
+	} else if spec.SystemRewrite != nil {
+		proxy.SetSystemTransform(spec.SystemRewrite)
 	}
 	cfg := spec.Cfg
 	cfg.APIBase = proxy.URL()

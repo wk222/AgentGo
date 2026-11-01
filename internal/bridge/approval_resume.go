@@ -135,6 +135,11 @@ func (rt *Runtime) resumeAgent(ctx context.Context, pr core.PendingRun, resume *
 	if runner == nil {
 		return nil, errors.New("智能体运行器不可用，无法恢复")
 	}
+	if pr.ToolName == agent.ArmorBreakToolName {
+		// "Start the jailbreak?" is not a paused tool call: there is no checkpoint,
+		// approving it is what starts the rollback and the continuation.
+		return runner.ContinueArmorBreak(ctx, rt.AgentLLMSettings(), pr.SessionID, pr.Arguments, nil)
+	}
 	if pr.InterruptID == "" {
 		return nil, errors.New("该审批没有对应的检查点，无法恢复")
 	}

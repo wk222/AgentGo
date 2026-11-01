@@ -392,6 +392,9 @@ export default defineComponent({
                 const editOpen = !!approvalEditOpen.value[aid]
                 const noteVal = approvalNote.value[aid] || ''
                 const argsVal = approvalArgs.value[aid]
+                // 逆向档里“要不要开始越狱”：不是被暂停的工具调用，没有可改的参数，
+                // 也没有“本会话总是允许”这一说，按钮只回答一个问题。
+                const isArmor = msg.toolName === 'armor_break'
 
                 // 已处理的审批折叠为单行紧凑胶囊，不再保留大块黄框与禁用按钮
                 if (msg.resolved) {
@@ -399,7 +402,7 @@ export default defineComponent({
                     <div key={seg.key} class="msg-row assistant tool-call-row" data-msg-idx={index}>
                       <div class="flowchat-approval-resolved">
                         <span class="flowchat-approval-resolved-icon">✓</span>
-                        <span class="flowchat-approval-resolved-label">已确认执行</span>
+                        <span class="flowchat-approval-resolved-label">{isArmor ? '已回答' : '已确认执行'}</span>
                         {msg.toolName && <code class="flowchat-approval-tool">{msg.toolName}</code>}
                         <span class="flowchat-approval-resolved-desc">{msg.content || '命令审批已完成'}</span>
                       </div>
@@ -413,14 +416,14 @@ export default defineComponent({
                       <div class="msg-approval-head">
                         <div class="msg-approval-label">
                           <span class="msg-approval-dot" />
-                          <span>等待确认执行</span>
+                          <span>{isArmor ? '是否开始越狱' : '等待确认执行'}</span>
                         </div>
-                        {msg.toolName && (
+                        {msg.toolName && !isArmor && (
                           <code class="flowchat-approval-tool">{msg.toolName}</code>
                         )}
                       </div>
                       <div class="msg-approval-prompt">{msg.content || '需要您的批准才能继续'}</div>
-                      {!editOpen && msg.arguments && (
+                      {!isArmor && !editOpen && msg.arguments && (
                         <pre class="msg-approval-args-preview">{msg.arguments.length > 220 ? msg.arguments.slice(0, 220) + '…' : msg.arguments}</pre>
                       )}
                       {editOpen && (
@@ -454,33 +457,37 @@ export default defineComponent({
                             props.onApprove(msg.approval_id || '', noteVal.trim(), override)
                           }}
                         >
-                          {argsVal !== undefined && argsVal !== msg.arguments ? '✓ 改参并批准' : '✓ 批准执行'}
+                          {isArmor ? '⚡ 开始越狱' : argsVal !== undefined && argsVal !== msg.arguments ? '✓ 改参并批准' : '✓ 批准执行'}
                         </button>
-                        <button
-                          type="button"
-                          class="msg-approve-btn ghost"
-                          title="本会话内不再询问；关闭会话或重启后失效"
-                          onMousedown={(e: MouseEvent) => e.preventDefault()}
-                          onClick={() => props.onApprove(msg.approval_id || '', noteVal.trim(), '', ['execute_bash', 'run_elevated', 'computer_use'].includes(msg.toolName || '') ? 'call' : 'tool')}
-                        >
-                          {['execute_bash', 'run_elevated', 'computer_use'].includes(msg.toolName || '') ? '✓ 批准并记住本次' : '✓ 本会话总是允许'}
-                        </button>
+                        {!isArmor && (
+                          <button
+                            type="button"
+                            class="msg-approve-btn ghost"
+                            title="本会话内不再询问；关闭会话或重启后失效"
+                            onMousedown={(e: MouseEvent) => e.preventDefault()}
+                            onClick={() => props.onApprove(msg.approval_id || '', noteVal.trim(), '', ['execute_bash', 'run_elevated', 'computer_use'].includes(msg.toolName || '') ? 'call' : 'tool')}
+                          >
+                            {['execute_bash', 'run_elevated', 'computer_use'].includes(msg.toolName || '') ? '✓ 批准并记住本次' : '✓ 本会话总是允许'}
+                          </button>
+                        )}
                         <button
                           type="button"
                           class="msg-approve-btn no"
                           onMousedown={(e: MouseEvent) => e.preventDefault()}
                           onClick={() => props.onReject(msg.approval_id || '', noteVal.trim())}
                         >
-                          {noteVal.trim() ? '✕ 带意见拒绝' : '✕ 拒绝'}
+                          {isArmor ? '✕ 不用' : noteVal.trim() ? '✕ 带意见拒绝' : '✕ 拒绝'}
                         </button>
-                        <button
-                          type="button"
-                          class="msg-approve-btn ghost"
-                          onMousedown={(e: MouseEvent) => e.preventDefault()}
-                          onClick={() => toggleApprovalEdit(aid, msg.arguments)}
-                        >
-                          {editOpen ? '收起改参' : '✎ 改参 / 附言'}
-                        </button>
+                        {!isArmor && (
+                          <button
+                            type="button"
+                            class="msg-approve-btn ghost"
+                            onMousedown={(e: MouseEvent) => e.preventDefault()}
+                            onClick={() => toggleApprovalEdit(aid, msg.arguments)}
+                          >
+                            {editOpen ? '收起改参' : '✎ 改参 / 附言'}
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
