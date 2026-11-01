@@ -31,9 +31,12 @@ const (
 type failureGuard struct {
 	mu     sync.Mutex
 	counts map[string]int
+	causes map[string]causeStreak // per tool: the same failure reason in a row, whatever the arguments
 }
 
-func newFailureGuard() *failureGuard { return &failureGuard{counts: map[string]int{}} }
+func newFailureGuard() *failureGuard {
+	return &failureGuard{counts: map[string]int{}, causes: map[string]causeStreak{}}
+}
 
 func failureKey(tool, args string) string {
 	canon := args
@@ -73,6 +76,7 @@ func (g *failureGuard) after(tool, args, result string, failed bool) string {
 	defer g.mu.Unlock()
 	if !failed {
 		delete(g.counts, key)
+		delete(g.causes, tool)
 		return result
 	}
 	g.counts[key]++
@@ -81,7 +85,66 @@ func (g *failureGuard) after(tool, args, result string, failed bool) string {
 			" times in a row with identical arguments. Do not repeat it unchanged: change the arguments, " +
 			"use another tool, or tell the user what is blocking you."
 	}
+	// Trying new arguments each time gets past the check above, but a tool that
+	// keeps failing for the same reason is not going to start working.
+	// An identical call is the check above's business; only new arguments count here.
+	cause := failureCause(result)
+	switch c := g.causes[tool]; {
+	case c.cause == cause && c.key == key:
+		return result
+	case c.cause == cause:
+		c.n++
+		c.key = key
+		g.causes[tool] = c
+	default:
+		g.causes[tool] = causeStreak{cause: cause, key: key, n: 1}
+	}
+	switch g.causes[tool].n {
+	case sameCauseHint:
+		return result + "\n\n[hint] " + tool + " has failed " + itoa(sameCauseHint) +
+			" times in a row for the same reason, even with different arguments. The cause is not in the arguments: " +
+			"use another way to get this done, or tell the user what is blocking you."
+	case sameCauseStop:
+		return result + "\n\n[stop-loss] " + tool + " has failed " + itoa(sameCauseStop) +
+			" times in a row for the same reason. Stop retrying it. Report to the user what failed and what you need from them."
+	}
 	return result
+}
+
+const (
+	sameCauseHint = 4
+	sameCauseStop = 8
+)
+
+type causeStreak struct {
+	cause string
+	key   string // the call that last failed, to tell new arguments from a repeat
+	n     int
+}
+
+// failureCause reduces a failure text to what stays the same between attempts:
+// lower case, digits dropped, spaces collapsed, first 160 characters.
+func failureCause(result string) string {
+	var b strings.Builder
+	space := false
+	for _, r := range strings.ToLower(strings.TrimSpace(result)) {
+		switch {
+		case r >= '0' && r <= '9':
+			continue
+		case r == ' ' || r == '\n' || r == '\t' || r == '\r':
+			if !space {
+				b.WriteByte(' ')
+			}
+			space = true
+		default:
+			b.WriteRune(r)
+			space = false
+		}
+		if b.Len() >= 160 {
+			break
+		}
+	}
+	return b.String()
 }
 
 func itoa(n int) string {

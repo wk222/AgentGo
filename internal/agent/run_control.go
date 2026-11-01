@@ -20,6 +20,8 @@ type RunControl struct {
 	// It lives and dies with that registration, so it answers "how long has this
 	// been running" without a second clock to keep in step.
 	started map[string]time.Time
+	// activity is the watchdog's view of each run (see run_activity.go).
+	activity map[string]*runActivity
 }
 
 func NewRunControl() *RunControl {
@@ -74,6 +76,7 @@ func (c *RunControl) Clear(sessionID string) {
 	delete(c.ctxCancels, sessionID)
 	delete(c.steers, sessionID)
 	delete(c.started, sessionID)
+	delete(c.activity, sessionID)
 }
 
 // RunningSession is one session with a cancellable run, and when it started.

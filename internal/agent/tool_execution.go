@@ -28,6 +28,9 @@ func (r *Runner) toolExecutionHandlers(ctx context.Context) toolExecutionHandler
 	if heal := NewADKToolHealMiddleware(); heal != nil {
 		h.calls = append(h.calls, heal)
 	}
+	if collect := newBGCollectMiddleware(r.bgWake); collect != nil {
+		h.calls = append(h.calls, collect)
+	}
 	if r.queue != nil {
 		h.calls = append(h.calls, governance.NewGovernanceMiddleware(r.queue, r.effectivePolicyForCtx(ctx)))
 	}

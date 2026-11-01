@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"agentgo/internal/plugin"
 	"agentgo/internal/scheduler"
 	"agentgo/internal/taskhub"
+	"agentgo/internal/threadsub"
 	"agentgo/internal/tools"
 	"agentgo/internal/trigger"
 )
@@ -66,6 +68,18 @@ func (rt *Runtime) featurePlugins() []plugin.Plugin {
 				broker.Publish(taskID, ev.Type, mustJSON(ev))
 			})
 			rt.gatewayBroker, rt.taskHub = broker, hub
+			// A background command or job that ends after its turn has finished
+			// starts one turn in the session that launched it.
+			if ar := rt.agentRunner; ar != nil {
+				ar.SetBackgroundWakeHandler(func(sessionID, text string) {
+					if _, err := hub.Start("wake", sessionID, text); err != nil {
+						log.Printf("[wake] session %s: %v", sessionID, err)
+					}
+				})
+			}
+			if ar := rt.agentRunner; ar != nil && config.Watchdog.On() {
+				ar.StartWatchdog(rt.reportStall)
+			}
 			return c.Provide(svcTaskHub, hub)
 		}),
 
@@ -155,6 +169,18 @@ func (rt *Runtime) featurePlugins() []plugin.Plugin {
 				return err
 			}
 			c.Effect("stop triggers", engine.Stop)
+			return nil
+		}),
+
+		// Outside thread keys (PR, mail, chat room) → the session that follows them.
+		optionalPlugin("threads", nil, []string{svcTaskHub}, nil, func(c *plugin.Context) error {
+			store, err := threadsub.Open(filepath.Join(rt.dataDir, "threads.json"))
+			if err != nil {
+				return err
+			}
+			rt.threads = store
+			tools.SetThreadHandler(rt)
+			c.Effect("unset thread handler", func() { tools.SetThreadHandler(nil) })
 			return nil
 		}),
 

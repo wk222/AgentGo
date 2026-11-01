@@ -12,6 +12,7 @@ import (
 
 	"github.com/cloudwego/eino/components/tool/utils"
 
+	"agentgo/internal/governance"
 	"agentgo/internal/processutil"
 	"agentgo/internal/shellcmd"
 )
@@ -28,6 +29,7 @@ type MonitoredJob struct {
 	WatchFile      string    `json:"watch_file,omitempty"`
 	SummaryPrompt  string    `json:"summary_prompt,omitempty"`
 	LastOutputTail string    `json:"last_output_tail,omitempty"`
+	SessionID      string    `json:"session_id,omitempty"` // the conversation that started it; the wake-up goes there
 	cancelFn       context.CancelFunc
 }
 
@@ -158,6 +160,7 @@ func RegisterJobMonitorTool(r *Registry, workspaceRoot string) error {
 					ExitCode:      -1,
 					WatchFile:     in.WatchFile,
 					SummaryPrompt: in.SummaryPrompt,
+					SessionID:     governance.SessionIDFromContext(ctx),
 					cancelFn:      cancel,
 				}
 				mon.jobs[jobID] = job
