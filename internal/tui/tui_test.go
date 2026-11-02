@@ -428,7 +428,7 @@ func TestCtrlCTwiceExitsAndCtrlDExitsOnEmptyInput(t *testing.T) {
 }
 
 func TestDiagnosticsAreHighlightedAndCounted(t *testing.T) {
-	out := "<file_diagnostics>\nError: b.go:7:25 [gopls] cannot use \"x\" as int\nWarn: b.go:9:1 [gopls] unused\n</file_diagnostics>"
+	out := "Problems in b.go (1 error, 1 warning):\n  error   7:25 gopls: cannot use \"x\" as int\n  warning 9:1 gopls: unused\n"
 	be := &fakeBE{run: func(_, _ string, sink engine.EventSink) engine.RunResult {
 		sink.Emit(ev(engine.EventToolCall, map[string]any{"id": "d1", "name": "lsp_diagnostics", "arguments": `{}`}))
 		sink.Emit(ev(engine.EventToolResult, map[string]any{"id": "d1", "name": "lsp_diagnostics", "output": out}))

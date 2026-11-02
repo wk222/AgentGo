@@ -1,12 +1,10 @@
 <#
 .SYNOPSIS
-  AgentGo 回归基线(M0):Go 单测 +(若存在)agentgo-crush 的 MCP 冒烟。
+  AgentGo 回归基线(M0):Go 单测、web 构建、(若装有)Win7 旧版 Go 工具链的编译守卫。
 .EXAMPLE
   .\scripts\regress.ps1
-  .\scripts\regress.ps1 -SkipMcp
 #>
 param(
-    [switch]$SkipMcp,
     # Legacy Go toolchain that builds the Windows 7 release (go-legacy-win7): full path to its bin\go.exe.
     # Default: the AGENTGO_WIN7_GO environment variable. Without it the Win7 build guard below is skipped with a warning.
     [string]$Win7Go = $env:AGENTGO_WIN7_GO
@@ -53,25 +51,6 @@ try {
         Write-Warning "legacy Win7 Go toolchain not found (set AGENTGO_WIN7_GO or pass -Win7Go; got '$Win7Go'), skipping the Win7 build guard"
     }
 } finally { Pop-Location }
-
-if (-not $SkipMcp) {
-    $crush = Join-Path (Split-Path -Parent $root) 'agentgo-crush'
-    if (Test-Path (Join-Path $crush 'cmd\agentgo-mcp')) {
-        Push-Location $crush
-        try {
-            Write-Host "== build agentgo-mcp =="
-            go build -o agentgo-mcp.exe ./cmd/agentgo-mcp
-            if ($LASTEXITCODE -ne 0) { $failed += 'build agentgo-mcp' }
-            else {
-                Write-Host "== MCP smoke =="
-                python scripts/smoke_mcp.py
-                if ($LASTEXITCODE -ne 0) { $failed += 'mcp smoke' }
-            }
-        } finally { Pop-Location }
-    } else {
-        Write-Warning "未找到 agentgo-crush,跳过 MCP 冒烟"
-    }
-}
 
 if ($failed.Count) { Write-Host "FAILED: $($failed -join ', ')" -ForegroundColor Red; exit 1 }
 Write-Host "ALL OK" -ForegroundColor Green

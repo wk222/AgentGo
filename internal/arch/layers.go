@@ -59,8 +59,8 @@ var PackageLayer = map[string]Layer{
 	"docchunk":                        LayerSystems,    // adaptive document chunking ported from WeKnora; only the bridge "chunker" plugin imports it
 	"visionocr":                       LayerAssets,     // read text out of images: vision model on the gateway, or a local engine behind -tags ocr
 	"rekit":                           LayerAssets,     // native reverse-engineering toolkit (triage/apk/har/xor/strings/ledger/toolrun)
-	"codetools":                       LayerAssets,     // Crush code-aware tools adapted to Eino tools
-	"codelsp":                         LayerAssets,     // native LSP client manager + lsp_* tools on powernap (replaces Crush's lsp package)
+	"codetools":                       LayerAssets,     // code-aware tools (files, search, LSP) adapted to Eino tools
+	"codelsp":                         LayerAssets,     // LSP session supervisor + lsp_* tools on powernap
 	"engine":                          LayerSystems,    // unified AgentEngine/EventSink contracts; stdlib only
 	"audio":                           LayerSystems,    // kernel side of voice: frames, events, interrupt contract; stdlib only (VAD/ASR/TTS are plugins)
 	"tools":                           LayerAssets,

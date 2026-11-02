@@ -1,5 +1,5 @@
 // Package core is AgentGo's kernel: the business logic every entry point
-// (desktop, HTTP gateway, ACP, Crush protocol) shares. Entry points translate
+// (desktop, HTTP gateway, ACP, terminal UI) shares. Entry points translate
 // their protocol into calls on core; they hold no chat logic of their own.
 package core
 

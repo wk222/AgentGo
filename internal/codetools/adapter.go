@@ -1,7 +1,7 @@
-// Package codetools adapts Crush's code-aware tools (LSP diagnostics, view,
-// edit, grep, ...) to Eino tools, so AgentGo's own agent loop can use them.
-// Tool implementations arrive as coderuntime.Tool (today wrapped from the
-// vendored Crush toolbox, see Wrap).
+// Package codetools is AgentGo's code-tool layer: the native file tools (view,
+// write, edit, multiedit), the search tools (grep, glob, ls), and the adapter
+// that presents any coderuntime.Tool, the language-server tools of
+// internal/codelsp included, to the Eino agent loop.
 package codetools
 
 import (
@@ -19,18 +19,18 @@ import (
 	"agentgo/internal/governance"
 )
 
-// ToolName maps a Crush tool name into AgentGo's namespace ("view" -> "code_view";
-// "lsp_*" tools keep their name).
-func ToolName(crushName string) string {
-	if strings.HasPrefix(crushName, "lsp_") {
-		return crushName
+// ToolName maps a toolbox tool name into AgentGo's namespace ("view" ->
+// "code_view"; "lsp_*" tools keep their name).
+func ToolName(name string) string {
+	if strings.HasPrefix(name, "lsp_") {
+		return name
 	}
-	return "code_" + crushName
+	return "code_" + name
 }
 
-// IsMutating reports whether a Crush tool changes files.
-func IsMutating(crushName string) bool {
-	switch crushName {
+// IsMutating reports whether a toolbox tool changes files.
+func IsMutating(name string) bool {
+	switch name {
 	case "edit", "multiedit", "write", "lsp_rename", "lsp_replace_symbol", "revert_file_changes":
 		return true
 	}
@@ -40,11 +40,11 @@ func IsMutating(crushName string) bool {
 // Source names this package's tools in governance audit records.
 const Source = "codetools"
 
-// Risk is the baseline risk codetools declares for a Crush tool: the file-changing
-// ones need care, the readers are low risk. This used to live as a name list in
-// the governance risk table; the plugin now owns it.
-func Risk(crushName string) governance.RiskLevel {
-	if IsMutating(crushName) {
+// Risk is the baseline risk codetools declares for a toolbox tool: the
+// file-changing ones need care, the readers are low risk. The plugin owns this
+// rather than the governance risk table.
+func Risk(name string) governance.RiskLevel {
+	if IsMutating(name) {
 		return governance.RiskMedium
 	}
 	return governance.RiskLow
@@ -66,11 +66,11 @@ func RegisterTraits(tools []coderuntime.Tool) (dispose func()) {
 	}
 }
 
-// AlwaysVisible reports which Crush tools the model should see without
+// AlwaysVisible reports which toolbox tools the model should see without
 // tool_search: the core read / diagnose / edit loop. The rest (references,
 // symbols, definition, call hierarchy, ls) stay discoverable on demand.
-func AlwaysVisible(crushName string) bool {
-	switch crushName {
+func AlwaysVisible(name string) bool {
+	switch name {
 	case "view", "grep", "glob", "lsp_diagnostics", "edit", "multiedit", "write":
 		return true
 	}
@@ -114,7 +114,7 @@ func toolInfo(t coderuntime.Tool) (*schema.ToolInfo, error) {
 
 func (a *einoAdapter) Info(context.Context) (*schema.ToolInfo, error) { return a.info, nil }
 
-// InvokableRun runs the Crush tool. Tool-level failures are returned as text so
+// InvokableRun runs the tool. Tool-level failures are returned as text so
 // the model can react to them (an error return would abort the agent turn).
 func (a *einoAdapter) InvokableRun(ctx context.Context, argsJSON string, _ ...einotool.Option) (string, error) {
 	callID := compose.GetToolCallID(ctx)
@@ -131,9 +131,9 @@ func (a *einoAdapter) InvokableRun(ctx context.Context, argsJSON string, _ ...ei
 	return nonEmptyResult(res.Content), nil
 }
 
-// emptyDiagnostics replaces Crush's empty diagnostics output. Empty is ambiguous
-// upstream: it means "clean" but also "no language server is active for this
-// file", and the model must not treat the latter as proof the code compiles.
+// emptyDiagnostics replaces an empty lsp_diagnostics result. Empty is ambiguous:
+// it means "clean", but also "no language server is active for this file", and
+// the model must not take the latter as proof that the code compiles.
 const emptyDiagnostics = "No diagnostics reported by any active language server. " +
 	"The code is clean OR no language server handles this file type / has finished analysing yet; " +
 	"if correctness matters, confirm with the project's build or test command."

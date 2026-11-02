@@ -13,8 +13,8 @@ import (
 	"agentgo/internal/engine"
 )
 
-// Acceptance: AgentGo's own Eino agent (no Crush sidecar) uses the Crush code
-// tools in-process to find and fix a compile error with a real model.
+// Acceptance: AgentGo's own Eino agent uses the in-process code
+// tools to find and fix a compile error with a real model.
 //
 //	$env:XDG_DATA_HOME = "<empty temp dir>"     # REQUIRED: keeps this off your real data
 //	$env:AGENTGO_CODETOOLS_E2E = "1"

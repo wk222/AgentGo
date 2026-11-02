@@ -14,9 +14,9 @@ import (
 )
 
 // The coding_agent workflow node runs a coding task on the same Eino engine that
-// serves chat, with the in-process Crush tools (codetools plugin: LSP, edit,
+// serves chat, with the in-process code tools (codetools plugin: LSP, edit,
 // search). There is no second agent loop or second model configuration: the
-// former opt-in Crush sidecar engine was removed, and what it did is now this
+// former external sidecar engine was removed, and what it did is now this
 // plugin plus codetools. "crush" stays as a node-type alias so saved workflows
 // keep loading.
 

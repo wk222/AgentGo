@@ -1,5 +1,6 @@
 // Package mcphost exposes a headless AgentGo backend for external MCP/CLI hosts
-// (e.g. agentgo-crush for Charm Crush) without importing agentgo/internal.
+// (for example an MCP server or a terminal front end) without importing
+// agentgo/internal.
 package mcphost
 
 import (

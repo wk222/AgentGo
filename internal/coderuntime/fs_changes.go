@@ -64,7 +64,7 @@ func (t *fsTools) revertTool() Tool {
 			target := strings.TrimSpace(a.CallID)
 			if !t.approve(ctx, FSRequest{SessionID: sessionID, CallID: callID, Tool: "revert_file_changes", Action: "write",
 				Path: t.root, Description: "Undo this session's file changes (" + describeTarget(target) + ")"}) {
-				return errResult(deniedText), nil
+				return errResult(refusedByUser), nil
 			}
 			rep, err := t.opts.Journal.Revert(sessionID, target)
 			if err != nil {

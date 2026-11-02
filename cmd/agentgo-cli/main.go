@@ -1,5 +1,5 @@
 // Command agentgo-cli is AgentGo's own terminal client. It runs the AgentGo
-// brain in-process; it needs no Crush binary. An interactive chat on a terminal
+// brain in-process; it needs no external agent binary. An interactive chat on a terminal
 // is the full-screen TUI (internal/tui); -plain, pipes and `run` use the line
 // mode (internal/cli).
 package main

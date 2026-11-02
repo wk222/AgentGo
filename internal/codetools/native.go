@@ -12,8 +12,8 @@ import (
 
 // Overlay returns a toolbox that serves native in place of the same-named
 // tools of base (new names are appended). Everything else (LSP state, events,
-// Close) still comes from base. It is how the native file tools replace the
-// Crush ones one at a time without touching the rest of the toolbox.
+// Close) still comes from base. It is how the file and search tools are layered
+// on top of the language-server toolbox.
 func Overlay(base coderuntime.Toolbox, native []coderuntime.Tool) coderuntime.Toolbox {
 	return &overlay{Toolbox: base, native: native}
 }
@@ -74,10 +74,10 @@ func SymbolSearch(opts SearchOptions) codelsp.SymbolSearch {
 	}
 }
 
-// NativeFS builds the native view/write/edit/multiedit tools for workDir.
-// Language-server work is still done by base: view warms the server up, and a
-// successful change appends base's lsp_diagnostics for the changed file, which
-// is what the Crush tools did inline. approve may be nil (allow all).
+// NativeFS builds the view/write/edit/multiedit tools for workDir. Language-
+// server work is delegated to base: view warms the server up, and a successful
+// change appends base's lsp_diagnostics for the changed file. approve may be nil
+// (allow all).
 func NativeFS(base coderuntime.Toolbox, workDir string, approve func(context.Context, coderuntime.FSRequest) bool) []coderuntime.Tool {
 	var journal *coderuntime.Journal
 	if config.OverwriteBackup.On() {

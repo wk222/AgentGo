@@ -9,7 +9,7 @@ import (
 )
 
 // File-change capture. The Eino engine reports tool calls, not file changes, so
-// surfaces that want a diff (the coding_agent workflow node, the Crush TUI
+// surfaces that want a diff (the coding_agent workflow node, the terminal UI
 // adapter) snapshot a file-changing tool's target when the call starts and diff
 // it when the call finishes. ChangeWatcher is that capture, shared by both.
 

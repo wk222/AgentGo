@@ -18,7 +18,7 @@ import (
 )
 
 // This file is the single place where a user's decision on an approval turns
-// into action. Transports (the desktop binding, the Crush TUI adapter) only
+// into action. Transports (the desktop binding, the terminal UI adapter) only
 // translate their request and show the outcome; they do not resume anything.
 //
 // Guarantees:
