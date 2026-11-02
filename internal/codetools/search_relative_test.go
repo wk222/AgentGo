@@ -99,7 +99,7 @@ func TestSearchToolsAgreeOnRoot(t *testing.T) {
 		if got.IsError {
 			t.Fatalf("%s", got.Content)
 		}
-		if strings.Contains(got.Content, "No files found") {
+		if strings.HasPrefix(got.Content, "No ") {
 			t.Fatalf("a tool searched a different tree than ls: %q", got.Content)
 		}
 	}
@@ -123,7 +123,7 @@ func TestSearchToolsAskBeforeLeavingWorkDir(t *testing.T) {
 	s := &searcher{normalizeSearch(SearchOptions{WorkDir: dir, Approve: deny, Rg: func() string { return "" }})}
 
 	lsOut := s.ls(context.Background(), "s", "c", lsArgs{Path: outside})
-	if !lsOut.IsError || !strings.Contains(lsOut.Content, "denied") {
+	if !lsOut.IsError || !strings.Contains(lsOut.Content, "declined") {
 		t.Fatalf("ls outside the workspace: %q", lsOut.Content)
 	}
 	grepOut := s.grep(context.Background(), "s", "c", grepArgs{Pattern: "outside-secret", Path: outside})

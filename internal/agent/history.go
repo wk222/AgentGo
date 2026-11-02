@@ -11,7 +11,7 @@ type historyKey struct{}
 // WithHistory supplies the earlier turns of a conversation for ONE run.
 //
 // By default every AgentGo turn is a single user message and continuity comes
-// from memory recall. Frontends that present a chat transcript (the Crush TUI)
+// from memory recall. Frontends that present a chat transcript (the terminal UI)
 // opt in to real history with this; runs without it behave exactly as before.
 // History is plain user/assistant text, oldest first, excluding the new input.
 func WithHistory(ctx context.Context, msgs []*schema.Message) context.Context {

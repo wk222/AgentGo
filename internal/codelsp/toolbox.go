@@ -1,6 +1,3 @@
-// Derived in part from Crush's internal/lsp and LSP agent tools
-// (licenses/crush/NOTICE.md, FSL-1.1-MIT).
-
 package codelsp
 
 import (
@@ -22,29 +19,31 @@ type Options struct {
 	Overrides Overrides
 	// NoAuto stops bundled servers from starting on their own.
 	NoAuto bool
-	// Search finds symbol positions for lsp_references / definition /
-	// call_hierarchy. Without it those tools report the symbol as not found.
+	// Search finds candidate positions for a symbol name; lsp_references,
+	// lsp_definition and lsp_call_hierarchy start from them. Without it those
+	// tools report that the symbol could not be located.
 	Search SymbolSearch
 }
 
-// Toolbox is the native coderuntime.Toolbox for the language-server tools.
-// File tools are not part of it: they are layered on top by the caller.
+// Toolbox is the coderuntime.Toolbox for the language-server tools. The file
+// tools are not part of it; the caller layers them on top.
 type Toolbox struct {
-	m     *Manager
+	sv    *supervisor
 	tools []coderuntime.Tool
 	root  string
 
-	cancel    context.CancelFunc
-	closeOnce sync.Once
+	stopPriming context.CancelFunc
+	closeOnce   sync.Once
 
 	mu       sync.Mutex
-	states   map[string]coderuntime.LSPClientInfo
+	known    map[string]coderuntime.LSPClientInfo
 	listener func(coderuntime.LSPEvent)
 }
 
 var _ coderuntime.Toolbox = (*Toolbox)(nil)
 
-// New builds the toolbox. Servers start lazily when a tool touches a file.
+// New builds the toolbox. Servers start when a tool first touches a file they
+// serve, and shortly after construction for the project's own manifest files.
 func New(o Options) (*Toolbox, error) {
 	if strings.TrimSpace(o.WorkDir) == "" {
 		return nil, errors.New("codelsp: WorkDir is required")
@@ -53,92 +52,86 @@ func New(o Options) (*Toolbox, error) {
 	if err != nil {
 		return nil, err
 	}
-	m := NewManager(ManagerOptions{WorkDir: root, Overrides: o.Overrides, NoAuto: o.NoAuto})
-	ctx, cancel := context.WithCancel(context.Background())
-	t := &Toolbox{m: m, root: root, cancel: cancel, states: map[string]coderuntime.LSPClientInfo{}}
-	t.tools = newTools(m, root, o.Search)
-	m.SetCallback(func(name string, c *Client) {
-		if c == nil {
-			return
-		}
-		t.update(c, "state_changed")
-		c.SetDiagnosticsCallback(func(string, int) { t.update(c, "diagnostics_changed") })
-	})
+	ctx, stop := context.WithCancel(context.Background())
+	t := &Toolbox{root: root, stopPriming: stop, known: map[string]coderuntime.LSPClientInfo{}}
+	t.sv = newSupervisor(supervisorOptions{root: root, overrides: o.Overrides, noAuto: o.NoAuto, onChange: t.observe})
+	t.tools = newTools(t.sv, root, o.Search)
 	go t.prime(ctx)
 	return t, nil
 }
 
-// prime starts servers for the project files that name their language, so the
-// first lsp_* call does not pay the startup.
+// prime starts the servers for whichever manifest files exist, so the first
+// lsp_* call does not pay the startup cost.
 func (t *Toolbox) prime(ctx context.Context) {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	for _, f := range []string{"go.mod", "main.go", "Cargo.toml", "package.json", "tsconfig.json", "pyproject.toml", "requirements.txt"} {
-		p := filepath.Join(t.root, f)
+	for _, name := range []string{"go.mod", "main.go", "Cargo.toml", "package.json", "tsconfig.json", "pyproject.toml", "requirements.txt"} {
+		p := filepath.Join(t.root, name)
 		if _, err := os.Stat(p); err == nil {
-			t.m.Start(ctx, p)
+			t.sv.ensure(ctx, p)
 		}
 	}
 }
 
-// Tools returns the five lsp_* tools.
+// Tools returns the lsp_* tools.
 func (t *Toolbox) Tools() []coderuntime.Tool { return t.tools }
 
-func (t *Toolbox) update(c *Client, evType string) {
-	total := c.Counts().Total()
-	state := int(c.State())
-	t.mu.Lock()
-	info, ok := t.states[c.name]
+// record refreshes what is known about s and returns the new snapshot. The
+// caller holds t.mu.
+func (t *Toolbox) record(s *session) coderuntime.LSPClientInfo {
+	info, ok := t.known[s.name]
 	if !ok || info.ConnectedAt.IsZero() {
-		info = coderuntime.LSPClientInfo{Name: c.name, ConnectedAt: time.Now()}
+		info = coderuntime.LSPClientInfo{Name: s.name, ConnectedAt: time.Now()}
 	}
-	info.State, info.DiagnosticCount = state, total
-	t.states[c.name] = info
-	cb := t.listener
+	info.State = int(s.current())
+	info.DiagnosticCount = s.diags.counts().total()
+	t.known[s.name] = info
+	return info
+}
+
+// observe is the supervisor's change hook: it updates the snapshot and tells the
+// listener.
+func (t *Toolbox) observe(s *session, kind string) {
+	t.mu.Lock()
+	info := t.record(s)
+	listener := t.listener
 	t.mu.Unlock()
-	if cb != nil {
-		cb(coderuntime.LSPEvent{Type: evType, Name: c.name, State: state, DiagnosticCount: total})
+	if listener != nil {
+		listener(coderuntime.LSPEvent{Type: kind, Name: info.Name, State: info.State, DiagnosticCount: info.DiagnosticCount})
 	}
 }
 
-// LSPStates returns the state of every server seen so far.
+// LSPStates reports every server seen so far, with live ones refreshed.
 func (t *Toolbox) LSPStates() map[string]coderuntime.LSPClientInfo {
-	for _, c := range t.m.Clients() {
-		total := c.Counts().Total()
-		t.mu.Lock()
-		info, ok := t.states[c.name]
-		if !ok || info.ConnectedAt.IsZero() {
-			info = coderuntime.LSPClientInfo{Name: c.name, ConnectedAt: time.Now()}
-		}
-		info.State, info.DiagnosticCount = int(c.State()), total
-		t.states[c.name] = info
-		t.mu.Unlock()
-	}
+	live := t.sv.sessions()
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	out := make(map[string]coderuntime.LSPClientInfo, len(t.states))
-	for k, v := range t.states {
-		out[k] = v
+	for _, s := range live {
+		t.record(s)
+	}
+	out := make(map[string]coderuntime.LSPClientInfo, len(t.known))
+	for name, info := range t.known {
+		out[name] = info
 	}
 	return out
 }
 
-// LSPDiagnostics returns the diagnostics one server published (a map of
-// document URI to diagnostics), or an empty map.
+// LSPDiagnostics returns what one server published (document URI to diagnostics),
+// or an empty map when it is not running.
 func (t *Toolbox) LSPDiagnostics(name string) any {
-	if c, ok := t.m.Client(name); ok {
-		return c.Diagnostics()
+	if s, ok := t.sv.named(name); ok {
+		return s.diags.snapshot()
 	}
 	return map[string]any{}
 }
 
 // StartLSP starts the servers that can handle path.
-func (t *Toolbox) StartLSP(ctx context.Context, path string) { t.m.Start(ctx, path) }
+func (t *Toolbox) StartLSP(ctx context.Context, path string) { t.sv.ensure(ctx, path) }
 
 // StopAllLSPs stops every running server.
-func (t *Toolbox) StopAllLSPs(ctx context.Context) { t.m.StopAll(ctx) }
+func (t *Toolbox) StopAllLSPs(ctx context.Context) { t.sv.stopAll(ctx) }
 
-// SetLSPEventListener registers a listener for state and diagnostics changes.
+// SetLSPEventListener registers the listener for state and diagnostics changes.
 func (t *Toolbox) SetLSPEventListener(fn func(e coderuntime.LSPEvent)) {
 	t.mu.Lock()
 	t.listener = fn
@@ -148,9 +141,9 @@ func (t *Toolbox) SetLSPEventListener(fn func(e coderuntime.LSPEvent)) {
 // Close stops background work and every server.
 func (t *Toolbox) Close() {
 	t.closeOnce.Do(func() {
-		t.cancel()
+		t.stopPriming()
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		t.m.Close(ctx)
+		t.sv.close(ctx)
 	})
 }

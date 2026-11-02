@@ -14,15 +14,12 @@ import (
 	"agentgo/internal/coderuntime"
 )
 
-// Behavior baseline for the code tools (plan-crush-digestion D0): what the
-// model sees and what lands on disk. The native tools must satisfy it.
-
-// nativeBox assembles the production toolbox the way the plugin does. Rg off:
+// nativeBox assembles the production toolbox the way the plugin does. Rg is off:
 // the Go walker is deterministic.
 func nativeBox(t *testing.T, dir string) coderuntime.Toolbox {
 	t.Helper()
-	// The baseline pins what the original tools produced; the pre-overwrite
-	// backup is an intentional addition covered by coderuntime/fs_guard_test.go.
+	// The pre-overwrite backup is covered by coderuntime/fs_guard_test.go; keep it
+	// out of these tests so a temp dir holds only what the test wrote.
 	t.Setenv("AGENTGO_OVERWRITE_BACKUP", "0")
 	search := SearchOptions{WorkDir: dir, Rg: func() string { return "" }}
 	lsp, err := codelsp.New(codelsp.Options{WorkDir: dir, Search: SymbolSearch(search)})
@@ -33,13 +30,8 @@ func nativeBox(t *testing.T, dir string) coderuntime.Toolbox {
 	return Overlay(lsp, append(NativeFS(lsp, dir, nil), NativeSearch(search)...))
 }
 
-// eachImpl runs fn against the native tools (the only implementation left; the
-// parameter stays so the scenarios read the same as when Crush was compared).
-func eachImpl(t *testing.T, fn func(t *testing.T, native bool)) {
-	t.Run("native", func(t *testing.T) { fn(t, true) })
-}
-
-func baselineTools(t *testing.T, native bool) (dir string, tools map[string]einotool.BaseTool) {
+// adaptedTools returns the toolbox's tools keyed by the name the model sees.
+func adaptedTools(t *testing.T) (dir string, tools map[string]einotool.BaseTool) {
 	t.Helper()
 	dir = t.TempDir()
 	adapted, err := Adapt(nativeBox(t, dir).Tools())
@@ -74,50 +66,41 @@ func runTool(t *testing.T, tools map[string]einotool.BaseTool, name, args string
 	return out
 }
 
-func TestBaselineViewEditGrepWrite(t *testing.T) {
-	eachImpl(t, baselineViewEditGrepWrite)
+func quote(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
 }
 
-func baselineViewEditGrepWrite(t *testing.T, native bool) {
-	dir, tools := baselineTools(t, native)
+// What the model sees and what lands on disk, through the full adapter stack.
+func TestFileToolsRoundTripThroughTheAdapter(t *testing.T) {
+	dir, tools := adaptedTools(t)
 	file := filepath.Join(dir, "a.txt")
-	if err := os.WriteFile(file, []byte("hello baseline\nsecond line\n"), 0o644); err != nil {
+	if err := os.WriteFile(file, []byte("hello world\nsecond line\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	if out := runTool(t, tools, "code_view", `{"file_path":`+quote(file)+`}`); !strings.Contains(out, "hello baseline") {
+	if out := runTool(t, tools, "code_view", `{"file_path":`+quote(file)+`}`); !strings.Contains(out, "hello world") {
 		t.Fatalf("view output: %q", out)
 	}
-	runTool(t, tools, "code_edit", `{"file_path":`+quote(file)+`,"old_string":"hello baseline","new_string":"hello digested"}`)
-	if b, _ := os.ReadFile(file); !strings.Contains(string(b), "hello digested") {
+	runTool(t, tools, "code_edit", `{"file_path":`+quote(file)+`,"old_string":"hello world","new_string":"hello edited"}`)
+	if b, _ := os.ReadFile(file); !strings.Contains(string(b), "hello edited") {
 		t.Fatalf("edit did not land on disk: %q", b)
 	}
-	if out := runTool(t, tools, "code_grep", `{"pattern":"digested","path":`+quote(dir)+`}`); !strings.Contains(out, "a.txt") {
+	if out := runTool(t, tools, "code_grep", `{"pattern":"edited","path":`+quote(dir)+`}`); !strings.Contains(out, "a.txt") {
 		t.Fatalf("grep output: %q", out)
 	}
-	newFile := filepath.Join(dir, "b.txt")
-	runTool(t, tools, "code_write", `{"file_path":`+quote(newFile)+`,"content":"fresh\n"}`)
-	if b, _ := os.ReadFile(newFile); string(b) != "fresh\n" {
+	fresh := filepath.Join(dir, "b.txt")
+	runTool(t, tools, "code_write", `{"file_path":`+quote(fresh)+`,"content":"fresh\n"}`)
+	if b, _ := os.ReadFile(fresh); string(b) != "fresh\n" {
 		t.Fatalf("write landed: %q", b)
 	}
 }
 
-func TestBaselineDiagnosticsNeverEmpty(t *testing.T) {
-	eachImpl(t, func(t *testing.T, native bool) {
-		baselineDiagnosticsNeverEmpty(t, native)
-	})
-}
-
-func baselineDiagnosticsNeverEmpty(t *testing.T, native bool) {
-	_, tools := baselineTools(t, native)
+func TestDiagnosticsAreNeverEmpty(t *testing.T) {
+	_, tools := adaptedTools(t)
 	// Even with no language server able to analyse the workspace, the model must
 	// get an explanatory non-empty answer (see emptyDiagnostics).
 	if out := runTool(t, tools, "lsp_diagnostics", `{}`); strings.TrimSpace(out) == "" {
 		t.Fatal("diagnostics returned empty output")
 	}
-}
-
-func quote(s string) string {
-	b, _ := json.Marshal(s)
-	return string(b)
 }

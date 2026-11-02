@@ -9,7 +9,7 @@ import (
 	"agentgo/internal/memory"
 )
 
-// MemorySave stores an explicit memory record (used by Crush/MCP and the UI).
+// MemorySave stores an explicit memory record (used by MCP hosts and the UI).
 // scope defaults to "global", modality to "fact".
 func (s *AppService) MemorySave(content, scope, modality string, importance float64) map[string]any {
 	if s.rt.Memory() == nil {

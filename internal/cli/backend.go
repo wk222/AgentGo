@@ -1,7 +1,7 @@
 // Package cli is AgentGo's own command-line client: one-shot runs, an
 // interactive chat, and a few inspection commands. It drives the AgentGo brain
 // directly (same engine router, governance, memory and plugins as the desktop
-// app); it needs no Crush binary and speaks no Crush protocol.
+// app); it needs no external agent binary.
 //
 // The package talks to the brain through Backend, so everything above it
 // (rendering, the approval loop, the REPL, exit codes) is testable without a

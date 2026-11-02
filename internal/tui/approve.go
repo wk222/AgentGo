@@ -3,6 +3,7 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -76,32 +77,30 @@ func capLines(s string, n int) string {
 	return strings.Join(lines[:n], "\n") + fmt.Sprintf("\n… %d more lines", len(lines)-n)
 }
 
+// problemLine matches one entry of an lsp_diagnostics section, for example
+// "error   7:25 gopls: cannot use ..." or "warning C:\p\b.go:9:1 gopls: unused".
+var problemLine = regexp.MustCompile(`^(error|warning)\s+.*?\d+:\d+\s`)
+
 // diagnostics pulls the problem lines out of an lsp_diagnostics result and
-// counts them by severity. ok is false when the text carries no diagnostics
-// block.
+// counts them by severity. ok is false when the text has no "Problems in"
+// section.
 func diagnostics(result string) (lines []string, errs, warns int, ok bool) {
-	for _, tag := range []string{"file_diagnostics", "project_diagnostics"} {
-		open, closeTag := "<"+tag+">", "</"+tag+">"
-		i := strings.Index(result, open)
-		if i < 0 {
+	for _, l := range strings.Split(result, "\n") {
+		l = strings.TrimSpace(l)
+		if strings.HasPrefix(l, "Problems in ") {
+			ok = true
 			continue
 		}
-		body := result[i+len(open):]
-		if j := strings.Index(body, closeTag); j >= 0 {
-			body = body[:j]
+		m := problemLine.FindStringSubmatch(l)
+		if m == nil {
+			continue
 		}
-		ok = true
-		for _, l := range strings.Split(body, "\n") {
-			l = strings.TrimSpace(l)
-			switch {
-			case strings.HasPrefix(l, "Error:"), strings.HasPrefix(l, "error:"):
-				errs++
-				lines = append(lines, l)
-			case strings.HasPrefix(l, "Warn"), strings.HasPrefix(l, "warn"):
-				warns++
-				lines = append(lines, l)
-			}
+		if m[1] == "error" {
+			errs++
+		} else {
+			warns++
 		}
+		lines = append(lines, l)
 	}
 	return lines, errs, warns, ok
 }

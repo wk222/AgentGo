@@ -9,7 +9,7 @@ import (
 // ApprovalRelay tells a surface that is waiting on an approval that another
 // surface took the decision.
 //
-// A run started in the Crush TUI blocks inside the TUI's permission dialog. If
+// A run started in the terminal UI blocks inside the TUI's permission dialog. If
 // the desktop UI approves the same request first, the queue records that one
 // decision and the desktop call resumes the run — but the TUI would keep
 // showing the dialog and never see the outcome. The relay closes that gap in

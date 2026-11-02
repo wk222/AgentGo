@@ -26,7 +26,7 @@ import (
 // return the reasoning text; only /responses can stream the reasoning summary.
 //
 // The summary is mapped to schema.Message.ReasoningContent, so everything
-// downstream (drainADKEvents -> ReasoningObserver -> Crush "thinking" part) is
+// downstream (drainADKEvents -> ReasoningObserver -> the "thinking" part) is
 // unchanged.
 //
 // Opt-in: AGENTGO_LLM_API=responses.

@@ -9,8 +9,8 @@ import (
 	"time"
 )
 
-// Run the test binary as an intentionally unresponsive LSP server. No shell,
-// external server, or user workspace is needed to reproduce shutdown mid-init.
+// Run the test binary as an intentionally unresponsive language server. No shell,
+// external server or user workspace is needed to reproduce shutdown mid-startup.
 func TestStalledServerHelper(t *testing.T) {
 	if os.Getenv("AGENTGO_TEST_STALLED_LSP") != "1" {
 		return
@@ -19,56 +19,76 @@ func TestStalledServerHelper(t *testing.T) {
 	os.Exit(0)
 }
 
-func TestStopAllJoinsStartingServerAndCanRestart(t *testing.T) {
-	executable, err := os.Executable()
+func TestStopAllJoinsAStartingServerAndTheSupervisorCanRestart(t *testing.T) {
+	exe, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
 	root := t.TempDir()
-	m := NewManager(ManagerOptions{WorkDir: root, NoAuto: true, Overrides: Overrides{
-		"test-stalled": {Command: executable, Args: []string{"-test.run=^TestStalledServerHelper$"},
+	sv := newSupervisor(supervisorOptions{root: root, noAuto: true, overrides: Overrides{
+		"test-stalled": {Command: exe, Args: []string{"-test.run=^TestStalledServerHelper$"},
 			Env: map[string]string{"AGENTGO_TEST_STALLED_LSP": "1"}, FileTypes: []string{"teststall"}, TimeoutSec: 30},
 	}})
-	t.Cleanup(func() { m.StopAll(context.Background()) })
+	t.Cleanup(func() { sv.stopAll(context.Background()) })
+
 	for round := 0; round < 2; round++ {
-		done := make(chan struct{})
-		go func() { defer close(done); m.Start(context.Background(), filepath.Join(root, "file.teststall")) }()
+		launched := make(chan struct{})
+		go func() { defer close(launched); sv.ensure(context.Background(), filepath.Join(root, "file.teststall")) }()
+
 		deadline := time.After(5 * time.Second)
 		for {
-			if c, ok := m.Client("test-stalled"); ok && c.State() == StateStarting {
+			if s, ok := sv.named("test-stalled"); ok && s.current() == StateStarting {
 				break
 			}
 			select {
 			case <-deadline:
-				t.Fatal("server never entered initialization")
+				t.Fatal("the server never entered initialisation")
 			case <-time.After(10 * time.Millisecond):
 			}
 		}
+
 		stopped := make(chan struct{})
-		go func() { m.StopAll(context.Background()); close(stopped) }()
+		go func() { sv.stopAll(context.Background()); close(stopped) }()
 		select {
 		case <-stopped:
 		case <-time.After(5 * time.Second):
-			t.Fatal("shutdown did not cancel initialization")
+			t.Fatal("shutdown did not cancel the initialisation")
 		}
 		select {
-		case <-done:
+		case <-launched:
 		case <-time.After(time.Second):
-			t.Fatal("startup survived shutdown")
+			t.Fatal("the launch outlived the shutdown")
 		}
-		if len(m.Clients()) != 0 {
-			t.Fatal("server published after shutdown")
+		if len(sv.sessions()) != 0 {
+			t.Fatal("a server was published after shutdown")
 		}
 	}
 }
 
-func TestClosedManagerCannotLaunchServer(t *testing.T) {
-	m := NewManager(ManagerOptions{WorkDir: t.TempDir(), NoAuto: true})
-	m.Close(context.Background())
-	m.Start(context.Background(), filepath.Join(m.workDir, "file.go"))
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if !m.closed || len(m.clients) != 0 {
-		t.Fatal("closed manager accepted new work")
+func TestClosedSupervisorRefusesNewLaunches(t *testing.T) {
+	sv := newSupervisor(supervisorOptions{root: t.TempDir(), noAuto: true})
+	sv.close(context.Background())
+	sv.ensure(context.Background(), filepath.Join(sv.root, "file.go"))
+	sv.mu.Lock()
+	defer sv.mu.Unlock()
+	if len(sv.live) != 0 {
+		t.Fatal("a closed supervisor accepted new work")
+	}
+	sv.lifecycle.Lock()
+	defer sv.lifecycle.Unlock()
+	if !sv.closed {
+		t.Fatal("close must be sticky")
+	}
+}
+
+func TestPathsOutsideTheWorkspaceStartNothing(t *testing.T) {
+	root := t.TempDir()
+	sv := newSupervisor(supervisorOptions{root: root, overrides: Overrides{
+		"any": {Command: "definitely-not-installed", FileTypes: []string{"txt"}},
+	}})
+	t.Cleanup(func() { sv.stopAll(context.Background()) })
+	sv.ensure(context.Background(), filepath.Join(t.TempDir(), "elsewhere.txt"))
+	if len(sv.sessions()) != 0 {
+		t.Fatal("a file outside the workspace must not start a server")
 	}
 }

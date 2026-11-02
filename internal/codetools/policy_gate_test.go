@@ -70,8 +70,8 @@ func TestReadOnlyCodeToolsAreNotGated(t *testing.T) {
 	}
 }
 
-// New Crush tools must be classified on purpose: if the toolbox grows, this
-// fails until IsMutating and the governance risk table have been looked at.
+// New tools must be classified on purpose: if the toolbox grows, this fails
+// until IsMutating and the governance risk table have been looked at.
 func TestCodeToolSetIsKnown(t *testing.T) {
 	tb := newToolbox(t)
 	var got []string

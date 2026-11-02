@@ -60,8 +60,8 @@ func (s *AppService) rebindCodetools(string) error {
 
 // newToolbox assembles the code tools for root, all native: codelsp for the
 // language-server tools, with the native file tools (view/write/edit/multiedit,
-// grep/glob/ls) layered on top. Nothing here links the vendored Crush. The
-// returned func releases it (stops language servers).
+// grep/glob/ls) layered on top. The returned func releases it (stops language
+// servers).
 func newToolbox(root, dataDir string) (coderuntime.Toolbox, func(), error) {
 	var approve func(context.Context, coderuntime.FSRequest) bool
 	if !config.CodeToolsAppr.On() {
@@ -81,7 +81,7 @@ func newToolbox(root, dataDir string) (coderuntime.Toolbox, func(), error) {
 	return codetools.Overlay(lsp, native), lsp.Close, nil
 }
 
-// codetoolsPlugin contributes Crush's code-aware tools (LSP diagnostics,
+// codetoolsPlugin contributes the code-aware tools (LSP diagnostics,
 // references, symbols, view/edit/write, grep/glob/ls) to AgentGo's tool
 // registry, so the Eino agent can diagnose and fix code on its own.
 //
@@ -128,15 +128,15 @@ func codetoolsPlugin(env codetoolsEnv) (plugin.Plugin, bool) {
 					return err
 				}
 				name := info.Name
-				crush := wrapped.Tools()[i].Name
+				raw := wrapped.Tools()[i].Name
 				// One declaration per tool (visibility, file-changing, risk), made
 				// before Contribute so the bus grant it creates sees the risk.
 				c.Effect("declare:"+name, tools.Declare(tools.Spec{
 					Name:     name,
 					Source:   codetools.Source,
-					Static:   codetools.AlwaysVisible(crush),
-					Mutating: codetools.IsMutating(crush),
-					Risk:     codetools.Risk(crush),
+					Static:   codetools.AlwaysVisible(raw),
+					Mutating: codetools.IsMutating(raw),
+					Risk:     codetools.Risk(raw),
 				}))
 				reg.AddTool(t)
 				c.Contribute("tool", name, func() { reg.RemoveTool(name) })

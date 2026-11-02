@@ -4,7 +4,7 @@ import "context"
 
 // ToolObserver receives the full detail of every tool call of one run (call id,
 // arguments, output). Unlike EmitTrace — a name-only status ping for the
-// desktop status bar — this is what frontends such as the Crush TUI render.
+// desktop status bar — this is what frontends such as the terminal UI render.
 type ToolObserver interface {
 	ToolStarted(callID, name, args string)
 	ToolFinished(callID, name, output string, isError bool)

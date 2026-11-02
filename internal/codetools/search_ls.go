@@ -1,15 +1,12 @@
-// Derived from Crush's ls tool (licenses/crush/NOTICE.md, FSL-1.1-MIT).
-
 package codetools
 
+// ls: show a folder as an indented tree.
+
 import (
-	"cmp"
 	"context"
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"agentgo/internal/coderuntime"
@@ -24,12 +21,13 @@ type lsArgs struct {
 func (s *searcher) lsTool() coderuntime.Tool {
 	return coderuntime.Tool{
 		Name: "ls",
-		Description: fmt.Sprintf("List files and directories as a tree; skips hidden files and common system dirs; max %d files. "+
-			"Use glob to find files by pattern, grep to search contents.", maxLSFiles),
+		Description: fmt.Sprintf("Show a folder's files and sub-folders as an indented tree (folders end in a slash, files come before sub-folders). "+
+			"Dotfiles are shown; ignored folders (.git, node_modules, ...) and build output are left out, and a listing stops after %d entries. "+
+			"To find files by name use glob; to search inside them use grep.", lsLimit),
 		Schema: objSchema(map[string]any{
-			"path":   prop("string", "The path to the directory to list (defaults to current working directory)"),
-			"ignore": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "List of glob patterns to ignore"},
-			"depth":  prop("integer", "The maximum depth to traverse"),
+			"path":   prop("string", "Folder to show; defaults to the working directory"),
+			"ignore": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Glob patterns for names to leave out"},
+			"depth":  prop("integer", "How many levels below the folder to show (default: all)"),
 		}),
 		Parallel: true,
 		Run: func(ctx context.Context, sessionID, callID, argsJSON string) (coderuntime.ToolResult, error) {
@@ -53,132 +51,65 @@ func expandPath(p string) string {
 }
 
 func (s *searcher) ls(ctx context.Context, sessionID, callID string, a lsArgs) coderuntime.ToolResult {
-	path := expandPath(cmp.Or(a.Path, s.WorkDir))
-	if !filepath.IsAbs(path) && !(runtime.GOOS == "windows" && strings.HasPrefix(filepath.ToSlash(path), "/")) {
-		path = filepath.Join(s.WorkDir, path)
+	root := s.resolveRoot(a.Path)
+	if msg, ok := s.allowRoot(ctx, sessionID, callID, "ls", "list", root); !ok {
+		return toolErr(msg)
 	}
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return toolErr(fmt.Sprintf("error resolving search path: %v", err))
+	info, err := os.Stat(root)
+	switch {
+	case os.IsNotExist(err):
+		return toolErr("No such folder: " + root)
+	case err != nil:
+		return toolErr(fmt.Sprintf("Cannot read %s: %v", root, err))
+	case !info.IsDir():
+		return toolErr(root + " is a file, not a folder. Use view to read it.")
 	}
-	root, _ := filepath.Abs(s.WorkDir)
-	if rel, err := filepath.Rel(root, abs); err != nil || strings.HasPrefix(rel, "..") {
-		if s.Approve != nil && !s.Approve(ctx, coderuntime.FSRequest{SessionID: sessionID, CallID: callID, Tool: "ls", Action: "list",
-			Path: abs, Description: "List directory outside working directory: " + abs}) {
-			return toolErr("User denied permission")
+
+	var tree strings.Builder
+	entries := 0
+	capped := false
+	skip := newIgnorer(root)
+	walkTree(ctx, root, walkOpts{FilesFirst: true, Follow: true, MaxDepth: a.Depth}, func(p string, isDir bool) walkAction {
+		if p == root {
+			return walkContinue
 		}
-	}
-
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return toolErr("path does not exist: " + path)
-	}
-	files, truncated := listDirectory(ctx, path, a.Ignore, a.Depth, maxLSFiles)
-
-	var out string
-	if truncated {
-		out = fmt.Sprintf("There are more than %d files in the directory. Use a more specific path or use the Glob tool to find specific files. The first %[1]d files and directories are included below.\n", maxLSFiles)
-	}
-	if a.Depth > 0 {
-		out = fmt.Sprintf("The directory tree is shown up to a depth of %d. Use a higher depth and a specific path to see more levels.\n", a.Depth)
-	}
-	return toolOK(out + "\n" + printTree(buildTree(files, path), path))
-}
-
-// listDirectory returns the entries below root (directories end in a path
-// separator), skipping ignored ones, and whether the limit cut it short.
-func listDirectory(ctx context.Context, root string, extraIgnore []string, depth, limit int) ([]string, bool) {
-	ig := newIgnorer(root)
-	var found []string
-	truncated := false
-	walkTree(ctx, root, walkOpts{FilesFirst: true, Follow: true, MaxDepth: depth}, func(path string, isDir bool) walkAction {
-		if ig.ignored(path, isDir, extraIgnore) {
+		if skip.ignored(p, isDir, a.Ignore) {
 			if isDir {
 				return walkSkipDir
 			}
 			return walkContinue
 		}
-		if path != root {
-			if isDir {
-				path += string(filepath.Separator)
-			}
-			found = append(found, path)
-		}
-		if limit > 0 && len(found) >= limit {
-			truncated = true
+		if entries >= lsLimit {
+			capped = true
 			return walkStop
 		}
+		rel, err := filepath.Rel(root, p)
+		if err != nil {
+			return walkContinue
+		}
+		level := strings.Count(filepath.ToSlash(rel), "/") + 1
+		name := filepath.Base(p)
+		if isDir {
+			name += "/"
+		}
+		tree.WriteString(strings.Repeat("  ", level))
+		tree.WriteString(name)
+		tree.WriteByte('\n')
+		entries++
 		return walkContinue
 	})
-	return found, truncated
-}
 
-type treeNode struct {
-	name     string
-	dir      bool
-	children []*treeNode
-}
-
-// buildTree folds the flat path list into a tree, creating directory nodes for
-// every parent.
-func buildTree(paths []string, root string) []*treeNode {
-	var top []*treeNode
-	byPath := map[string]*treeNode{}
-	root = filepath.ToSlash(root)
-	for _, p := range paths {
-		rel := strings.TrimPrefix(filepath.ToSlash(p), root)
-		var parts []string
-		for _, part := range strings.Split(rel, "/") {
-			if part != "" {
-				parts = append(parts, part)
-			}
-		}
-		if len(parts) == 0 {
-			continue
-		}
-		cur, parent := "", ""
-		for i, part := range parts {
-			cur = path.Join(cur, part)
-			if _, ok := byPath[cur]; ok {
-				parent = cur
-				continue
-			}
-			last := i == len(parts)-1
-			n := &treeNode{name: part, dir: !last || strings.HasSuffix(rel, "/")}
-			byPath[cur] = n
-			if i > 0 && parent != "" {
-				if pn, ok := byPath[parent]; ok {
-					pn.children = append(pn.children, n)
-				}
-			} else {
-				top = append(top, n)
-			}
-			parent = cur
-		}
+	var out strings.Builder
+	if a.Depth > 0 {
+		fmt.Fprintf(&out, "(Showing %s below this folder.)\n", plural(a.Depth, "level", "levels"))
 	}
-	return top
-}
-
-func printTree(tree []*treeNode, root string) string {
-	var b strings.Builder
-	b.WriteString("- ")
-	b.WriteString(filepath.ToSlash(root))
-	if root[len(root)-1] != '/' {
-		b.WriteByte('/')
+	if capped {
+		fmt.Fprintf(&out, "(The listing stopped after %d entries. Pass a deeper `path`, or use glob to find specific files.)\n", lsLimit)
 	}
-	b.WriteByte('\n')
-	for _, n := range tree {
-		printNode(&b, n, 1)
+	out.WriteString(strings.TrimSuffix(filepath.ToSlash(root), "/") + "/\n")
+	if entries == 0 {
+		out.WriteString("  (nothing to show)\n")
 	}
-	return b.String()
-}
-
-func printNode(b *strings.Builder, n *treeNode, level int) {
-	name := n.name
-	if n.dir {
-		name += "/"
-	}
-	fmt.Fprintf(b, "%s- %s\n", strings.Repeat("  ", level), name)
-	for _, c := range n.children {
-		printNode(b, c, level+1)
-	}
+	out.WriteString(tree.String())
+	return toolOK(out.String())
 }

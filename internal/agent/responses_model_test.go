@@ -218,7 +218,7 @@ type usageRec struct{ ch chan [2]int }
 func (u usageRec) ModelUsage(prompt, completion int) { u.ch <- [2]int{prompt, completion} }
 
 // Token usage must reach the UsageObserver on both the streaming (normal) and
-// the blocking path; the Crush sidebar's token counter depends on it.
+// the blocking path; the terminal UI's token counter depends on it.
 func TestResponsesReportsUsageThroughCallbacks(t *testing.T) {
 	srv := newRespServer(t, 200, sse(`{"type":"response.output_text.delta","delta":"hi"}`, completedEv), nil)
 	m := testRespModel(srv)

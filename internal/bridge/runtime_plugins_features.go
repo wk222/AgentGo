@@ -137,7 +137,7 @@ func (rt *Runtime) featurePlugins() []plugin.Plugin {
 				_, _ = hub.Start("cron", job.SessionID, job.Prompt)
 			})
 			rt.schedRunner = runner
-			// Headless hosts (MCP/Crush sidecar) set AGENTGO_DISABLE_SCHEDULER=1 so cron
+			// Headless hosts (MCP, terminal sidecars) set AGENTGO_DISABLE_SCHEDULER=1 so cron
 			// jobs are not fired twice when the desktop app shares the same data dir.
 			if !config.DisableScheduler.On() {
 				runner.Start()

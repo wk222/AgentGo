@@ -33,7 +33,7 @@ func TestSymbolSearchGatesOutsideWorkDir(t *testing.T) {
 	if err == nil {
 		t.Fatalf("symbol search outside the workspace was allowed without approval: %v", hits)
 	}
-	if !strings.Contains(err.Error(), "denied") {
+	if !strings.Contains(err.Error(), "declined") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(asked) != 1 {

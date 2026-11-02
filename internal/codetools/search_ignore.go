@@ -1,12 +1,17 @@
 package codetools
 
-// Ignore rules shared by the native grep / glob / ls tools. The rule set
-// (always-ignored directory names, common build/lock patterns, hierarchical
-// .gitignore files) is derived from Crush's fsext package (licenses/crush/NOTICE.md,
-// FSL-1.1-MIT) without its global-excludes and Crush-config lookups.
+// What the search tools leave out. Three layers, cheapest first:
+//
+//  1. folders that are never worth entering (version-control metadata,
+//     dependency trees, caches, build output, this app's own state),
+//  2. file names that are never worth showing (editor droppings, compiled
+//     objects, lock files),
+//  3. the project's own ignore files (.gitignore, .agentgoignore), read lazily
+//     one directory at a time.
 
 import (
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -14,58 +19,84 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/format/gitignore"
 )
 
-// fastIgnoreDirs are directory names that are never searched or listed.
-var fastIgnoreDirs = map[string]bool{
-	".git": true, ".svn": true, ".hg": true, ".bzr": true,
-	".vscode": true, ".idea": true, "node_modules": true,
-	"__pycache__": true, ".pytest_cache": true, ".cache": true, ".tmp": true,
-	".Trash": true, ".Spotlight-V100": true, ".fseventsd": true,
-	".crush": true, ".agentgo": true, "OrbStack": true, ".local": true, ".share": true,
+// skipDirNames are matched against a single folder name, at any depth.
+var skipDirNames = map[string]struct{}{}
+
+func init() {
+	for _, group := range [][]string{
+		{".git", ".hg", ".svn", ".bzr"},                                        // version control
+		{".idea", ".vscode", ".vs"},                                            // editors
+		{"node_modules", "bower_components", "jspm_packages", "vendor"},        // dependencies
+		{"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox"}, // python tooling
+		{".venv", "venv", ".gradle", ".next", ".nuxt", ".cache", ".tmp"},       // other tool state
+		{"dist", "build", "target", "obj", "coverage"},                         // build output
+		{".agentgo"}, // this app's own state
+	} {
+		for _, name := range group {
+			skipDirNames[name] = struct{}{}
+		}
+	}
 }
 
-var commonIgnoreLines = []string{
+// skipFileGlobs are matched against a file's base name.
+var skipFileGlobs = []string{
 	"*.swp", "*.swo", "*~", ".DS_Store", "Thumbs.db",
-	"target", "build", "dist", "out", "bin", "obj",
-	"*.o", "*.so", "*.dylib", "*.dll", "*.exe",
+	"*.o", "*.obj", "*.so", "*.dylib", "*.dll", "*.exe", "*.class", "*.pyc", "*.pyo",
 	"*.log", "*.tmp", "*.temp",
-	"*.pyc", "*.pyo", "vendor",
 	"Cargo.lock", "package-lock.json", "yarn.lock", "pnpm-lock.yaml",
 }
 
-// ignoreFileNames are read in every directory from the root down.
-var ignoreFileNames = []string{".gitignore", ".agentgoignore", ".crushignore"}
+// projectIgnoreFiles are read in every directory from the search root down.
+var projectIgnoreFiles = []string{".gitignore", ".agentgoignore"}
 
-func parseIgnoreLines(lines []string, domain []string) []gitignore.Pattern {
-	var out []gitignore.Pattern
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		out = append(out, gitignore.ParsePattern(line, domain))
-	}
-	return out
+func isNoiseDirName(name string) bool {
+	_, ok := skipDirNames[name]
+	return ok
 }
 
-var commonIgnorePatterns = sync.OnceValue(func() []gitignore.Pattern {
-	return parseIgnoreLines(commonIgnoreLines, nil)
-})
+func isNoiseFileName(name string) bool {
+	for _, g := range skipFileGlobs {
+		if ok, _ := path.Match(g, name); ok {
+			return true
+		}
+	}
+	return false
+}
 
-// ignorer answers "is this path ignored?" for paths below root, reading ignore
-// files lazily and caching the combined matcher per directory.
+// inNoiseDir reports whether a folder between root and p is a skipped folder.
+// It is how ripgrep's results get the same treatment as the walker's. Folders
+// above root do not count: a workspace may itself live under one called "build".
+func inNoiseDir(root, p string) bool {
+	rel, err := filepath.Rel(root, filepath.Dir(p))
+	if err != nil {
+		return false
+	}
+	for _, part := range splitRel(rel) {
+		if isNoiseDirName(part) {
+			return true
+		}
+	}
+	return false
+}
+
+// ignorer decides whether a path below root is skipped. Ignore files are parsed
+// once per directory and the patterns accumulate from the root down.
 type ignorer struct {
 	root string
+	// keepNoiseFiles stops file-name noise (lock files, objects) from being
+	// hidden; folders and ignore files still apply.
+	keepNoiseFiles bool
 
-	mu       sync.Mutex
-	dirPats  map[string][]gitignore.Pattern
-	matchers map[string]gitignore.Matcher
+	mu      sync.Mutex
+	rules   map[string][]gitignore.Pattern // dir -> patterns in force inside it
+	matcher map[string]gitignore.Matcher
 }
 
 func newIgnorer(root string) *ignorer {
-	return &ignorer{root: root, dirPats: map[string][]gitignore.Pattern{}, matchers: map[string]gitignore.Matcher{}}
+	return &ignorer{root: root, rules: map[string][]gitignore.Pattern{}, matcher: map[string]gitignore.Matcher{}}
 }
 
-func pathComponents(rel string) []string {
+func splitRel(rel string) []string {
 	rel = filepath.ToSlash(rel)
 	if rel == "" || rel == "." {
 		return nil
@@ -73,69 +104,71 @@ func pathComponents(rel string) []string {
 	return strings.Split(rel, "/")
 }
 
-// patternsIn parses the ignore files of one directory. Caller holds mu.
-func (ig *ignorer) patternsIn(dir string) []gitignore.Pattern {
-	if p, ok := ig.dirPats[dir]; ok {
-		return p
+// rulesIn returns the patterns in force inside dir: its parent's plus its own
+// ignore files. The caller holds mu.
+func (ig *ignorer) rulesIn(dir string) []gitignore.Pattern {
+	if r, ok := ig.rules[dir]; ok {
+		return r
 	}
+	var inherited []gitignore.Pattern
 	var domain []string
-	if rel, _ := filepath.Rel(ig.root, dir); rel != "" && rel != "." {
-		domain = pathComponents(rel)
+	if parent := filepath.Dir(dir); dir != ig.root && parent != dir {
+		inherited = ig.rulesIn(parent)
+		rel, _ := filepath.Rel(ig.root, dir)
+		domain = splitRel(rel)
 	}
-	var all []gitignore.Pattern
-	for _, name := range ignoreFileNames {
-		if b, err := os.ReadFile(filepath.Join(dir, name)); err == nil {
-			all = append(all, parseIgnoreLines(strings.Split(string(b), "\n"), domain)...)
+	all := append([]gitignore.Pattern(nil), inherited...)
+	for _, name := range projectIgnoreFiles {
+		b, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(string(b), "\n") {
+			if line = strings.TrimSpace(line); line != "" && !strings.HasPrefix(line, "#") {
+				all = append(all, gitignore.ParsePattern(line, domain))
+			}
 		}
 	}
-	ig.dirPats[dir] = all
+	ig.rules[dir] = all
 	return all
 }
 
-// matcherFor combines the common patterns with every ignore file from the
-// root to dir.
-func (ig *ignorer) matcherFor(dir string) gitignore.Matcher {
+func (ig *ignorer) matcherIn(dir string) gitignore.Matcher {
 	ig.mu.Lock()
 	defer ig.mu.Unlock()
-	if m, ok := ig.matchers[dir]; ok {
+	if m, ok := ig.matcher[dir]; ok {
 		return m
 	}
-	all := append([]gitignore.Pattern(nil), commonIgnorePatterns()...)
-	cur := ig.root
-	all = append(all, ig.patternsIn(cur)...)
-	if rel, _ := filepath.Rel(ig.root, dir); rel != "" && rel != "." {
-		for _, part := range pathComponents(rel) {
-			cur = filepath.Join(cur, part)
-			all = append(all, ig.patternsIn(cur)...)
-		}
-	}
-	m := gitignore.NewMatcher(all)
-	ig.matchers[dir] = m
+	m := gitignore.NewMatcher(ig.rulesIn(dir))
+	ig.matcher[dir] = m
 	return m
 }
 
-// ignored reports whether path should be skipped. extra are base-name globs
-// (ls's "ignore" parameter).
-func (ig *ignorer) ignored(path string, isDir bool, extra []string) bool {
-	base := filepath.Base(path)
-	if isDir && fastIgnoreDirs[base] {
+// ignored reports whether p is skipped. extra are base-name globs supplied by
+// the caller (ls's "ignore" parameter).
+func (ig *ignorer) ignored(p string, isDir bool, extra []string) bool {
+	if p == ig.root {
+		return false
+	}
+	base := filepath.Base(p)
+	if isDir && isNoiseDirName(base) {
 		return true
 	}
-	for _, pat := range extra {
-		if ok, err := filepath.Match(pat, base); err == nil && ok {
+	if !isDir && !ig.keepNoiseFiles && isNoiseFileName(base) {
+		return true
+	}
+	for _, g := range extra {
+		if ok, err := filepath.Match(g, base); err == nil && ok {
 			return true
 		}
 	}
-	if path == ig.root {
-		return false
-	}
-	rel, err := filepath.Rel(ig.root, path)
+	rel, err := filepath.Rel(ig.root, p)
 	if err != nil {
-		rel = path
+		rel = p
 	}
-	comps := pathComponents(rel)
-	if len(comps) == 0 {
+	parts := splitRel(rel)
+	if len(parts) == 0 {
 		return false
 	}
-	return ig.matcherFor(filepath.Dir(path)).Match(comps, isDir)
+	return ig.matcherIn(filepath.Dir(p)).Match(parts, isDir)
 }

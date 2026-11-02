@@ -11,7 +11,6 @@ require (
 	github.com/adrg/xdg v0.5.3
 	github.com/aymanbagabas/go-pty v0.2.3
 	github.com/bmatcuk/doublestar/v4 v4.10.0
-	github.com/charmbracelet/x/ansi v0.11.8
 	github.com/charmbracelet/x/powernap v0.1.6
 	github.com/cloudwego/eino v0.10.0-alpha.35
 	github.com/cloudwego/eino-ext/components/document/parser/docx v0.0.0-20260909094858-6fe16d48b736
@@ -65,6 +64,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/charmbracelet/colorprofile v0.4.3 // indirect
 	github.com/charmbracelet/ultraviolet v0.0.0-20260811164956-006e29f97886 // indirect
+	github.com/charmbracelet/x/ansi v0.11.8 // indirect
 	github.com/charmbracelet/x/exp/slice v0.1.0 // indirect
 	github.com/charmbracelet/x/term v0.2.2 // indirect
 	github.com/charmbracelet/x/termios v0.1.1 // indirect
