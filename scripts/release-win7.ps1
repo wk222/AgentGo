@@ -115,8 +115,8 @@ try {
  # ANSI/GBK-safe launcher: cmd.exe reads batch files in the system code page, so keep it ASCII.
  $bat = "@echo off`r`ncd /d `"%~dp0`"`r`nAgentGo-web.exe %*`r`nif errorlevel 1 pause`r`n"
  [IO.File]::WriteAllText((Join-Path $releaseRoot 'start-AgentGo.bat'),$bat,[Text.Encoding]::ASCII)
- Copy-Item -LiteralPath (Join-Path $projectRoot 'docs/release-win7-readme.md') -Destination (Join-Path $releaseRoot 'README.md')
- Copy-Item -LiteralPath (Join-Path $projectRoot 'docs/user-hooks.md') -Destination (Join-Path $releaseRoot 'user-hooks.md')
+ Copy-Item -LiteralPath (Join-Path $projectRoot 'packaging/release-win7-readme.md') -Destination (Join-Path $releaseRoot 'README.md')
+ Copy-Item -LiteralPath (Join-Path $projectRoot 'packaging/user-hooks.md') -Destination (Join-Path $releaseRoot 'user-hooks.md')
  foreach ($name in @('LICENSE','LICENSE.txt','NOTICE')) {
   $source = Join-Path $projectRoot $name
   if (Test-Path -LiteralPath $source -PathType Leaf) { Copy-Item -LiteralPath $source -Destination (Join-Path $releaseRoot $name) }

@@ -45,8 +45,7 @@ narrowed. Each ported file carries a header saying so.
 
 ## PageIndex
 
-The document-tree retrieval design in
-`docs/weknora-pageindex-digestion-plan.md` follows the *idea* of
+AgentGo's document-tree retrieval design follows the *idea* of
 [PageIndex](https://github.com/VectifyAI/PageIndex) (tree index plus
 reasoning-based retrieval, vectorless). No PageIndex source code was copied; it
 is Python and uses a different runtime.
