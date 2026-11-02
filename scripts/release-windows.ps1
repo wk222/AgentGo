@@ -70,8 +70,8 @@ try {
  $sha = (Get-FileHash -LiteralPath $executable -Algorithm SHA256).Hash
  $utf8 = [Text.UTF8Encoding]::new($false)
  [IO.File]::WriteAllText((Join-Path $releaseRoot 'SHA256SUMS.txt'),$sha+"  AgentGo.exe"+[Environment]::NewLine,$utf8)
- Copy-Item -LiteralPath (Join-Path $projectRoot 'docs/release-windows-readme.md') -Destination (Join-Path $releaseRoot 'README.md')
- Copy-Item -LiteralPath (Join-Path $projectRoot 'docs/user-hooks.md') -Destination (Join-Path $releaseRoot 'user-hooks.md')
+ Copy-Item -LiteralPath (Join-Path $projectRoot 'packaging/release-windows-readme.md') -Destination (Join-Path $releaseRoot 'README.md')
+ Copy-Item -LiteralPath (Join-Path $projectRoot 'packaging/user-hooks.md') -Destination (Join-Path $releaseRoot 'user-hooks.md')
  foreach ($name in @('LICENSE','LICENSE.txt','NOTICE')) {
   $source = Join-Path $projectRoot $name
   if (Test-Path -LiteralPath $source -PathType Leaf) { Copy-Item -LiteralPath $source -Destination (Join-Path $releaseRoot $name) }
@@ -88,7 +88,7 @@ try {
   version=$Version; built_utc=[DateTime]::UtcNow.ToString('o'); source_commit=$head; source_dirty=$dirty
   go_version=(& $Go version); executable_sha256=$sha
   go_tests=$(if ($SkipTests) {'skipped'} else {'passed'}); test_package_parallelism=$TestParallelism; frontend_typecheck=$(if ($SkipTests) {'skipped'} else {'passed'}); frontend_tests=$(if ($SkipTests) {'skipped'} else {'passed'}); frontend_build='passed'
-  target='windows-amd64-gui'; manual_ui_acceptance='pending'; live_model_acceptance='pending'; distribution_license_review='pending-see-licenses'
+  target='windows-amd64-gui'; manual_ui_acceptance='pending'; live_model_acceptance='pending'; distribution_license_review='attributions-in-licenses'
  }
  [IO.File]::WriteAllText((Join-Path $releaseRoot 'build-info.json'),($receipt | ConvertTo-Json),$utf8)
  Copy-Item -LiteralPath (Join-Path $projectRoot 'licenses') -Destination (Join-Path $releaseRoot 'licenses') -Recurse

@@ -1,8 +1,10 @@
-# 设计文档（docs/ 下全部 Markdown）入库；其余目录的 Markdown 默认忽略（本地笔记）
+# docs/ 是本地笔记目录，不进公开仓库。Markdown 默认忽略，只放行 README、随发行包分发的说明和第三方许可文本
+/docs/
 **/*.md
 !README.md
 !README_zh-CN.md
-!docs/**/*.md
+!packaging/*.md
+!licenses/**/*.md
 # 内置技能由 go:embed 编进二进制（internal/skills/builtin.go）；缺了它们，全新克隆无法编译
 !internal/skills/builtin/**/*.md
 # OpenSumi 本地参考（不提交 GitHub）

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/UICompelte.png" alt="AgentGo Logo" height="100" style="border-radius: 8px;"/>
+  <img src="assets/logo.png" alt="AgentGo Logo" height="100" style="border-radius: 8px;"/>
 </p>
 
 <h1 align="center">AgentGo</h1>
@@ -39,8 +39,8 @@ AgentGo 完全运行在你自己的机器上：模型经由你自己的 API 端�
 ### 🖥️ 界面预览
 
 <p align="center">
-  <img src="docs/workflow_editor.png" alt="可视化工作流" width="48%"/>
-  <img src="docs/inner_app.png" alt="内置应用沙盒" width="48%"/>
+  <img src="assets/workflow_editor.png" alt="可视化工作流" width="48%"/>
+  <img src="assets/inner_app.png" alt="内置应用沙盒" width="48%"/>
 </p>
 
 ---
@@ -101,16 +101,8 @@ L4 消费层 (Wails IPC、独立桌面窗口、Web/SSE 网关)
 
 ---
 
-## 📚 文档指南
-
-- [架构说明](docs/ARCHITECTURE.md)
-- [内部文档指引](docs/README.md)
-- [Matrix 编排引擎](docs/matrix-orchestration.md)
-- [与 PyBot 层级对比](docs/pybot-layer-map.md)
-- [可复现构建指南](docs/build-reproducible.md)
-
 ## 📄 许可证
 
 本项目开源协议见 [LICENSE](LICENSE) (Apache 2.0)。
 
-第三方衍生部分保留其原始许可，范围见 [Crush 声明](licenses/crush/NOTICE.md) 及同目录条款。根目录 Apache 许可不表示这些部分已重新许可；对外分发条件仍需确认。
+文档分块的一部分移植自 WeKnora（MIT），出处与许可文本见 [licenses](licenses/weknora/NOTICE.md)。其余依赖各自保留原许可。

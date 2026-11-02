@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/UICompelte.png" alt="AgentGo Logo" height="100" style="border-radius: 8px;"/>
+  <img src="assets/logo.png" alt="AgentGo Logo" height="100" style="border-radius: 8px;"/>
 </p>
 
 <h1 align="center">AgentGo</h1>
@@ -42,8 +42,8 @@ Everything runs on your own machine. Models are reached through your own API end
 ### 🖥️ Screenshots
 
 <p align="center">
-  <img src="docs/workflow_editor.png" alt="Workflow Editor" width="48%"/>
-  <img src="docs/inner_app.png" alt="Inner App Sandbox" width="48%"/>
+  <img src="assets/workflow_editor.png" alt="Workflow Editor" width="48%"/>
+  <img src="assets/inner_app.png" alt="Inner App Sandbox" width="48%"/>
 </p>
 
 ---
@@ -143,16 +143,8 @@ build/                Wails build config, icons, and platform packaging tasks
 
 ---
 
-## 📚 Documentation
-
-- [Architecture](docs/ARCHITECTURE.md)
-- [Internal docs index](docs/README.md)
-- [Matrix orchestration](docs/matrix-orchestration.md)
-- [PyBot comparison](docs/pybot-layer-map.md)
-- [Reproducible build notes](docs/build-reproducible.md)
-
 ## 📄 License
 
 See [LICENSE](LICENSE).
 
-Third-party derived components retain their own terms. See [Crush attribution and scope](licenses/crush/NOTICE.md) and its accompanying license; the root Apache license does not relicense those components. Distribution review remains pending.
+Parts of the document chunker are derived from WeKnora (MIT); attributions and license texts are in [licenses](licenses/weknora/NOTICE.md). Other dependencies keep their own licenses.
