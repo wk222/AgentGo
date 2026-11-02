@@ -300,7 +300,7 @@ func TestRipgrepAndWalkerAgree(t *testing.T) {
 	dir := t.TempDir()
 	tree := seedTree(t, dir)
 	opts := func(rgBin string) *searcher {
-		return &searcher{SearchOptions{WorkDir: dir, Rg: func() string { return rgBin }, GrepTimeout: 20 * time.Second, GlobTimeout: 20 * time.Second}}
+		return &searcher{normalizeSearch(SearchOptions{WorkDir: dir, Rg: func() string { return rgBin }, GrepTimeout: 20 * time.Second, GlobTimeout: 20 * time.Second})}
 	}
 	withRg, walker := opts(rg), opts("")
 	ctx := context.Background()

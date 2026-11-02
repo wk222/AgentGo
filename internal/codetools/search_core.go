@@ -22,12 +22,13 @@ import (
 )
 
 const (
-	grepLimit      = 100  // matches one grep call returns
-	globLimit      = 100  // paths one glob call returns
-	lsLimit        = 1000 // entries one ls call returns
-	maxMatchWidth  = 500  // characters of a matching line that are shown
-	poolPerResult  = 50   // candidates gathered per returned result before cutting
-	declinedByUser = "The user declined this request; nothing was done."
+	defaultSearchLimit = 100    // matches one grep page, or paths one glob call, returns
+	lsLimit            = 1000   // entries one ls call returns
+	maxMatchWidth      = 500    // characters of a matching line that are shown
+	poolPerResult      = 50     // candidates gathered per returned result before cutting
+	maxPool            = 100000 // most candidates one search gathers, whatever the page size
+	maxContext         = 5      // lines of context grep shows around a match
+	declinedByUser     = "The user declined this request; nothing was done."
 )
 
 // SearchOptions configures NativeSearch.
@@ -40,19 +41,30 @@ type SearchOptions struct {
 	Rg          func() string
 	GrepTimeout time.Duration // default 5s
 	GlobTimeout time.Duration // default 30s
+	// Limit is how many matches one grep page (or paths one glob call) returns;
+	// default 100.
+	Limit int
 }
 
 type searcher struct{ SearchOptions }
 
-// normalizeSearch fills in the defaults: rg from PATH, 5s grep and 30s glob.
+// normalizeSearch fills in the defaults: rg from PATH, 5s grep, 30s glob, 100 results.
 func normalizeSearch(opts SearchOptions) SearchOptions {
 	if opts.Rg == nil {
 		opts.Rg = func() string { p, _ := exec.LookPath("rg"); return p }
 	}
 	opts.GrepTimeout = cmp.Or(opts.GrepTimeout, 5*time.Second)
 	opts.GlobTimeout = cmp.Or(opts.GlobTimeout, 30*time.Second)
+	if opts.Limit < 1 {
+		opts.Limit = defaultSearchLimit
+	}
 	return opts
 }
+
+// poolFor is how many candidates a search gathers to fill `results` results:
+// the newest-first order needs more than it returns, but a huge tree must not
+// be read to the end.
+func poolFor(results int) int { return min(results*poolPerResult, maxPool) }
 
 // NativeSearch returns the grep, glob and ls tools.
 func NativeSearch(opts SearchOptions) []coderuntime.Tool {

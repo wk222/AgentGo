@@ -67,7 +67,7 @@ func newToolbox(root, dataDir string) (coderuntime.Toolbox, func(), error) {
 	if !config.CodeToolsAppr.On() {
 		approve = func(context.Context, coderuntime.FSRequest) bool { return false }
 	}
-	search := codetools.SearchOptions{WorkDir: root, Approve: approve, Rg: ideruntime.RgBinary}
+	search := codetools.ConfiguredSearch(codetools.SearchOptions{WorkDir: root, Approve: approve, Rg: ideruntime.RgBinary})
 
 	overrides, err := codelsp.LoadOverrides(dataDir)
 	if err != nil {

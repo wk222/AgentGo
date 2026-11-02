@@ -57,6 +57,17 @@ type FSOptions struct {
 	// DisableSecretGuard lets the agent write credential-shaped content.
 	// AGENTGO_ALLOW_SECRET_WRITES=1 does the same without code changes.
 	DisableSecretGuard bool
+	// ReadLimit is how many lines view returns when the model gives no limit.
+	// Zero means DefaultReadLimit.
+	ReadLimit int
+}
+
+// readLimit is the number of lines view shows by default.
+func (o FSOptions) readLimit() int {
+	if o.ReadLimit > 0 {
+		return o.ReadLimit
+	}
+	return DefaultReadLimit
 }
 
 type fsTools struct {

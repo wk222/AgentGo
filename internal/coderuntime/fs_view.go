@@ -28,11 +28,11 @@ func (t *fsTools) viewTool() Tool {
 			"if the file goes on, the output ends with the offset to continue from. "+
 			"A line over %d characters is cut short and one call never returns more than %d KB. "+
 			"View a file before you edit or overwrite it: the edit tools refuse otherwise.",
-			DefaultReadLimit, MaxLineLength, MaxViewSize/1024),
+			t.opts.readLimit(), MaxLineLength, MaxViewSize/1024),
 		Schema: objectSchema(map[string]any{
 			"file_path": strProp("Path of the file to show"),
 			"offset":    intProp("How many lines to skip before the first one shown (0 = start at the top)"),
-			"limit":     intProp(fmt.Sprintf("How many lines to show (default %d)", DefaultReadLimit)),
+			"limit":     intProp(fmt.Sprintf("How many lines to show (default %d)", t.opts.readLimit())),
 		}, "file_path"),
 		Parallel: true,
 		Run: func(ctx context.Context, sessionID, callID, argsJSON string) (ToolResult, error) {
@@ -76,7 +76,7 @@ func (t *fsTools) view(ctx context.Context, sessionID, callID string, a viewArgs
 
 	limit := a.Limit
 	if limit <= 0 {
-		limit = DefaultReadLimit
+		limit = t.opts.readLimit()
 	}
 	skip := max(a.Offset, 0)
 	lines, more, err := sliceLines(path, skip, limit)

@@ -128,6 +128,13 @@ var (
 	PluginsDisable = newStr("AGENTGO_PLUGINS_DISABLE", "", GroupPlugins, "comma-separated plugin names to switch off")
 	CodeTools      = newBool("AGENTGO_CODETOOLS", true, GroupPlugins, "code-aware tools plugin")
 	CodeToolsAppr  = newBool("AGENTGO_CODETOOLS_APPROVE", true, GroupPlugins, "0 denies every mutating code tool (read-only)")
+	// Limits of the search and view tools. Out-of-range values are clamped where they are applied.
+	GrepTimeoutSec = newInt("AGENTGO_GREP_TIMEOUT_SEC", 5, GroupPlugins,
+		"time limit of one code_grep call, in seconds (1-300); a search that has found nothing when it runs out tells the model to narrow it")
+	GlobTimeoutSec = newInt("AGENTGO_GLOB_TIMEOUT_SEC", 30, GroupPlugins, "time limit of one code_glob call, in seconds (1-300)")
+	SearchLimit    = newInt("AGENTGO_SEARCH_LIMIT", 100, GroupPlugins,
+		"most matches one code_grep page, or paths one code_glob call, returns (20-500); raise it for models with a long context")
+	ViewLines      = newInt("AGENTGO_VIEW_LINES", 200, GroupPlugins, "lines code_view shows when the model gives no limit (20-2000)")
 	OfficeDoc      = newBool("AGENTGO_OFFICEDOC", true, GroupPlugins, "Word/Excel generation plugin")
 	DocIndex       = newBool("AGENTGO_DOC_INDEX", true, GroupPlugins, "searchable document index: index_documents / search_documents over chosen PDF, DOCX, XLSX and text files, with page and row citations")
 	ReKit          = newBool("AGENTGO_REKIT", true, GroupPlugins, "reverse-engineering toolkit plugin (re_* tools)")

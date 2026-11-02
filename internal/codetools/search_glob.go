@@ -36,7 +36,7 @@ func (s *searcher) globTool() coderuntime.Tool {
 		Name: "glob",
 		Description: fmt.Sprintf("Find files whose path matches a glob pattern such as \"**/*.go\" or \"src/*.ts\"; "+
 			"the most recently modified come first and at most %d are returned. Hidden files and ignored folders are left out. "+
-			"To search inside files, use grep.", globLimit),
+			"To search inside files, use grep.", s.Limit),
 		Schema: objSchema(map[string]any{
 			"pattern": prop("string", "Glob pattern the path (relative to the search folder) must match"),
 			"path":    prop("string", "Folder to search; defaults to the working directory"),
@@ -82,7 +82,7 @@ func (s *searcher) glob(ctx context.Context, sessionID, callID string, a globArg
 
 	var b strings.Builder
 	if truncated {
-		fmt.Fprintf(&b, "%d files shown, truncated: more than %d match, so this is not the total. Use a more specific pattern or path.\n\n", len(files), globLimit)
+		fmt.Fprintf(&b, "%d files shown, truncated: more than %d match, so this is not the total. Use a more specific pattern or path.\n\n", len(files), s.Limit)
 	} else {
 		fmt.Fprintf(&b, "%s match, newest first.\n\n", plural(len(files), "file", "files"))
 	}
@@ -119,15 +119,16 @@ func anchorGlob(root, pattern string) (walkRoot, rest string) {
 }
 
 // findFiles lists the files below root whose relative path matches pattern,
-// newest first and capped at globLimit. It uses ripgrep when available.
+// newest first and capped at the search limit. It uses ripgrep when available.
 func (s *searcher) findFiles(ctx context.Context, root, pattern string) (files []string, truncated bool) {
 	var hits []globHit
 	ok := false
+	gather := poolFor(s.Limit)
 	if rg := s.Rg(); rg != "" {
-		hits, ok = filesViaRipgrep(ctx, rg, root, pattern)
+		hits, ok = filesViaRipgrep(ctx, rg, root, pattern, gather)
 	}
 	if !ok {
-		hits = filesViaWalk(ctx, root, pattern)
+		hits = filesViaWalk(ctx, root, pattern, gather)
 	}
 	sort.Slice(hits, func(i, j int) bool {
 		if !hits[i].mod.Equal(hits[j].mod) {
@@ -135,9 +136,9 @@ func (s *searcher) findFiles(ctx context.Context, root, pattern string) (files [
 		}
 		return hits[i].path < hits[j].path
 	})
-	truncated = ctx.Err() != nil || len(hits) > globLimit
-	if len(hits) > globLimit {
-		hits = hits[:globLimit]
+	truncated = ctx.Err() != nil || len(hits) > s.Limit
+	if len(hits) > s.Limit {
+		hits = hits[:s.Limit]
 	}
 	files = make([]string, len(hits))
 	for i, h := range hits {
@@ -148,7 +149,7 @@ func (s *searcher) findFiles(ctx context.Context, root, pattern string) (files [
 
 // filesViaRipgrep lists with `rg --files`, stopping once the pool is full so a
 // huge tree cannot exhaust memory. ok is false when ripgrep could not be used.
-func filesViaRipgrep(ctx context.Context, rg, root, pattern string) (hits []globHit, ok bool) {
+func filesViaRipgrep(ctx context.Context, rg, root, pattern string, pool int) (hits []globHit, ok bool) {
 	args := append([]string{"--files", "--null", "--no-require-git"}, rgIgnoreFlags(root)...)
 	if pattern != "" {
 		args = append(args, "--glob", "/"+strings.TrimPrefix(pattern, "/"))
@@ -168,7 +169,6 @@ func filesViaRipgrep(ctx context.Context, rg, root, pattern string) (hits []glob
 		return nil, false
 	}
 
-	pool := globLimit * poolPerResult
 	sc := bufio.NewScanner(out)
 	sc.Buffer(make([]byte, 64<<10), 4<<20)
 	sc.Split(splitNUL)
@@ -218,11 +218,10 @@ func splitNUL(data []byte, atEOF bool) (advance int, token []byte, err error) {
 }
 
 // filesViaWalk is the pure-Go listing used when ripgrep is missing.
-func filesViaWalk(ctx context.Context, root, pattern string) []globHit {
+func filesViaWalk(ctx context.Context, root, pattern string, pool int) []globHit {
 	pattern = strings.TrimPrefix(filepath.ToSlash(pattern), "/")
 	skip := newIgnorer(root)
 	skip.keepNoiseFiles = true // the model asked for these names; only folders and ignore files hide things
-	pool := globLimit * poolPerResult
 	var hits []globHit
 
 	walkTree(ctx, root, walkOpts{}, func(p string, isDir bool) walkAction {

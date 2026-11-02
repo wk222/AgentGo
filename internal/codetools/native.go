@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
 
 	"agentgo/internal/codelsp"
 	"agentgo/internal/coderuntime"
@@ -46,6 +47,26 @@ func (o *overlay) Tools() []coderuntime.Tool {
 	return out
 }
 
+// clampInt keeps a setting inside the range the tools can honour.
+func clampInt(v, lo, hi int) int { return min(max(v, lo), hi) }
+
+// ConfiguredSearch fills in the search limits the user set with
+// AGENTGO_GREP_TIMEOUT_SEC (1-300), AGENTGO_GLOB_TIMEOUT_SEC (1-300) and
+// AGENTGO_SEARCH_LIMIT (20-500); a value outside its range is moved to the
+// nearest end. Limits already set in opts are kept.
+func ConfiguredSearch(opts SearchOptions) SearchOptions {
+	if opts.GrepTimeout == 0 {
+		opts.GrepTimeout = time.Duration(clampInt(config.GrepTimeoutSec.Get(), 1, 300)) * time.Second
+	}
+	if opts.GlobTimeout == 0 {
+		opts.GlobTimeout = time.Duration(clampInt(config.GlobTimeoutSec.Get(), 1, 300)) * time.Second
+	}
+	if opts.Limit == 0 {
+		opts.Limit = clampInt(config.SearchLimit.Get(), 20, 500)
+	}
+	return opts
+}
+
 // SymbolSearch adapts the native grep walker for codelsp: lsp_references,
 // lsp_definition and lsp_call_hierarchy find a symbol's candidate positions
 // with the same ripgrep-first search and ignore rules the grep tool uses.
@@ -62,9 +83,13 @@ func SymbolSearch(opts SearchOptions) codelsp.SymbolSearch {
 		}
 		ctx, cancel := context.WithTimeout(ctx, s.GrepTimeout)
 		defer cancel()
-		matches, _, err := s.searchFiles(ctx, pattern, root, "")
+		res, err := s.searchFiles(ctx, pattern, root, "", poolFor(s.Limit))
 		if err != nil {
 			return nil, err
+		}
+		matches := res.matches
+		if len(matches) > s.Limit {
+			matches = matches[:s.Limit]
 		}
 		hits := make([]codelsp.SymbolHit, 0, len(matches))
 		for _, m := range matches {
@@ -90,6 +115,8 @@ func NativeFS(base coderuntime.Toolbox, workDir string, approve func(context.Con
 		// change journal behind file_changes / revert_file_changes, off.
 		DisableBackup: !config.OverwriteBackup.On(),
 		Journal:       journal,
+		// AGENTGO_VIEW_LINES: how many lines view shows when the model gives no limit.
+		ReadLimit: clampInt(config.ViewLines.Get(), 20, 2000),
 		OnRead: func(ctx context.Context, path string) {
 			base.StartLSP(ctx, path)
 		},

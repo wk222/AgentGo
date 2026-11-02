@@ -113,6 +113,34 @@ func TestViewNumbersLinesAndSaysWhereItStopped(t *testing.T) {
 	wantOK(t, r, "(lines 11-13)", "offset=13")
 }
 
+// FSOptions.ReadLimit (AGENTGO_VIEW_LINES) moves the default slice, and the
+// tool description and schema must quote the same number the code applies.
+func TestViewDefaultLinesFollowReadLimit(t *testing.T) {
+	e := newFSEnv(t, FSOptions{ReadLimit: 30})
+	var b strings.Builder
+	for i := 1; i <= 100; i++ {
+		fmt.Fprintf(&b, "line %d\n", i)
+	}
+	p := e.seed("long.txt", b.String())
+
+	r := e.view(p)
+	wantOK(t, r, "(lines 1-30)", "offset=30")
+	if strings.Contains(r.Content, "line 31\n") {
+		t.Fatal("the default slice must stop at the configured 30 lines")
+	}
+	wantOK(t, e.call("view", map[string]any{"file_path": p, "limit": 5}), "(lines 1-5)")
+
+	view := fsTool(t, e.tools, "view")
+	if !strings.Contains(view.Description, "You get 30 lines") {
+		t.Fatalf("description quotes another default: %s", view.Description)
+	}
+	props, _ := view.Schema["properties"].(map[string]any)
+	limit, _ := props["limit"].(map[string]any)
+	if d, _ := limit["description"].(string); !strings.Contains(d, "default 30") {
+		t.Fatalf("limit schema quotes another default: %q", d)
+	}
+}
+
 func TestViewHandlesEmptyAndPastTheEnd(t *testing.T) {
 	e := newFSEnv(t, FSOptions{})
 	wantOK(t, e.view(e.seed("empty.txt", "")), "is empty")

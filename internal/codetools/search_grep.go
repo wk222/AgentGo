@@ -41,7 +41,17 @@ type grepArgs struct {
 	Path        string `json:"path"`
 	Include     string `json:"include"`
 	LiteralText bool   `json:"literal_text"`
+	OutputMode  string `json:"output_mode"`
+	Offset      int    `json:"offset"`
+	Context     int    `json:"context"`
 }
+
+// Output modes of grep.
+const (
+	modeContent = "content" // matching lines, grouped by file (the default)
+	modeFiles   = "files"   // only the files that match
+	modeCount   = "count"   // matches per file, and the total
+)
 
 // grepMatch is one matching line; lineNum and charNum are 1-based, and charNum
 // counts UTF-16 units so a language server can be asked about the same spot.
@@ -56,14 +66,22 @@ type grepMatch struct {
 func (s *searcher) grepTool() coderuntime.Tool {
 	return coderuntime.Tool{
 		Name: "grep",
-		Description: fmt.Sprintf("Search the contents of files for a regular expression (or literal text) and list the matching lines, "+
-			"grouped by file with the most recently modified file first, at most %d matches per call. "+
-			"Follows .gitignore and skips hidden files and binaries. To search by file name instead, use glob.", grepLimit),
+		Description: fmt.Sprintf("Search the contents of files for a regular expression (or literal text). "+
+			"By default it lists the matching lines, grouped by file with the most recently modified file first, %d matches per page; "+
+			"when the answer says it was cut, call again with `offset` for the next page. "+
+			"Use output_mode \"count\" to learn how many matches there are (per file and in total), and \"files\" to list only the files that match. "+
+			"Follows .gitignore and skips hidden files and binaries. To search by file name instead, use glob.", s.Limit),
 		Schema: objSchema(map[string]any{
 			"pattern":      prop("string", "Regular expression to look for inside files"),
 			"path":         prop("string", "Folder to search; defaults to the working directory"),
 			"include":      prop("string", `Only search files whose name matches this glob, for example "*.go" or "*.{ts,tsx}"`),
 			"literal_text": prop("boolean", "Treat pattern as plain text, with no special characters (default false)"),
+			"output_mode": map[string]any{
+				"type": "string", "enum": []string{modeContent, modeFiles, modeCount},
+				"description": `"content" (default): matching lines. "files": only the paths of the files that match. "count": matches per file plus the total`,
+			},
+			"offset":  prop("integer", "How many results to skip before the first one shown (0 = start at the top); counts matches in content mode and files in files and count mode"),
+			"context": prop("integer", fmt.Sprintf("Content mode only: lines to show before and after each match, 0 to %d (default 0)", maxContext)),
 		}, "pattern"),
 		Parallel: true,
 		Run: func(ctx context.Context, sessionID, callID, argsJSON string) (coderuntime.ToolResult, error) {
@@ -84,52 +102,44 @@ func (s *searcher) grep(ctx context.Context, sessionID, callID string, a grepArg
 	if a.LiteralText {
 		pattern = regexp.QuoteMeta(pattern)
 	}
+	mode := strings.ToLower(strings.TrimSpace(a.OutputMode))
+	switch mode {
+	case "":
+		mode = modeContent
+	case modeContent, modeFiles, modeCount:
+	default:
+		return toolErr(fmt.Sprintf("output_mode %q is not known; use %q, %q or %q.", a.OutputMode, modeContent, modeFiles, modeCount))
+	}
+	offset := max(a.Offset, 0)
 	root := s.resolveRoot(a.Path)
 	if msg, ok := s.allowRoot(ctx, sessionID, callID, "grep", "search", root); !ok {
 		return toolErr(msg)
 	}
 
+	// Content mode needs enough candidates to reach the requested page; the
+	// other two modes report totals, so they look as far as the ceiling allows.
+	gather := maxPool
+	if mode == modeContent {
+		gather = poolFor(offset + s.Limit)
+	}
 	ctx, cancel := context.WithTimeout(ctx, s.GrepTimeout)
 	defer cancel()
-	matches, truncated, err := s.searchFiles(ctx, pattern, root, a.Include)
+	res, err := s.searchFiles(ctx, pattern, root, a.Include, gather)
 	switch {
 	case errors.Is(err, errSearchTimeout):
 		return toolErr(fmt.Sprintf("The search took longer than %s and found nothing yet. Narrow `path`, add `include`, or make the pattern more specific.", s.GrepTimeout))
 	case err != nil:
 		return toolErr("Search failed: " + err.Error())
-	case len(matches) == 0:
+	case len(res.matches) == 0:
 		return toolOK(fmt.Sprintf("No matches for %q under %s.", a.Pattern, filepath.ToSlash(root)))
 	}
-	return toolOK(renderGrep(matches, truncated))
-}
-
-// renderGrep lists matches under one heading per file. The first line carries
-// the count and, when the list was cut, says so: a bare "100 matches" reads as
-// the total, and a model asked to count answered with the page size.
-func renderGrep(matches []grepMatch, truncated bool) string {
-	files := 0
-	for i, m := range matches {
-		if i == 0 || m.path != matches[i-1].path {
-			files++
-		}
+	switch mode {
+	case modeFiles:
+		return toolOK(renderFiles(res, offset, s.Limit))
+	case modeCount:
+		return toolOK(renderCount(res, offset, s.Limit))
 	}
-	var b strings.Builder
-	if truncated {
-		fmt.Fprintf(&b, "%d matches in %s, truncated: the search stopped at its %d-match limit and more exist, so this is not the total.\n",
-			len(matches), plural(files, "file", "files"), grepLimit)
-	} else {
-		fmt.Fprintf(&b, "%s in %s, newest file first.\n", plural(len(matches), "match", "matches"), plural(files, "file", "files"))
-	}
-	for i, m := range matches {
-		if i == 0 || m.path != matches[i-1].path {
-			fmt.Fprintf(&b, "\n%s\n", filepath.ToSlash(m.path))
-		}
-		fmt.Fprintf(&b, "  %d:%d: %s\n", m.lineNum, m.charNum, clip(m.lineText, maxMatchWidth))
-	}
-	if truncated {
-		b.WriteString("\nNarrow the search with a more specific path, include glob or pattern. To get a total count, run a counting command in the shell.\n")
-	}
-	return b.String()
+	return toolOK(renderContent(res, offset, s.Limit, min(max(a.Context, 0), maxContext)))
 }
 
 func plural(n int, one, many string) string {
@@ -147,20 +157,27 @@ func clip(s string, n int) string {
 	return string([]rune(s)[:n]) + "…"
 }
 
+// searchResult is what a search found: every candidate it gathered, ordered by
+// file modification time (newest first), then path, then line.
+type searchResult struct {
+	matches []grepMatch
+	// capped says more matches may exist: the search stopped at its candidate
+	// limit or ran out of time, so len(matches) is only a lower bound.
+	capped bool
+}
+
 // searchFiles runs the pattern with ripgrep, or with the Go walker when ripgrep
-// is missing or refuses it, and returns at most grepLimit matches ordered by
-// file modification time (newest first), then path, then line. truncated says
-// more matches existed.
-func (s *searcher) searchFiles(ctx context.Context, pattern, root, include string) (matches []grepMatch, truncated bool, err error) {
-	matches, err = s.viaRipgrep(ctx, pattern, root, include)
+// is missing or refuses it, and gathers at most gather candidates.
+func (s *searcher) searchFiles(ctx context.Context, pattern, root, include string, gather int) (searchResult, error) {
+	matches, full, err := s.viaRipgrep(ctx, pattern, root, include, gather)
 	if err != nil {
-		if matches, err = s.viaWalk(ctx, pattern, root, include); err != nil {
-			return nil, false, err
+		if matches, full, err = s.viaWalk(ctx, pattern, root, include, gather); err != nil {
+			return searchResult{}, err
 		}
 	}
 	timedOut := ctx.Err() != nil
 	if timedOut && len(matches) == 0 {
-		return nil, false, errSearchTimeout
+		return searchResult{}, errSearchTimeout
 	}
 	sort.Slice(matches, func(i, j int) bool {
 		a, b := matches[i], matches[j]
@@ -172,11 +189,7 @@ func (s *searcher) searchFiles(ctx context.Context, pattern, root, include strin
 		}
 		return a.lineNum < b.lineNum
 	})
-	truncated = timedOut || len(matches) > grepLimit
-	if len(matches) > grepLimit {
-		matches = matches[:grepLimit]
-	}
-	return matches, truncated, nil
+	return searchResult{matches: matches, capped: full || timedOut}, nil
 }
 
 // --- ripgrep backend ----------------------------------------------------------
@@ -194,10 +207,12 @@ type rgEvent struct {
 	} `json:"data"`
 }
 
-func (s *searcher) viaRipgrep(ctx context.Context, pattern, root, include string) ([]grepMatch, error) {
+// viaRipgrep gathers up to pool matches; full reports that it stopped there with
+// more still to read.
+func (s *searcher) viaRipgrep(ctx context.Context, pattern, root, include string, pool int) (matches []grepMatch, full bool, err error) {
 	rg := s.Rg()
 	if rg == "" {
-		return nil, errNoRipgrep
+		return nil, false, errNoRipgrep
 	}
 	// --no-require-git: honour .gitignore files even when the folder is not (yet) a git repository.
 	args := []string{"--json", "--line-number", "--with-filename", "--no-require-git", "-e", pattern}
@@ -213,18 +228,13 @@ func (s *searcher) viaRipgrep(ctx context.Context, pattern, root, include string
 	processutil.HideWindow(cmd) // the desktop build has no console; a child would flash its own window
 	out, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if err := cmd.Start(); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
-	var (
-		matches []grepMatch
-		mtimes  = map[string]time.Time{}
-		pool    = grepLimit * poolPerResult
-		full    = false
-	)
+	mtimes := map[string]time.Time{}
 	sc := bufio.NewScanner(out)
 	sc.Buffer(make([]byte, 64<<10), 16<<20)
 	for sc.Scan() {
@@ -259,17 +269,17 @@ func (s *searcher) viaRipgrep(ctx context.Context, pattern, root, include string
 	}
 	waitErr := cmd.Wait()
 	if full || ctx.Err() != nil {
-		return matches, nil
+		return matches, full, nil
 	}
 	if waitErr != nil && len(matches) == 0 {
 		var ee *exec.ExitError
 		if errors.As(waitErr, &ee) && ee.ExitCode() == 1 {
-			return nil, nil // ripgrep's "no match"
+			return nil, false, nil // ripgrep's "no match"
 		}
-		return nil, waitErr
+		return nil, false, waitErr
 	}
 	// Exit code 2 with matches means some paths were unreadable; what was found stands.
-	return matches, nil
+	return matches, false, nil
 }
 
 // utf16Column converts a byte offset within line to a 1-based UTF-16 column.
@@ -300,18 +310,17 @@ func rgIgnoreFlags(root string) []string {
 
 // --- Go walker backend --------------------------------------------------------
 
-func (s *searcher) viaWalk(ctx context.Context, pattern, root, include string) ([]grepMatch, error) {
+func (s *searcher) viaWalk(ctx context.Context, pattern, root, include string, pool int) (matches []grepMatch, full bool, err error) {
 	re, err := regexp.Compile(pattern)
 	if err != nil {
-		return nil, fmt.Errorf("the pattern is not a valid regular expression: %w", err)
+		return nil, false, fmt.Errorf("the pattern is not a valid regular expression: %w", err)
 	}
 	wanted, err := includeFilter(include)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	skip := newIgnorer(root)
-	pool := grepLimit * poolPerResult
-	matches := []grepMatch{}
+	matches = []grepMatch{}
 
 	walkTree(ctx, root, walkOpts{}, func(p string, isDir bool) walkAction {
 		if p == root {
@@ -347,11 +356,12 @@ func (s *searcher) viaWalk(ctx context.Context, pattern, root, include string) (
 			matches = append(matches, h)
 		}
 		if len(matches) >= pool {
+			full = true
 			return walkStop
 		}
 		return walkContinue
 	})
-	return matches, nil
+	return matches, full, nil
 }
 
 // includeFilter compiles the include glob. Like ripgrep's --glob, a pattern with

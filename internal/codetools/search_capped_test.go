@@ -15,13 +15,13 @@ import (
 func TestCappedResultsSayTheyAreCapped(t *testing.T) {
 	dir := t.TempDir()
 	var b strings.Builder
-	for i := 0; i < grepLimit*3; i++ {
+	for i := 0; i < defaultSearchLimit*3; i++ {
 		fmt.Fprintf(&b, "line %d ERROR code=9%02d\n", i, i%100)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "big.txt"), []byte(b.String()), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < globLimit*2; i++ {
+	for i := 0; i < defaultSearchLimit*2; i++ {
 		p := filepath.Join(dir, fmt.Sprintf("f%03d.txt", i))
 		if err := os.WriteFile(p, []byte("x\n"), 0o644); err != nil {
 			t.Fatal(err)
