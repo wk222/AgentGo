@@ -101,6 +101,17 @@ func RegisterWorkspaceBoundTools(r *Registry, workspaceRoot string) error {
 	if err := RegisterThreadSubscribeTool(r); err != nil {
 		_ = err
 	}
+	if err := RegisterScheduleTaskTool(r); err != nil {
+		_ = err
+	}
+	if err := RegisterSessionMessageTool(r); err != nil {
+		_ = err
+	}
+	if config.ExternalAgent.On() {
+		if err := RegisterExternalAgentTool(r, workspaceRoot); err != nil {
+			_ = err
+		}
+	}
 	if err := RegisterComputerUseTool(r); err != nil { // opt-in: AGENTGO_COMPUTER_USE
 		_ = err
 	}

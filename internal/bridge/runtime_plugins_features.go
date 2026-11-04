@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"agentgo/internal/acpclient"
 	"agentgo/internal/applog"
 	"agentgo/internal/config"
 	"agentgo/internal/gateway"
@@ -124,8 +125,7 @@ func (rt *Runtime) featurePlugins() []plugin.Plugin {
 			if err != nil {
 				return err
 			}
-			hub, err := plugin.Use[*taskhub.Hub](c, svcTaskHub)
-			if err != nil {
+			if _, err := plugin.Use[*taskhub.Hub](c, svcTaskHub); err != nil { // fireScheduled starts runs on it
 				return err
 			}
 			store, err := scheduler.NewStore(db)
@@ -133,10 +133,10 @@ func (rt *Runtime) featurePlugins() []plugin.Plugin {
 				return err
 			}
 			rt.sched = store
-			runner := scheduler.NewRunner(store, func(ctx context.Context, job scheduler.Job) {
-				_, _ = hub.Start("cron", job.SessionID, job.Prompt)
-			})
+			runner := scheduler.NewRunner(store, rt.fireScheduled)
 			rt.schedRunner = runner
+			tools.SetScheduleHandler(rt) // the agent's schedule_task tool sets up timed work through this
+			c.Effect("unset schedule handler", func() { tools.SetScheduleHandler(nil) })
 			// Headless hosts (MCP, terminal sidecars) set AGENTGO_DISABLE_SCHEDULER=1 so cron
 			// jobs are not fired twice when the desktop app shares the same data dir.
 			if !config.DisableScheduler.On() {
@@ -181,6 +181,19 @@ func (rt *Runtime) featurePlugins() []plugin.Plugin {
 			rt.threads = store
 			tools.SetThreadHandler(rt)
 			c.Effect("unset thread handler", func() { tools.SetThreadHandler(nil) })
+			return nil
+		}),
+
+		// One conversation talking to another: the session_message tool queues a turn in the target.
+		optionalPlugin("session-message", nil, []string{svcAgent}, nil, func(c *plugin.Context) error {
+			tools.SetSessionMessageHandler(rt)
+			c.Effect("unset session message handler", func() { tools.SetSessionMessageHandler(nil) })
+			return nil
+		}),
+
+		// Other coding agents started by the external_agent tool must not outlive the app.
+		optionalPlugin("external-agents", nil, nil, nil, func(c *plugin.Context) error {
+			c.Effect("close external agents", acpclient.Default.CloseAll)
 			return nil
 		}),
 

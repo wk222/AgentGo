@@ -44,6 +44,7 @@ var PackageLayer = map[string]Layer{
 	"spill":                           LayerSystems,
 	"ideruntime":                      LayerSystems,
 	"userhooks":                       LayerSystems,    // scripts the user lists in hooks.json, run around tool calls and messages; stdlib and shellcmd only
+	"acpclient":                       LayerSystems,    // drives other coding agents (Claude Code, Codex, Gemini CLI, …) over the Agent Client Protocol; stdlib and shellcmd only
 	"powernaplsp":                     LayerAssets,     // local LSP transport, used by codelsp
 	"processutil":                     LayerFoundation, // platform process flags, stdlib only
 	"textenc":                         LayerFoundation, // bytes of a text file -> UTF-8 (BOM, UTF-16, GBK/GB18030); stdlib and x/text only

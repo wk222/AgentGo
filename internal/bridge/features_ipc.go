@@ -69,6 +69,7 @@ func (s *AppService) ListScheduledJobs() []map[string]any {
 			"session_id": j.SessionID, "next_run_at": j.NextRunAt,
 			"interval_sec": j.IntervalSec, "enabled": j.Enabled,
 			"last_run_at": j.LastRunAt, "created_at": j.CreatedAt,
+			"kind": j.Kind, "tz": j.TZ, "fire_count": j.FireCount, "origin": j.Origin,
 		})
 	}
 	return out
@@ -97,7 +98,7 @@ func (s *AppService) TriggerScheduledJobNow(id string) map[string]any {
 	if err != nil {
 		return map[string]any{"success": false, "error": err.Error()}
 	}
-	_ = s.rt.sched.BumpNext(j.ID, j.IntervalSec)
+	_ = s.rt.sched.MarkRan(j.ID)
 	return map[string]any{"success": true, "task": t}
 }
 

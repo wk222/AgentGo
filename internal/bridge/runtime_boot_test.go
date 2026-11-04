@@ -67,7 +67,7 @@ func TestProtectedPluginsAreAnExplicitAllowlist(t *testing.T) {
 	}
 }
 
-var optionalRuntimePlugins = []string{"eino", "gateway", "distill", "capability-sync", "ide", "triggers", "threads", "userhooks", "im"}
+var optionalRuntimePlugins = []string{"eino", "gateway", "distill", "capability-sync", "ide", "triggers", "threads", "userhooks", "im", "session-message", "external-agents"}
 
 func TestRuntimeIsAssembledByThePluginHost(t *testing.T) {
 	rt := boot(t)

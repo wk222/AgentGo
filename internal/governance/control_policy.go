@@ -49,9 +49,11 @@ var (
 	// which the policy checks at decision time. The codetools plugin's own
 	// Approver is nil in AgentGo (allow all), so governance is the only gate.
 	workspaceMutationTools = []string{"replace_workspace_text", "create_workspace_file"}
-	hostExecutionTools     = []string{"execute_bash", "run_uv_skill", "run_batch_script", ElevatedTool}
-	delegationTools        = []string{"invoke_subagent"}
-	alwaysApproveTools     = []string{"execute_bash", "run_uv_skill", "run_batch_script", ElevatedTool}
+	// external_agent hands the work to a program outside AgentGo's own governance (another vendor's
+	// agent with its own tools), so it counts as host execution and as delegation.
+	hostExecutionTools = []string{"execute_bash", "run_uv_skill", "run_batch_script", ElevatedTool, "external_agent"}
+	delegationTools    = []string{"invoke_subagent", "external_agent"}
+	alwaysApproveTools = []string{"execute_bash", "run_uv_skill", "run_batch_script", ElevatedTool}
 )
 
 // ControlPolicyFromMode returns a preset aligned with PyBot agent_control.py.

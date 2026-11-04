@@ -37,6 +37,9 @@ func defaultRiskTable() map[string]RiskLevel {
 		"mcp_filesystem":            RiskHigh,
 		"execute_dynamic_tool":      RiskHigh,
 		"invoke_subagent":           RiskHigh,
+		"external_agent":            RiskHigh,
+		"schedule_task":             RiskMedium, // arms future unattended turns
+		"session_message":           RiskMedium, // starts a turn in another conversation
 		"run_swarm":                 RiskHigh,
 		"workflow_trigger":          RiskMedium,
 		"send_email":                RiskMedium,

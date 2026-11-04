@@ -158,6 +158,13 @@ var (
 	ComputerUseSidecar = newStr("AGENTGO_COMPUTER_USE_SIDECAR", "", GroupPlugins,
 		"path to agentgo-cua.exe: run computer use in that process over a named pipe (e.g. started elevated) instead of in-process")
 
+	// The external_agent tool hands a task to another coding agent over the Agent Client Protocol.
+	ExternalAgent = newBool("AGENTGO_EXTERNAL_AGENT", true, GroupPlugins,
+		"register the external_agent tool (hand a task to Claude Code, Codex, Gemini CLI, … installed on this machine); 0 hides it")
+	ExternalAgents = newStr("AGENTGO_EXTERNAL_AGENTS", "", GroupPlugins,
+		`more agents for external_agent, as JSON: {"name":"command line that starts its ACP server on stdio"}; a name equal to a built-in (claude, codex, gemini, qwen, opencode, hermes, openclaw, codebuddy) replaces it`)
+	ExternalAgentMinutes = newInt("AGENTGO_EXTERNAL_AGENT_MINUTES", 20, GroupPlugins, "time limit of one external_agent turn, in minutes (1-120)")
+
 	// Document chunking. The adaptive splitter is ported from WeKnora. It is
 	// compiled into every build, including the Windows 7 one, and is off by
 	// default: the built-in splitter stays in charge until a recall comparison

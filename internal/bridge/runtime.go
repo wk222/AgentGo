@@ -58,7 +58,8 @@ type Runtime struct {
 	sched            *scheduler.Store
 	schedRunner      *scheduler.Runner
 	triggers         *trigger.Engine
-	threads          *threadsub.Store // external thread keys → the session that follows them
+	threads          *threadsub.Store                 // external thread keys → the session that follows them
+	sessionMsgRate   rateWindow                       // limits session_message deliveries per sender and per pair
 	userHooks        atomic.Pointer[userhooks.Engine] // empty when AGENTGO_USER_HOOKS=0 or the plugin is stopped; use hooksEngine()
 	skillLoader      *skills.Loader
 	wfStore          *workflow.Store

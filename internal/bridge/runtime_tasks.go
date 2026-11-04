@@ -41,16 +41,26 @@ func (r *Runtime) runBackgroundTask(ctx context.Context, t taskhub.Task, emit fu
 	}
 	// A trigger wake-up happens inside a real conversation: record the event and the agent's reply in
 	// that session so the user sees them in the chat history, not only in the task event log.
-	persist := (t.Kind == "trigger" || t.Kind == "wake") && t.SessionID != "" && r.Sessions() != nil
+	sid := t.SessionID
+	if t.Kind == "cron" && sid == "" && r.Sessions() != nil {
+		// A scheduled job with no conversation of its own opens a fresh one on every run.
+		if s, err := r.Sessions().Create(ctx, "⏰ "+scheduledTitle(t.Input)); err == nil {
+			sid = s.ID
+		}
+	}
+	persist := (t.Kind == "trigger" || t.Kind == "wake" || t.Kind == "cron") && sid != "" && r.Sessions() != nil
 	if persist {
 		head := "⏰ 事件触发，正在唤醒智能体…"
-		if t.Kind == "wake" {
+		switch t.Kind {
+		case "wake":
 			head = "⏰ 有新的结果或消息，正在唤醒智能体…"
+		case "cron":
+			head = "⏰ 定时任务触发"
 		}
-		_ = r.Sessions().AppendMessage(ctx, t.SessionID, "system", head+"\n\n"+t.Input, "text", map[string]any{"source": t.Kind, "task_id": t.ID})
+		_ = r.Sessions().AppendMessage(ctx, sid, "system", head+"\n\n"+t.Input, "text", map[string]any{"source": t.Kind, "task_id": t.ID})
 	}
 	var full string
-	res, err := runner.GenerateStream(ctx, llm, t.SessionID, t.Input, nil, func(delta string) {
+	res, err := runner.GenerateStream(ctx, llm, sid, t.Input, nil, func(delta string) {
 		full += delta
 		b, _ := json.Marshal(map[string]string{"delta": delta})
 		emit(taskhub.Event{Type: taskhub.EventChunk, Payload: string(b)})
@@ -62,7 +72,7 @@ func (r *Runtime) runBackgroundTask(ctx context.Context, t taskhub.Task, emit fu
 			if ctx.Err() != nil {
 				msg = "这次唤醒被你停止了。"
 			}
-			_ = r.Sessions().AppendMessage(context.Background(), t.SessionID, "assistant", msg, "text", map[string]any{"source": t.Kind, "task_id": t.ID})
+			_ = r.Sessions().AppendMessage(context.Background(), sid, "assistant", msg, "text", map[string]any{"source": t.Kind, "task_id": t.ID})
 		}
 		b, _ := json.Marshal(map[string]string{"error": err.Error()})
 		emit(taskhub.Event{Type: taskhub.EventError, Payload: string(b)})
@@ -75,7 +85,7 @@ func (r *Runtime) runBackgroundTask(ctx context.Context, t taskhub.Task, emit fu
 			answer = res.Content
 		}
 		if strings.TrimSpace(answer) != "" {
-			_ = r.Sessions().AppendMessage(context.Background(), t.SessionID, "assistant", answer, "text", map[string]any{"source": t.Kind, "task_id": t.ID})
+			_ = r.Sessions().AppendMessage(context.Background(), sid, "assistant", answer, "text", map[string]any{"source": t.Kind, "task_id": t.ID})
 		}
 	}
 	b, _ := json.Marshal(map[string]string{"result": full})
