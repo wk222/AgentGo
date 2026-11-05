@@ -32,6 +32,9 @@ func (s *AppService) ListSessions() []map[string]any {
 		if x.ParentID != "" { // a fork: where it came from, for the lineage line
 			row["parent_id"], row["parent_title"], row["parent_gone"] = x.ParentID, x.ParentTitle, x.ParentGone
 		}
+		if x.ExpertID != "" { // opened as an expert: the sidebar shows which
+			row["expert_id"] = x.ExpertID
+		}
 		out = append(out, row)
 	}
 	applog.Session("ListSessions count=%d", len(out))

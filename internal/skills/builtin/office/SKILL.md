@@ -18,6 +18,8 @@
 
 需要某类文件的细则时，用 `activate_skill` 加载对应技能：`skill:office-xlsx`、`skill:office-pptx`、`skill:office-docx`；数据分析和通报用 `skill:office-report`。
 
+按场景还有四份：看板、仪表盘、经营驾驶舱用 `skill:office-dashboard`；预算、测算、投资回报、盈亏平衡用 `skill:office-financial-model`；路演、融资、发布会、立项答辩、述职的 PPT 用 `skill:office-pitch-deck`；论文、研究报告、技术报告、可行性分析用 `skill:office-paper`。要读大量文档再写文章时，同时看 `skill:document-qa`（它不在可用列表里就跳过）。
+
 ## 通用流程
 
 1. **先确认再动手**：这份文件给谁看、用来做什么、数据从哪来、存到哪里。用户已经说清的不要再问；缺的关键信息（数据、页数、口径）一次问完，不要一句一问。

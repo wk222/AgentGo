@@ -14,6 +14,7 @@ import (
 // system instruction instead, only when the tool is really offered in this mode.
 var deferredCapabilities = []struct{ tool, what string }{
 	{"session_message", "session_message (read, or send a message to, another conversation of this user)"},
+	{"conversation_create", "conversation_create (open a new conversation, optionally as one of the experts that list_experts names)"},
 	{"external_agent", "external_agent (hand a task to an installed coding agent such as Claude Code, Codex or Gemini CLI)"},
 }
 

@@ -5,6 +5,7 @@ import { sessionTitle, sessionIdOf } from '../../stores/useChat'
 import { wailsCall } from '../../shared/wails'
 import { locateDroppedFile, dropNotice, nativeFileDropEnabled, isImagePath, watchNativeFileDrops, mentionTag } from './droppedFiles'
 import PromptSuggestions from './PromptSuggestions'
+import ExpertBar from './ExpertBar'
 import FlowChatTranscript from './FlowChatTranscript'
 import { harnessList, getHarness, harnessOf, type HarnessId } from '../../shared/harness'
 import { notify, confirmDialog } from '../../shared/ui/notify'
@@ -936,6 +937,13 @@ export default defineComponent({
                 ))}
               </div>
             )}
+
+            <ExpertBar
+              onPickStarter={(prompt) => {
+                inputText.value = prompt
+                nextTick(() => textareaEl.value?.focus())
+              }}
+            />
 
             <PromptSuggestions
               disabled={ctx.sending}

@@ -60,6 +60,7 @@ type Runtime struct {
 	triggers         *trigger.Engine
 	threads          *threadsub.Store                 // external thread keys → the session that follows them
 	sessionMsgRate   rateWindow                       // limits session_message deliveries per sender and per pair
+	convCreateRate   rateWindow                       // limits conversation_create per sender and overall
 	userHooks        atomic.Pointer[userhooks.Engine] // empty when AGENTGO_USER_HOOKS=0 or the plugin is stopped; use hooksEngine()
 	skillLoader      *skills.Loader
 	wfStore          *workflow.Store

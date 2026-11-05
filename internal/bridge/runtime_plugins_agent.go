@@ -88,6 +88,7 @@ func (rt *Runtime) agentPlugins() []plugin.Plugin {
 				runner.SetLLMProvider(llmSettingsFrom(model))
 				runner.SetAdminRunner(adminRunner)
 				runner.SetSessionsStore(sess)
+				runner.SetExpertResolver(rt.expertResolver(sess)) // the expert a conversation was opened as
 
 				ctx := scopedContext(c)
 				adminRunner.Start(ctx, 10*time.Second)

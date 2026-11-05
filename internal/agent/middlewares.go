@@ -94,7 +94,7 @@ func BuildTypedMiddlewareStack[M adk.MessageType](ctx context.Context, baseModel
 	// 4. Skills injection
 	if EinoSkillMWEnabled() {
 		sm, err := skill.NewTyped[M](ctx, &skill.TypedConfig[M]{
-			Backend:    &loaderSkillBackend{loader: skills.NewLoader(workspaceRoot)},
+			Backend:    &loaderSkillBackend{loader: newSkillLoader(workspaceRoot, dataDir)},
 			UseChinese: true,
 		})
 		if err != nil {
@@ -151,6 +151,13 @@ func BuildTypedMiddlewareStack[M adk.MessageType](ctx context.Context, baseModel
 	}
 
 	return stack, nil
+}
+
+// newSkillLoader reads the skills of a workspace plus the user-level folders.
+func newSkillLoader(workspaceRoot, dataDir string) *skills.Loader {
+	l := skills.NewLoader(workspaceRoot)
+	l.SetSources(skills.DefaultSources(dataDir))
+	return l
 }
 
 type loaderSkillBackend struct {

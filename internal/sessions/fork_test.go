@@ -36,6 +36,9 @@ func seedConversation(t *testing.T, s *Store, id string) {
 	if err := s.SaveMode(ctx, id, ModeRecord{Profile: "coding", Canvas: "focused"}); err != nil {
 		t.Fatal(err)
 	}
+	if err := s.SetExpert(ctx, id, "software-engineer"); err != nil {
+		t.Fatal(err)
+	}
 	for _, scope := range []string{"eino-v1:aaaa", "eino-v1:bbbb"} {
 		var batch []ContextEventRecord
 		for _, n := range []string{"1", "2", "3"} {
@@ -155,6 +158,16 @@ func TestForkSessionCopiesTranscriptEventsAndMode(t *testing.T) {
 	row, ok := sessionRow(t, s, res.Session.ID)
 	if !ok || row.ParentID != "orig" || row.ParentTitle != "重构方案" || row.ParentGone || row.MessageCount != 4 {
 		t.Fatalf("listed fork: %+v ok=%v", row, ok)
+	}
+	// The copy keeps working as the same expert, and rebinding one leaves the other alone.
+	if res.Session.ExpertID != "software-engineer" || row.ExpertID != "software-engineer" {
+		t.Fatalf("expert on the copy: result=%q listed=%q", res.Session.ExpertID, row.ExpertID)
+	}
+	if err := s.SetExpert(ctx, res.Session.ID, "bug-hunter"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.Expert(ctx, "orig"); got != "software-engineer" {
+		t.Fatalf("rebinding the copy changed the original: %q", got)
 	}
 	if orig, _ := sessionRow(t, s, "orig"); orig.ParentID != "" || orig.ParentGone {
 		t.Fatalf("the original grew a parent: %+v", orig)
@@ -379,7 +392,7 @@ func TestForkSessionIsAllOrNothing(t *testing.T) {
 	}
 	// The failure came last, after the transcript, events and mode were copied.
 	for table, want := range map[string]int{
-		"chat_sessions": 1, "chat_messages": 4, "chat_context_events": 6, "session_modes": 1, "chat_session_forks": 0,
+		"chat_sessions": 1, "chat_messages": 4, "chat_context_events": 6, "session_modes": 1, "chat_session_experts": 1, "chat_session_forks": 0,
 	} {
 		if got := countRows(t, s, "SELECT COUNT(*) FROM "+table); got != want {
 			t.Fatalf("%s: %d rows after a failed fork, want %d", table, got, want)

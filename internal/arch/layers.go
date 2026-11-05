@@ -66,6 +66,7 @@ var PackageLayer = map[string]Layer{
 	"audio":                           LayerSystems,    // kernel side of voice: frames, events, interrupt contract; stdlib only (VAD/ASR/TTS are plugins)
 	"tools":                           LayerAssets,
 	"skills":                          LayerAssets,
+	"experts":                         LayerAssets, // roles a conversation can run as: Markdown rules + recommended skills + starter prompts; stdlib, yaml, config and textenc only
 	"workflow":                        LayerAssets,
 	"apps":                            LayerAssets,
 	"agentpack":                       LayerAssets,

@@ -6,6 +6,7 @@ import { bytesOf, cleanRel, mockFiles, mockWorkspace, mockWorkspaceInfo, mockWor
 import { findMockApp, getMockApps, getMockMemories, mockAppManifest, mockCapabilityGrants, mockInnerAppHTML, mockTermInput, mockTerminals, saveCustomMockApp, saveMockMemories } from './data'
 import { mockEngine, mockStream, nextPreviewSeq, previewFlowgram, previewRuns } from './stream'
 import { listMockCheckpoints, previewMockRollback, rollbackMockTurn } from './checkpoints'
+import { MOCK_EXPERTS, findMockExpert, mockExpertNotFound } from './experts'
 import { mockMemoryTree } from './memoryTree'
 import { mockMemoryGraph } from './memoryGraph'
 import { mockAppInfo, mockDiagnostics, mockUsageSummary } from './usage'
@@ -39,6 +40,46 @@ export async function mockCall(method: string, ...params: any[]): Promise<any> {
       sessions.unshift(session)
       saveMockSessions(sessions)
       return { success: true, id: session.id, session }
+    }
+    case 'ListExperts':
+      return {
+        success: true, experts: clone(MOCK_EXPERTS), warnings: [],
+        user_dir: 'C:\\Users\\preview\\AppData\\Roaming\\AgentGo\\experts', workspace_dir: 'C:\\Users\\preview\\workspace\\.agentgo\\experts',
+      }
+    case 'GetExpert': {
+      const e = findMockExpert(String(params[0] || ''))
+      return e ? { success: true, expert: { ...clone(e), rules: '（预览里不带规则正文）' } } : { success: false, error: mockExpertNotFound(String(params[0] || '')) }
+    }
+    case 'GetSessionExpert': {
+      const sid = String(params[0] || '').trim()
+      const id = getMockSessions().find(s => s.id === sid)?.expert_id || ''
+      if (!id) return { success: true, session_id: sid, expert_id: '', expert: null, missing: false }
+      const e = findMockExpert(id)
+      return { success: true, session_id: sid, expert_id: id, expert: e ? clone(e) : null, missing: !e }
+    }
+    case 'SetSessionExpert': {
+      const sid = String(params[0] || '').trim()
+      const key = String(params[1] || '').trim()
+      const sessions = getMockSessions()
+      const hit = sessions.find(s => s.id === sid)
+      if (!hit) return { success: false, error: '这条对话已经不存在' }
+      const e = key ? findMockExpert(key) : undefined
+      if (key && !e) return { success: false, error: mockExpertNotFound(key) }
+      if (e) hit.expert_id = e.id
+      else delete hit.expert_id
+      saveMockSessions(sessions)
+      return { success: true, session_id: sid, expert_id: e ? e.id : '', expert: e ? clone(e) : null }
+    }
+    case 'NewSessionWithExpert': {
+      const e = findMockExpert(String(params[1] || ''))
+      if (!e) return { success: false, error: mockExpertNotFound(String(params[1] || '')) }
+      const title = String(params[0] || '').trim() || '新对话'
+      const session: MockSession = { id: `preview-${Date.now()}`, title, updated_at: nowISO(), message_count: 0, messages: [], expert_id: e.id }
+      const sessions = getMockSessions()
+      sessions.unshift(session)
+      saveMockSessions(sessions)
+      const { messages, ...summary } = session
+      return { success: true, id: session.id, session: { ...summary, message_count: messages.length }, expert: clone(e) }
     }
     case 'DeleteSession': {
       const sid = String(params[0] || '')

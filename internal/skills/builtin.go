@@ -27,6 +27,7 @@ var builtinGates = []struct {
 	on     func() bool
 }{
 	{"office", config.OfficeDoc.On},
+	{"document-qa", config.DocIndex.On},
 }
 
 func builtinEnabled(name string) bool {

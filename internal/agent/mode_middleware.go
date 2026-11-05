@@ -37,7 +37,7 @@ func (m *ModeProfileMiddleware) BeforeModelRewriteState(ctx context.Context, sta
 	if len(state.DeferredToolInfos) > 0 {
 		state.DeferredToolInfos = filterToolInfos(state.DeferredToolInfos, sm)
 	}
-	hint := sm.ModeHints()
+	hint := runHints(ctx, sm)
 	injected := false
 	for i, msg := range state.Messages {
 		if msg.Role == schema.System {
@@ -86,7 +86,7 @@ func (m *AgenticModeProfileMiddleware) BeforeModelRewriteState(
 	if len(state.ToolInfos) > 0 {
 		state.ToolInfos = filterToolInfos(state.ToolInfos, sm)
 	}
-	hint := sm.ModeHints()
+	hint := runHints(ctx, sm)
 	injected := false
 	for i, msg := range state.Messages {
 		if msg != nil && msg.Role == schema.AgenticRoleTypeSystem {

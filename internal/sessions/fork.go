@@ -73,6 +73,11 @@ func (s *Store) ForkSession(ctx context.Context, sourceID, title string) (ForkRe
 	if title = CleanTitle(title); title == "" {
 		title = s.freeForkTitle(ctx, parentTitle)
 	}
+	// A copy keeps working as the same expert, just as it keeps the mode.
+	expertID, err := s.Expert(ctx, sourceID)
+	if err != nil {
+		return ForkResult{}, fmt.Errorf("fork expert: %w", err)
+	}
 
 	now := time.Now().Unix()
 	out := ForkResult{
@@ -85,6 +90,7 @@ func (s *Store) ForkSession(ctx context.Context, sourceID, title string) (ForkRe
 			UpdatedAt:   now,
 			ParentID:    sourceID,
 			ParentTitle: parentTitle,
+			ExpertID:    expertID,
 		},
 	}
 
@@ -139,6 +145,14 @@ func (s *Store) ForkSession(ctx context.Context, sourceID, title string) (ForkRe
 		return ForkResult{}, fmt.Errorf("fork mode: %w", err)
 	}
 	out.Mode = rowsAffected(res) > 0
+
+	if expertID != "" {
+		if _, err = tx.ExecContext(ctx, `
+			INSERT INTO chat_session_experts (session_id, expert_id, bound_at) VALUES (?, ?, ?)
+		`, out.Session.ID, expertID, now); err != nil {
+			return ForkResult{}, fmt.Errorf("fork expert: %w", err)
+		}
+	}
 
 	if _, err = tx.ExecContext(ctx, `
 		INSERT INTO chat_session_forks (session_id, parent_id, parent_title, forked_at, messages, events)

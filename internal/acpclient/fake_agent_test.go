@@ -17,7 +17,16 @@ type fakeAgent struct {
 	authRequired bool                                                // session/new fails with -32000 until authenticate is called
 	onPrompt     func(a *fakeAgent, id json.RawMessage, text string) // default: say "ok"
 
+	// session resume
+	loadSession bool     // advertise agentCapabilities.loadSession
+	sessionID   string   // what session/new hands out ("" means s1)
+	loadErr     int      // session/load fails with this JSON-RPC code
+	loadHang    bool     // session/load is never answered
+	replay      []string // streamed during session/load, the way an agent re-sends the history
+
 	mu           sync.Mutex
+	loaded       []string  // ids asked for by session/load
+	newSessions  int       // session/new calls
 	out          io.Writer // agent → client
 	authed       bool
 	prompts      []string
@@ -112,9 +121,17 @@ func (a *fakeAgent) fail(id json.RawMessage, code int, msg string) {
 	a.write(map[string]any{"jsonrpc": "2.0", "id": id, "error": map[string]any{"code": code, "message": msg}})
 }
 
+// session is the id this agent hands out.
+func (a *fakeAgent) session() string {
+	if a.sessionID != "" {
+		return a.sessionID
+	}
+	return "s1"
+}
+
 // update streams a session/update notification.
 func (a *fakeAgent) update(u map[string]any) {
-	a.write(map[string]any{"jsonrpc": "2.0", "method": "session/update", "params": map[string]any{"sessionId": "s1", "update": u}})
+	a.write(map[string]any{"jsonrpc": "2.0", "method": "session/update", "params": map[string]any{"sessionId": a.session(), "update": u}})
 }
 
 func (a *fakeAgent) say(text string) {
@@ -163,7 +180,8 @@ func (a *fakeAgent) handle(m message) {
 		if a.authRequired {
 			auth = append(auth, map[string]any{"id": "login", "name": "Login"})
 		}
-		a.reply(m.ID, map[string]any{"protocolVersion": 1, "agentInfo": map[string]any{"name": "fake-agent"}, "authMethods": auth})
+		a.reply(m.ID, map[string]any{"protocolVersion": 1, "agentInfo": map[string]any{"name": "fake-agent"}, "authMethods": auth,
+			"agentCapabilities": map[string]any{"loadSession": a.loadSession}})
 	case "authenticate":
 		a.mu.Lock()
 		a.authed = true
@@ -174,13 +192,38 @@ func (a *fakeAgent) handle(m message) {
 		_ = json.Unmarshal(m.Params, &p)
 		a.mu.Lock()
 		a.cwd = p.Cwd
+		a.newSessions++
 		authed := a.authed
 		a.mu.Unlock()
 		if a.authRequired && !authed {
 			a.fail(m.ID, -32000, "Authentication required")
 			return
 		}
-		a.reply(m.ID, map[string]any{"sessionId": "s1"})
+		a.reply(m.ID, map[string]any{"sessionId": a.session()})
+	case "session/load":
+		var p struct {
+			SessionID string `json:"sessionId"`
+			Cwd       string `json:"cwd"`
+		}
+		_ = json.Unmarshal(m.Params, &p)
+		a.mu.Lock()
+		a.loaded = append(a.loaded, p.SessionID)
+		a.cwd = p.Cwd
+		authed := a.authed
+		a.mu.Unlock()
+		switch {
+		case a.authRequired && !authed:
+			a.fail(m.ID, -32000, "Authentication required")
+		case a.loadHang:
+			// never answered
+		case a.loadErr != 0:
+			a.fail(m.ID, a.loadErr, "session "+p.SessionID+" not found")
+		default:
+			for _, t := range a.replay {
+				a.say(t)
+			}
+			a.reply(m.ID, nil)
+		}
 	case "session/prompt":
 		var p struct {
 			Prompt []struct{ Text string } `json:"prompt"`

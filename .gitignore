@@ -7,6 +7,8 @@
 !licenses/**/*.md
 # 内置技能由 go:embed 编进二进制（internal/skills/builtin.go）；缺了它们，全新克隆无法编译
 !internal/skills/builtin/**/*.md
+# 官方专家同理（internal/experts/builtin.go 的 go:embed）
+!internal/experts/builtin/*.md
 # OpenSumi 本地参考（不提交 GitHub）
 frontend-opensumi/
 opensumi-reference/

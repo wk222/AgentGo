@@ -37,6 +37,11 @@ var (
 	DisableAgentsMD = newBool("AGENTGO_DISABLE_AGENTSMD", false, GroupAgent, "do not inject AGENTS.md files")
 	AgentsMDParents = newBool("AGENTGO_AGENTSMD_PARENTS", true, GroupAgent,
 		"also load AGENTS.md (or CLAUDE.md) of the parent directories up to the git root, and the user-level AGENTS.md in the data directory")
+	// Skills are always read from the workspace and from <data dir>/skills; these two add more.
+	ExternalSkills = newStr("AGENTGO_EXTERNAL_SKILLS", "", GroupAgent,
+		"also read the skills other agents keep in your home folder: all, or a comma list of claude,gemini,agents,cursor,codex; empty = none")
+	SkillDirs = newStr("AGENTGO_SKILL_DIRS", "", GroupAgent,
+		"more skill folders (each holding <name>/SKILL.md), separated like PATH entries: ; on Windows, : elsewhere")
 	EinoSkillMW    = newBool("AGENTGO_EINO_SKILL_MW", false, GroupAgent, "mount the Eino skill middleware")
 	EinoPlanTaskMW = newBool("AGENTGO_EINO_PLANTASK", false, GroupAgent, "legacy alias gate for the plan-task middleware")
 	EinoBGTask     = newBool("AGENTGO_EINO_BG_TASK", true, GroupAgent, "background task control middleware")

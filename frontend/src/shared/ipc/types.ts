@@ -355,6 +355,55 @@ export interface SessionSummary {
   parent_id?: string
   parent_title?: string
   parent_gone?: boolean
+  /** 这条对话以哪位专家的身份工作（Go: sessions.Session.ExpertID）；没有专家时不出现。 */
+  expert_id?: string
+}
+
+/** 专家推荐的一项技能；available=false 表示当前环境没有它（专家照常可用，只是不会引导模型去加载）。 */
+export interface ExpertSkillRef {
+  id: string
+  available: boolean
+}
+
+/** 一位专家（Go: bridge.AppService.ListExperts）。rules 只有 GetExpert 才带。 */
+export interface ExpertInfo {
+  id: string
+  name: string
+  summary: string
+  /** office / code / research / automation / agentgo / writing，或用户自己写的分类。 */
+  category: string
+  source: 'official' | 'user' | 'workspace'
+  order: number
+  skills: ExpertSkillRef[]
+  /** 示例提示：点一下填进输入框。 */
+  starters: string[]
+  /** 它盖掉了哪个来源的同名专家。 */
+  overrides?: 'official' | 'user'
+  path?: string
+  rules?: string
+}
+
+/** ListExperts 的回答：user_dir / workspace_dir 是放自己专家文件的位置，warnings 是读不了的文件及原因。 */
+export interface ExpertListReply {
+  experts?: ExpertInfo[]
+  warnings?: string[]
+  user_dir?: string
+  workspace_dir?: string
+}
+
+/** GetSessionExpert / SetSessionExpert 的回答。missing = 绑定的专家文件已不在：这条对话照常运行，只是没有专家。 */
+export interface SessionExpertReply {
+  session_id?: string
+  expert_id?: string
+  expert?: ExpertInfo | null
+  missing?: boolean
+}
+
+/** NewSessionWithExpert 的回答：和 NewSession 同形，多一个 expert。 */
+export interface NewSessionWithExpertReply {
+  id?: string
+  session?: SessionSummary
+  expert?: ExpertInfo
 }
 
 /** 分叉的回答（Go: bridge.ForkSession）。busy = 原对话正在运行或停在审批上：不是故障，请用户先处理。 */

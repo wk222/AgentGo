@@ -107,6 +107,9 @@ func RegisterWorkspaceBoundTools(r *Registry, workspaceRoot string) error {
 	if err := RegisterSessionMessageTool(r); err != nil {
 		_ = err
 	}
+	if err := RegisterConversationTools(r); err != nil {
+		_ = err
+	}
 	if config.ExternalAgent.On() {
 		if err := RegisterExternalAgentTool(r, workspaceRoot); err != nil {
 			_ = err

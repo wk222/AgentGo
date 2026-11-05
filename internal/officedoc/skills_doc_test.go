@@ -122,6 +122,20 @@ func TestOfficeSkillsMatchTheTools(t *testing.T) {
 	jsonNames(reflect.TypeOf(createDocxInput{}), docxNames)
 	add("office-docx", keys(docxNames)...)
 
+	// The scenario skills build on the four detailed ones: they may name whatever
+	// those name, plus the few tools of other plugins they send the model to. The
+	// internal/bridge test checks that those exist.
+	shared := map[string]bool{}
+	for _, s := range []string{"office-xlsx", "office-pptx", "office-docx", "office-report"} {
+		for w := range vocab[s] {
+			shared[w] = true
+		}
+	}
+	for _, s := range []string{"office-dashboard", "office-financial-model", "office-pitch-deck", "office-paper"} {
+		add(s, keys(shared)...)
+		add(s, "render_ui", "parse_file", "web_fetch", "index_documents", "search_documents", "next_offset")
+	}
+
 	// 1. Nothing is promised that the tools do not have.
 	for skill, words := range vocab {
 		text := skillText(t, skill)
@@ -161,6 +175,11 @@ func TestOfficeSkillsMatchTheTools(t *testing.T) {
 	mustMention("office-pptx", keys(palettes)...)
 	mustMention("office-pptx", "template", "layouts", "cover_layout", "content_layout", "closing_layout", "template_layout")
 	mustMention("office-docx", ToolCreateDocx)
+	// The scenario skills say which tools to call.
+	mustMention("office-dashboard", ToolCreateXlsx, ToolReadXlsx, ToolEditXlsx, ToolAnalyzeXlsx)
+	mustMention("office-financial-model", ToolCreateXlsx, ToolReadXlsx, ToolEditXlsx, ToolAnalyzeXlsx)
+	mustMention("office-pitch-deck", ToolCreatePptx, ToolInspectPptx)
+	mustMention("office-paper", ToolCreateDocx, ToolAnalyzeXlsx)
 
 	// 3. The layouts, chart types and themes of the skill are exactly the real ones.
 	if _, err := createPptx(Env{Resolve: func(string) (string, error) { return filepath.Join(t.TempDir(), "x.pptx"), nil }},

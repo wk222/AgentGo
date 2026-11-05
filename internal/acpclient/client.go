@@ -27,6 +27,11 @@ type Config struct {
 	Permission Permission // what the agent may do without asking us; the zero value is ReadOnly
 
 	InitTimeout time.Duration // initialize + session/new; npx may download the agent first (default 90 s)
+
+	// ResumeSessionID names an earlier session of this agent to carry on instead of starting a new
+	// one (the SessionID of a previous Conn). It only works if the agent says it can load sessions;
+	// when it cannot, or no longer knows that session, a new session starts and ResumeNote says why.
+	ResumeSessionID string
 }
 
 // ToolCall is one tool use the agent reported during a turn.
@@ -44,6 +49,12 @@ type Turn struct {
 	Tools      []ToolCall `json:"tools,omitempty"`
 	// Denied lists what the agent asked to do and was refused under the permission level.
 	Denied []string `json:"denied,omitempty"`
+	// SessionID is the agent's own id for the session; a later Config.ResumeSessionID can carry on it.
+	SessionID string `json:"session_id,omitempty"`
+	// Resumed and ResumeNote say how the session began and are set on its first turn only: Resumed
+	// means the agent carried on an earlier session; ResumeNote says why a requested resume did not happen.
+	Resumed    bool   `json:"resumed,omitempty"`
+	ResumeNote string `json:"resume_note,omitempty"`
 }
 
 // Event is a streamed piece of a turn, for a caller that wants progress as it happens.
@@ -71,7 +82,12 @@ type Conn struct {
 	sessionID string
 	agentName string
 
-	turnMu sync.Mutex // one prompt at a time
+	canLoad    bool   // the agent can load an earlier session (agentCapabilities.loadSession)
+	resumed    bool   // this session carries on an earlier one
+	resumeNote string // why a requested resume did not happen
+
+	turnMu   sync.Mutex // one prompt at a time
+	reported bool       // how the session began has gone out with a turn (guarded by turnMu)
 
 	mu   sync.Mutex
 	turn *turnState // the prompt in flight, if any
@@ -122,7 +138,10 @@ func (c *Conn) open(ctx context.Context) error {
 		return fmt.Errorf("initialize: %w", err)
 	}
 	var init struct {
-		AgentInfo   struct{ Name string } `json:"agentInfo"`
+		AgentInfo         struct{ Name string } `json:"agentInfo"`
+		AgentCapabilities struct {
+			LoadSession bool `json:"loadSession"`
+		} `json:"agentCapabilities"`
 		AuthMethods []struct {
 			ID   string `json:"id"`
 			Name string `json:"name"`
@@ -130,14 +149,34 @@ func (c *Conn) open(ctx context.Context) error {
 	}
 	_ = json.Unmarshal(raw, &init)
 	c.agentName = init.AgentInfo.Name
+	c.canLoad = init.AgentCapabilities.LoadSession
 
-	sid, err := c.newSession(ctx)
-	var rpcErr *RPCError
-	if errors.As(err, &rpcErr) && rpcErr.Code == -32000 && len(init.AuthMethods) > 0 {
-		// "Authentication required": use the first method the agent offers (usually its stored login
-		// or an API key from the environment), then try again once.
+	// "Authentication required" (code -32000): use the first method the agent offers (usually its
+	// stored login or an API key from the environment), then try again once.
+	signedIn := false
+	canSignIn := func(err error) bool { return isAuthRequired(err) && len(init.AuthMethods) > 0 && !signedIn }
+	signIn := func() error {
+		signedIn = true
 		if _, aerr := c.rpc.call(ctx, "authenticate", map[string]any{"methodId": init.AuthMethods[0].ID}); aerr != nil {
 			return fmt.Errorf("sign-in with %q failed: %w", init.AuthMethods[0].Name, aerr)
+		}
+		return nil
+	}
+
+	if id := strings.TrimSpace(c.cfg.ResumeSessionID); id != "" {
+		resumed, err := c.tryResume(ctx, id, canSignIn, signIn)
+		if err != nil {
+			return err
+		}
+		if resumed {
+			return nil
+		}
+	}
+
+	sid, err := c.newSession(ctx)
+	if canSignIn(err) {
+		if aerr := signIn(); aerr != nil {
+			return aerr
 		}
 		sid, err = c.newSession(ctx)
 	}
@@ -146,6 +185,47 @@ func (c *Conn) open(ctx context.Context) error {
 	}
 	c.sessionID = sid
 	return nil
+}
+
+func isAuthRequired(err error) bool {
+	var rpcErr *RPCError
+	return errors.As(err, &rpcErr) && rpcErr.Code == -32000
+}
+
+// tryResume asks the agent to load an earlier session. It reports whether that worked. When it
+// did not because of the agent (it cannot load sessions, or no longer has this one) the answer is
+// false with no error, and resumeNote says why: the caller then starts a new session. A failure
+// that a new session would not fix (the agent died, the time ran out, sign-in failed) is an error.
+func (c *Conn) tryResume(ctx context.Context, id string, canSignIn func(error) bool, signIn func() error) (bool, error) {
+	if !c.canLoad {
+		c.resumeNote = "the agent cannot load an earlier session"
+		return false, nil
+	}
+	err := c.loadSession(ctx, id)
+	if canSignIn(err) {
+		if aerr := signIn(); aerr != nil {
+			return false, aerr
+		}
+		err = c.loadSession(ctx, id)
+	}
+	var rpcErr *RPCError
+	switch {
+	case err == nil:
+		c.sessionID, c.resumed = id, true
+		return true, nil
+	case errors.As(err, &rpcErr):
+		c.resumeNote = fmt.Sprintf("the agent would not load session %s: %s", id, strings.TrimSpace(rpcErr.Message))
+		return false, nil
+	}
+	return false, fmt.Errorf("session/load: %w", err)
+}
+
+// loadSession asks the agent to carry on an earlier session. The agent replays the conversation
+// as session/update notifications before it answers; no turn is in flight yet, so handleNotify
+// drops them and they cannot leak into the next answer.
+func (c *Conn) loadSession(ctx context.Context, id string) error {
+	_, err := c.rpc.call(ctx, "session/load", map[string]any{"sessionId": id, "cwd": c.cfg.Cwd, "mcpServers": []any{}})
+	return err
 }
 
 func (c *Conn) newSession(ctx context.Context) (string, error) {
@@ -164,6 +244,19 @@ func (c *Conn) newSession(ctx context.Context) (string, error) {
 
 // AgentName is what the agent called itself in initialize ("" if it did not say).
 func (c *Conn) AgentName() string { return c.agentName }
+
+// SessionID is the agent's id for this session. Keep it to carry on the session later.
+func (c *Conn) SessionID() string { return c.sessionID }
+
+// CanResume reports whether the agent can load an earlier session, that is, whether keeping
+// SessionID is worth anything.
+func (c *Conn) CanResume() bool { return c.canLoad }
+
+// Resumed reports whether this session carries on an earlier one (Config.ResumeSessionID).
+func (c *Conn) Resumed() bool { return c.resumed }
+
+// ResumeNote says why a requested resume did not happen ("" if none was requested, or it worked).
+func (c *Conn) ResumeNote() string { return c.resumeNote }
 
 // Alive reports whether the agent process is still talking to us.
 func (c *Conn) Alive() bool {
@@ -220,11 +313,12 @@ func (c *Conn) Prompt(ctx context.Context, text string, onEvent func(Event)) (*T
 	stop()
 	<-stopped
 	c.mu.Lock()
-	turn := &Turn{Text: strings.TrimSpace(st.text.String()), Tools: st.tools, Denied: st.denied}
+	turn := &Turn{Text: strings.TrimSpace(st.text.String()), Tools: st.tools, Denied: st.denied, SessionID: c.sessionID}
 	c.mu.Unlock()
 	if err != nil {
 		if ctx.Err() != nil {
 			turn.StopReason = "cancelled"
+			c.reportStart(turn)
 			return turn, nil
 		}
 		return turn, c.explain(err)
@@ -234,7 +328,17 @@ func (c *Conn) Prompt(ctx context.Context, text string, onEvent func(Event)) (*T
 	}
 	_ = json.Unmarshal(raw, &res)
 	turn.StopReason = res.StopReason
+	c.reportStart(turn)
 	return turn, nil
+}
+
+// reportStart puts how the session began on the first turn that comes back. The caller holds turnMu.
+func (c *Conn) reportStart(t *Turn) {
+	if c.reported {
+		return
+	}
+	c.reported = true
+	t.Resumed, t.ResumeNote = c.resumed, c.resumeNote
 }
 
 // Close ends the agent and everything it started. It is safe to call more than once.
@@ -266,7 +370,8 @@ func (c *Conn) explain(err error) error {
 	if c.tr.stderr != nil {
 		tail = strings.TrimSpace(c.tr.stderr())
 	}
-	if tail != "" && (errors.Is(err, ErrAgentExited) || strings.Contains(err.Error(), "initialize") || strings.Contains(err.Error(), "session/new")) {
+	if tail != "" && (errors.Is(err, ErrAgentExited) || strings.Contains(err.Error(), "initialize") ||
+		strings.Contains(err.Error(), "session/new") || strings.Contains(err.Error(), "session/load")) {
 		return fmt.Errorf("%s: %w\n--- its log ---\n%s", name, err, tail)
 	}
 	return fmt.Errorf("%s: %w", name, err)

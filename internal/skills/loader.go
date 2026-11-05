@@ -1,7 +1,6 @@
 package skills
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -22,14 +21,16 @@ type Skill struct {
 	Credentials []string `json:"credentials,omitempty"` // names only
 }
 
-// Loader scans workspace/skills and .cursor/skills for SKILL.md files and adds
-// the skills built into the program.
+// Loader scans workspace/skills and .cursor/skills for SKILL.md files, then the
+// extra sources (see SetSources), and adds the skills built into the program.
+// When two places define a skill of the same name the first of those wins.
 type Loader struct {
 	mu     sync.RWMutex
 	root   string
 	skills map[string]Skill
 
-	credFile string // see SetCredentialFile
+	credFile string   // see SetCredentialFile
+	sources  []Source // see SetSources
 }
 
 func NewLoader(workspaceRoot string) *Loader {
@@ -43,40 +44,21 @@ func (l *Loader) Reload() []Skill {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.skills = make(map[string]Skill)
-	dirs := []string{
-		filepath.Join(l.root, "skills"),
-		filepath.Join(l.root, ".cursor", "skills"),
-	}
-	for _, base := range dirs {
-		_ = filepath.WalkDir(base, func(path string, d os.DirEntry, err error) error {
-			if err != nil || d.IsDir() {
-				return nil
+	// The first definition of a name stays: the workspace, then the extra sources in
+	// the order given, then what ships with the program. Of the two workspace folders
+	// .cursor/skills comes first, as it always has.
+	merge := func(found map[string]Skill) {
+		for id, s := range found {
+			if _, taken := l.skills[id]; !taken {
+				l.skills[id] = s
 			}
-			if strings.EqualFold(d.Name(), "SKILL.md") || strings.EqualFold(d.Name(), "skill.md") {
-				b, err := os.ReadFile(path)
-				if err != nil {
-					return nil
-				}
-				dir := filepath.Dir(path)
-				meta, body := SplitFrontMatter(string(b))
-				name := filepath.Base(dir)
-				if n := strings.TrimSpace(meta.Name); n != "" {
-					name = n
-				}
-				id := "skill:" + name
-				desc := strings.TrimSpace(meta.Description)
-				if desc == "" {
-					desc = firstParagraph(body)
-				}
-				l.skills[id] = Skill{
-					ID: id, Name: name, Path: path, Description: desc, Scope: "workspace", Content: body,
-					Dir: dir, Requires: meta.Requires, Credentials: meta.Credentials,
-				}
-			}
-			return nil
-		})
+		}
 	}
-	// Built-in skills fill in what the workspace does not define itself.
+	merge(scanDeep(filepath.Join(l.root, ".cursor", "skills"), ScopeWorkspace))
+	merge(scanDeep(filepath.Join(l.root, "skills"), ScopeWorkspace))
+	for _, src := range l.sources {
+		merge(scanShallow(src.Dir, src.Scope))
+	}
 	for _, s := range builtinSkills() {
 		if _, taken := l.skills[s.ID]; !taken {
 			l.skills[s.ID] = s

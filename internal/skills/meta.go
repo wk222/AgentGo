@@ -57,9 +57,53 @@ func SplitFrontMatter(content string) (Meta, string) {
 	}
 	var m Meta
 	if err := yaml.Unmarshal([]byte(rest[:end]), &m); err != nil {
-		return Meta{}, content
+		// Skills written for other agents often leave a colon unquoted in the
+		// description, which YAML refuses. Name and description can still be read line by line.
+		if m = lenientMeta(rest[:end]); m.Name == "" && m.Description == "" {
+			return Meta{}, content
+		}
 	}
 	return m, strings.TrimLeft(after, "\n")
+}
+
+// lenientMeta reads the top-level "name:" and "description:" lines of a block that is not valid YAML.
+func lenientMeta(block string) Meta {
+	var m Meta
+	lines := strings.Split(block, "\n")
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+		if line == "" || line[0] == ' ' || line[0] == '\t' || line[0] == '#' {
+			continue
+		}
+		key, val, ok := strings.Cut(line, ":")
+		if !ok {
+			continue
+		}
+		key, val = strings.ToLower(strings.TrimSpace(key)), strings.TrimSpace(val)
+		if key != "name" && key != "description" {
+			continue
+		}
+		if strings.HasPrefix(val, ">") || strings.HasPrefix(val, "|") {
+			// A block scalar: the indented lines that follow are the value.
+			var parts []string
+			for i+1 < len(lines) && (strings.HasPrefix(lines[i+1], " ") || strings.HasPrefix(lines[i+1], "\t") || strings.TrimSpace(lines[i+1]) == "") {
+				i++
+				if t := strings.TrimSpace(lines[i]); t != "" {
+					parts = append(parts, t)
+				}
+			}
+			val = strings.Join(parts, " ")
+		}
+		if len(val) >= 2 && (val[0] == '"' || val[0] == '\'') && val[len(val)-1] == val[0] {
+			val = val[1 : len(val)-1]
+		}
+		if key == "name" {
+			m.Name = val
+		} else {
+			m.Description = val
+		}
+	}
+	return m
 }
 
 // Readiness says whether a skill's scripts can run here. It carries names only, never values.

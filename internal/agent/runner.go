@@ -59,6 +59,8 @@ type Runner struct {
 	modeMu             sync.RWMutex
 	defaultSessionMode SessionMode
 	sessionModes       map[string]SessionMode
+	expertMu           sync.RWMutex
+	expertResolver     ExpertResolver
 	queue              *governance.ApprovalQueue
 	policy             governance.Policy
 	toolReg            *tools.Registry
@@ -517,7 +519,8 @@ func (r *Runner) withSessionMode(ctx context.Context, sessionID string) context.
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return WithSessionMode(ctx, r.modeForRun(ctx, sessionID))
+	ctx = WithSessionMode(ctx, r.modeForRun(ctx, sessionID))
+	return withExpertBlock(ctx, r.expertBlockFor(sessionID))
 }
 
 func (r *Runner) maxIterationsFor(ctx context.Context) int {

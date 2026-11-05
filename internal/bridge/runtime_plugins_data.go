@@ -17,7 +17,6 @@ import (
 	"agentgo/internal/memory"
 	"agentgo/internal/plugin"
 	"agentgo/internal/sessions"
-	"agentgo/internal/skills"
 	"agentgo/internal/tools"
 	"agentgo/internal/workspace"
 )
@@ -174,9 +173,7 @@ func (rt *Runtime) dataPlugins() []plugin.Plugin {
 			rt.workspace = wsRoot
 			rt.policy = governance.BuildPolicy(rt.governanceCfg.ControlMode, wsRoot)
 			rt.wsMiddleware = workspace.NewContextMiddleware(wsRoot)
-			rt.skillLoader = skills.NewLoader(wsRoot)
-			rt.skillLoader.SetCredentialFile(filepath.Join(rt.dataDir, skillCredentialsFile))
-			rt.skillLoader.Reload()
+			rt.skillLoader = newSkillLoader(wsRoot, rt.dataDir)
 			return c.Provide(svcWorkspace, rt.wsMiddleware)
 		}),
 

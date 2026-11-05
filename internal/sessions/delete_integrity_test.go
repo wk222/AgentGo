@@ -43,6 +43,9 @@ func seedDeletionSession(t *testing.T, s *Store, id string) {
 	if err := s.SaveMode(ctx, id, ModeRecord{Profile: "coding"}); err != nil {
 		t.Fatal(err)
 	}
+	if err := s.SetExpert(ctx, id, "bug-hunter"); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.AppendContextEvents(ctx, id, "scope", []ContextEventRecord{{ID: "native", Kind: "message", Payload: []byte("event")}}, false); err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +90,7 @@ func TestSessionDeleteIsAtomicAndRemovesTree(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, table := range []string{"chat_messages", "chat_entries", "chat_lanes", "chat_context_events", "chat_session_forks", "pending_runs", "session_modes", "chat_sessions"} {
+			for _, table := range []string{"chat_messages", "chat_entries", "chat_lanes", "chat_context_events", "chat_session_forks", "chat_session_experts", "pending_runs", "session_modes", "chat_sessions"} {
 				col := "session_id"
 				if table == "chat_sessions" {
 					col = "id"

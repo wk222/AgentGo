@@ -185,14 +185,22 @@ func (rt *Runtime) featurePlugins() []plugin.Plugin {
 		}),
 
 		// One conversation talking to another: the session_message tool queues a turn in the target.
+		// conversation_create and list_experts belong here too: they open the conversation that
+		// session_message then hands work to, and name the expert it may run as.
 		optionalPlugin("session-message", nil, []string{svcAgent}, nil, func(c *plugin.Context) error {
 			tools.SetSessionMessageHandler(rt)
 			c.Effect("unset session message handler", func() { tools.SetSessionMessageHandler(nil) })
+			tools.SetConversationHandler(rt)
+			c.Effect("unset conversation handler", func() { tools.SetConversationHandler(nil) })
 			return nil
 		}),
 
-		// Other coding agents started by the external_agent tool must not outlive the app.
+		// Other coding agents started by the external_agent tool must not outlive the app. What they
+		// were working on does: the labels of their sessions are kept, so after a restart the same
+		// label carries on (for agents that can load sessions).
 		optionalPlugin("external-agents", nil, nil, nil, func(c *plugin.Context) error {
+			acpclient.Default.SetStore(filepath.Join(rt.dataDir, "external_agents.json"))
+			c.Effect("forget the external agent store", func() { acpclient.Default.SetStore("") })
 			c.Effect("close external agents", acpclient.Default.CloseAll)
 			return nil
 		}),

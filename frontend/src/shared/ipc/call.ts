@@ -57,6 +57,8 @@ const DIRECT_UI_METHODS = new Set<string>([
   'GetSessionModeForSession',
   'ListSessions',
   'NewSession',
+  'NewSessionWithExpert',
+  'SetSessionExpert',
   'DeleteSession',
   'RenameSession',
   'ForkSession',

@@ -25,6 +25,8 @@ type Session struct {
 	ParentID    string `json:"parent_id,omitempty"`
 	ParentTitle string `json:"parent_title,omitempty"`
 	ParentGone  bool   `json:"parent_gone,omitempty"`
+	// ExpertID is the expert the conversation runs as (see SetExpert); "" for none.
+	ExpertID string `json:"expert_id,omitempty"`
 }
 
 type Message struct {
@@ -99,6 +101,9 @@ func NewStore(db *sql.DB) error {
 	if _, err = db.Exec(sessionModesSchema); err != nil {
 		return err
 	}
+	if _, err = db.Exec(sessionExpertsSchema); err != nil {
+		return err
+	}
 	if _, err = db.Exec(contextEventsSchema); err != nil {
 		return err
 	}
@@ -128,8 +133,10 @@ func (s *Store) List(ctx context.Context, limit int) ([]Session, error) {
 			(SELECT COUNT(*) FROM chat_messages m WHERE m.session_id = s.id) AS msg_count,
 			COALESCE(f.parent_id, ''),
 			COALESCE((SELECT p.title FROM chat_sessions p WHERE p.id = f.parent_id), f.parent_title, ''),
-			CASE WHEN f.parent_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM chat_sessions p WHERE p.id = f.parent_id) THEN 1 ELSE 0 END
+			CASE WHEN f.parent_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM chat_sessions p WHERE p.id = f.parent_id) THEN 1 ELSE 0 END,
+			COALESCE(x.expert_id, '')
 		FROM chat_sessions s LEFT JOIN chat_session_forks f ON f.session_id = s.id
+			LEFT JOIN chat_session_experts x ON x.session_id = s.id
 		ORDER BY s.updated_at DESC LIMIT ?
 	`, limit)
 	if err != nil {
@@ -140,7 +147,7 @@ func (s *Store) List(ctx context.Context, limit int) ([]Session, error) {
 	for rows.Next() {
 		var x Session
 		var gone int
-		if err := rows.Scan(&x.ID, &x.Title, &x.CreatedAt, &x.UpdatedAt, &x.MessageCount, &x.ParentID, &x.ParentTitle, &gone); err != nil {
+		if err := rows.Scan(&x.ID, &x.Title, &x.CreatedAt, &x.UpdatedAt, &x.MessageCount, &x.ParentID, &x.ParentTitle, &gone, &x.ExpertID); err != nil {
 			return nil, err
 		}
 		x.ParentGone = gone != 0
@@ -235,7 +242,7 @@ func (s *Store) Delete(ctx context.Context, sessionID string) error {
 // deleteSessionRows runs inside the caller's transaction; suffix is a fixed SQL
 // predicate supplied only by the methods below. Delete children before parents.
 func deleteSessionRows(ctx context.Context, tx *sql.Tx, suffix string, args ...any) (int, error) {
-	for _, table := range []string{"chat_lanes", "chat_entries", "chat_messages", "chat_context_events", "chat_run_events", "chat_session_forks", "pending_runs", "session_modes"} {
+	for _, table := range []string{"chat_lanes", "chat_entries", "chat_messages", "chat_context_events", "chat_run_events", "chat_session_forks", "chat_session_experts", "pending_runs", "session_modes"} {
 		query := "DELETE FROM " + table + " WHERE session_id" + suffix
 		values := append([]any(nil), args...)
 		if table == "session_modes" {

@@ -17,11 +17,14 @@ import (
 var mcpServerNameRe = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,40}$`)
 
 type mcpManagerInput struct {
-	Action      string            `json:"action" jsonschema:"required,description=Action: 'list' (show connected & configured MCP servers)\\, 'register' (hot-connect a stdio MCP server now and optionally persist to mcp_servers.json)\\, 'remove' (unload tools and remove from config)\\, or 'scaffold' (generate a zero-dependency stdio MCP server script in the workspace so the agent can author a new MCP capability and immediately register it)"`
+	Action      string            `json:"action" jsonschema:"required,description=Action: 'list' (show connected & configured MCP servers)\\, 'register' (hot-connect an MCP server now - a local stdio process via command or a remote one via url - and optionally persist to mcp_servers.json)\\, 'remove' (unload tools and remove from config)\\, or 'scaffold' (generate a zero-dependency stdio MCP server script in the workspace so the agent can author a new MCP capability and immediately register it)"`
 	Name        string            `json:"name,omitempty" jsonschema:"description=MCP server identifier (e.g. 'proto_decoder')"`
-	Command     string            `json:"command,omitempty" jsonschema:"description=Executable for action=register (e.g. 'python'\\, 'node'\\, or path to binary)"`
+	Command     string            `json:"command,omitempty" jsonschema:"description=Executable for a local stdio server with action=register (e.g. 'python'\\, 'node'\\, or path to binary). Give either command or url\\, not both"`
 	Args        []string          `json:"args,omitempty" jsonschema:"description=Arguments for action=register"`
 	Env         map[string]string `json:"env,omitempty" jsonschema:"description=Optional environment variables for action=register"`
+	URL         string            `json:"url,omitempty" jsonschema:"description=Address of a remote MCP server for action=register (e.g. https://host/mcp). May reference ${ENV_VAR}"`
+	Type        string            `json:"type,omitempty" jsonschema:"description=Transport for a remote server: 'http' (Streamable HTTP) or 'sse'. Leave empty to try http first and then sse"`
+	Headers     map[string]string `json:"headers,omitempty" jsonschema:"description=HTTP headers for a remote server\\, e.g. Authorization = Bearer ${MY_TOKEN}. Refer to secrets as ${ENV_VAR} instead of writing them out: the headers are saved to mcp_servers.json exactly as given"`
 	Description string            `json:"description,omitempty" jsonschema:"description=What this MCP server provides (used by register and scaffold)"`
 	Persist     *bool             `json:"persist,omitempty" jsonschema:"description=Save to <workspace>/mcp_servers.json so it auto-loads on next boot (default true)"`
 }
@@ -30,6 +33,7 @@ type mcpManagerOutput struct {
 	Success      bool               `json:"success"`
 	Action       string             `json:"action"`
 	Name         string             `json:"name,omitempty"`
+	Transport    string             `json:"transport,omitempty"`
 	Tools        []string           `json:"tools,omitempty"`
 	Servers      []MCPServerSummary `json:"servers,omitempty"`
 	ConfigPath   string             `json:"config_path,omitempty"`
@@ -118,7 +122,7 @@ if __name__ == "__main__":
 // scaffold, hot-mount and persist MCP servers at runtime without a process restart.
 func RegisterMCPManagerTool(r *Registry, workspaceRoot string) error {
 	t, err := utils.InferTool("manage_mcp_server",
-		"Self-extension tool for MCP servers: list active MCP servers, scaffold a new stdio MCP server in the workspace, or hot-register/remove an MCP server at runtime so its tools immediately join the registry.",
+		"Self-extension tool for MCP servers: list active MCP servers, scaffold a new stdio MCP server in the workspace, or hot-register/remove an MCP server at runtime (a local command, or a remote http/sse url with headers) so its tools immediately join the registry.",
 		func(ctx context.Context, in mcpManagerInput) (mcpManagerOutput, error) {
 			action := strings.ToLower(strings.TrimSpace(in.Action))
 			name := strings.TrimSpace(in.Name)
@@ -172,45 +176,52 @@ func RegisterMCPManagerTool(r *Registry, workspaceRoot string) error {
 				if !mcpServerNameRe.MatchString(name) {
 					return mcpManagerOutput{Success: false, Action: "register", Message: "valid name (a-zA-Z0-9_-) is required"}, nil
 				}
-				cmd := strings.TrimSpace(in.Command)
-				if cmd == "" {
-					return mcpManagerOutput{Success: false, Action: "register", Message: "command is required"}, nil
+				entry := MCPServerConfig{
+					Command:     strings.TrimSpace(in.Command),
+					Args:        in.Args,
+					Env:         in.Env,
+					URL:         strings.TrimSpace(in.URL),
+					Type:        in.Type,
+					Headers:     in.Headers,
+					Description: in.Description,
 				}
-				var envList []string
-				if len(in.Env) > 0 {
-					envList = append(envList, os.Environ()...)
-					for k, v := range in.Env {
-						envList = append(envList, fmt.Sprintf("%s=%s", k, v))
-					}
+				target, err := entry.target()
+				if err != nil {
+					return mcpManagerOutput{Success: false, Action: "register", Name: name, Message: err.Error()}, nil
 				}
-				initCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-				err := r.LoadMCPServerWithEnv(initCtx, name, cmd, in.Args, envList)
+				timeout := 10 * time.Second
+				if target.remote() {
+					timeout = 15 * time.Second
+				}
+				initCtx, cancel := context.WithTimeout(ctx, timeout)
+				err = r.loadMCP(initCtx, name, target)
 				cancel()
 				if err != nil {
 					return mcpManagerOutput{Success: false, Action: "register", Name: name, Message: err.Error()}, nil
 				}
 				var registeredTools []string
+				via := ""
 				for _, s := range r.ListMCPServers() {
 					if s.Name == name {
-						registeredTools = s.Tools
+						registeredTools, via = s.Tools, s.Transport
 						break
 					}
 				}
 				persist := in.Persist == nil || *in.Persist
 				if persist && cfgPath != "" {
-					if err := upsertMCPConfigFile(cfgPath, name, MCPServerConfig{
-						Command:     cmd,
-						Args:        in.Args,
-						Env:         in.Env,
-						Description: in.Description,
-					}); err != nil {
-						return mcpManagerOutput{Success: false, Action: "register", Name: name, Tools: registeredTools, Message: fmt.Sprintf("service is loaded, but saving its configuration failed: %v", err)}, nil
+					if entry.Type == "" && target.remote() {
+						// Remember what worked so the next boot skips the probing.
+						entry.Type = via
+					}
+					if err := upsertMCPConfigFile(cfgPath, name, entry); err != nil {
+						return mcpManagerOutput{Success: false, Action: "register", Name: name, Transport: via, Tools: registeredTools, Message: fmt.Sprintf("service is loaded, but saving its configuration failed: %v", err)}, nil
 					}
 				}
 				return mcpManagerOutput{
 					Success:    true,
 					Action:     "register",
 					Name:       name,
+					Transport:  via,
 					Tools:      registeredTools,
 					ConfigPath: cfgPath,
 					Message:    fmt.Sprintf("MCP server %q hot-loaded with %d tools", name, len(registeredTools)),

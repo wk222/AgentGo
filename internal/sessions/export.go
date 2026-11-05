@@ -29,9 +29,10 @@ func (s *Store) Get(ctx context.Context, sessionID string) (Session, error) {
 	var x Session
 	err := s.db.QueryRowContext(ctx, `
 		SELECT s.id, s.title, s.created_at, s.updated_at,
-			(SELECT COUNT(*) FROM chat_messages m WHERE m.session_id = s.id)
+			(SELECT COUNT(*) FROM chat_messages m WHERE m.session_id = s.id),
+			COALESCE((SELECT e.expert_id FROM chat_session_experts e WHERE e.session_id = s.id), '')
 		FROM chat_sessions s WHERE s.id = ?
-	`, strings.TrimSpace(sessionID)).Scan(&x.ID, &x.Title, &x.CreatedAt, &x.UpdatedAt, &x.MessageCount)
+	`, strings.TrimSpace(sessionID)).Scan(&x.ID, &x.Title, &x.CreatedAt, &x.UpdatedAt, &x.MessageCount, &x.ExpertID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Session{}, ErrNotFound
 	}

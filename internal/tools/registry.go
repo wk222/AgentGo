@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"regexp"
 	"sort"
@@ -13,10 +14,14 @@ import (
 
 // MCPServerSummary records metadata of an attached MCP server.
 type MCPServerSummary struct {
-	Name    string   `json:"name"`
-	Command string   `json:"command"`
-	Tools   []string `json:"tools"`
-	binding *mcpBinding
+	Name    string `json:"name"`
+	Command string `json:"command,omitempty"`
+	// URL and Transport are set for remote servers. URL has no credentials,
+	// query string or fragment; headers are never reported.
+	URL       string   `json:"url,omitempty"`
+	Transport string   `json:"transport,omitempty"`
+	Tools     []string `json:"tools"`
+	binding   *mcpBinding
 }
 
 // Registry manages the tools available to the AgentGo runtime.
@@ -86,7 +91,21 @@ func (r *Registry) LoadMCPServer(ctx context.Context, serverName, command string
 
 // LoadMCPServerWithEnv connects to an MCP server over stdio with optional environment variables.
 func (r *Registry) LoadMCPServerWithEnv(ctx context.Context, serverName, command string, args []string, env []string) error {
-	return r.loadMCP(ctx, serverName, command, args, env)
+	return r.loadMCP(ctx, serverName, mcpTarget{Command: command, Args: args, Env: env})
+}
+
+// LoadRemoteMCPServer connects to an MCP server over HTTP. transport is "http"
+// (Streamable HTTP), "sse", or "" to try http and then sse. Header values and the
+// URL may reference ${ENV_VAR}s.
+func (r *Registry) LoadRemoteMCPServer(ctx context.Context, serverName, rawURL, transport string, headers map[string]string) error {
+	kind, err := normalizeMCPTransport(transport)
+	if err != nil {
+		return err
+	}
+	if kind == mcpTransportStdio {
+		return fmt.Errorf("mcp: a url cannot be reached over stdio")
+	}
+	return r.loadMCP(ctx, serverName, mcpTarget{URL: rawURL, Headers: headers, Transport: kind})
 }
 
 // ListMCPServers returns a copy of connected MCP server summaries.
@@ -102,7 +121,7 @@ func (r *Registry) ListMCPServers() []MCPServerSummary {
 				names = append(names, name)
 			}
 		}
-		out = append(out, MCPServerSummary{Name: s.Name, Command: s.Command, Tools: names})
+		out = append(out, MCPServerSummary{Name: s.Name, Command: s.Command, URL: s.URL, Transport: s.Transport, Tools: names})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out

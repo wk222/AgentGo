@@ -11,6 +11,8 @@ export type MockSession = {
   parent_id?: string
   parent_title?: string
   parent_gone?: boolean
+  /** 以哪位专家的身份工作（与后端 sessions.Session.ExpertID 同名）。 */
+  expert_id?: string
 }
 
 

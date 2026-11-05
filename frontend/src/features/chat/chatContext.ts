@@ -25,7 +25,8 @@ export interface ChatContext {
   stop: () => void
   toggleContext: () => void
   reload: () => void
-  newChat: () => void
+  /** 新建并切到一条空对话。可以 await：等它返回后 sessionId 已经是新对话。 */
+  newChat: () => void | Promise<void>
   clearChat: () => void
   /** 把当前对话整条复制成新对话并切过去；结果（含被拒绝的原因）用提示告诉用户。 */
   forkChat: () => void

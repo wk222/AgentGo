@@ -61,10 +61,10 @@ func readMCPCatalog(ctx context.Context, c *client.Client) (*mcp.ListToolsResult
 	return nil, fmt.Errorf("mcp: catalog exceeds 32 pages")
 }
 
-func (r *Registry) loadMCP(ctx context.Context, server, command string, args, env []string) error {
+func (r *Registry) loadMCP(ctx context.Context, server string, target mcpTarget) error {
 	server = strings.TrimSpace(server)
-	if !mcpServerNameRe.MatchString(server) || strings.TrimSpace(command) == "" {
-		return fmt.Errorf("mcp: valid server name and command required")
+	if !mcpServerNameRe.MatchString(server) || (strings.TrimSpace(target.Command) == "" && !target.remote()) {
+		return fmt.Errorf("mcp: valid server name and command or url required")
 	}
 	r.mu.Lock()
 	if r.mcpClosed {
@@ -88,9 +88,9 @@ func (r *Registry) loadMCP(ctx context.Context, server, command string, args, en
 		r.mu.Unlock()
 		close(attempt.done)
 	}()
-	c, closer, err := startMCPProcess(command, args, env)
+	c, closer, via, err := connectMCP(ctx, target)
 	if err != nil {
-		return fmt.Errorf("mcp: create %s: %w", server, err)
+		return fmt.Errorf("mcp: connect %s: %w", server, err)
 	}
 	installed := false
 	defer func() {
@@ -98,12 +98,6 @@ func (r *Registry) loadMCP(ctx context.Context, server, command string, args, en
 			_ = closer.Close()
 		}
 	}()
-	request := mcp.InitializeRequest{}
-	request.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
-	request.Params.ClientInfo = mcp.Implementation{Name: "agentgo", Version: "1.0.0"}
-	if _, err = c.Initialize(ctx, request); err != nil {
-		return fmt.Errorf("mcp: initialize %s: %w", server, err)
-	}
 	catalog, err := readMCPCatalog(ctx, c)
 	if err != nil {
 		return fmt.Errorf("mcp: list %s: %w", server, err)
@@ -184,7 +178,12 @@ func (r *Registry) loadMCP(ctx context.Context, server, command string, args, en
 		r.removeMCPLocked(old)
 		retire = old.binding.retire(false)
 	}
-	summary := &MCPServerSummary{Name: server, Command: command, binding: binding}
+	summary := &MCPServerSummary{Name: server, Command: target.Command, Transport: via, binding: binding}
+	if target.remote() {
+		// Show where it lives, never the credentials that may be in the address.
+		resolved, _, _ := resolveMCPRemote(target.URL, nil)
+		summary.URL = redactMCPURL(resolved)
+	}
 	for name, t := range prepared {
 		remote, _ := t.info.Extra["mcp_remote_name"].(string)
 		risk := governance.RiskLow

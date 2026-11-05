@@ -1,0 +1,227 @@
+/* ── 输入框上方的「专家」条：与「常用能力」同一种安静的小控件 ── */
+.expert-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 8px;
+}
+
+.expert-bar-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+  letter-spacing: 0.3px;
+  padding-left: 2px;
+  text-align: left;
+}
+
+.expert-bar-icon { color: var(--accent); flex: none; }
+
+.expert-bar-hint {
+  font-weight: 500;
+  color: var(--text-dim);
+  opacity: 0.8;
+}
+
+.expert-bar-current {
+  min-width: 0;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  background: var(--accent-bg);
+  color: var(--accent-text);
+  font-weight: 500;
+}
+
+.expert-bar-current.is-missing {
+  border-color: var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  text-decoration: line-through;
+}
+
+.expert-bar-meta {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-dim);
+}
+
+.expert-bar-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.expert-bar-active {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.expert-bar-active-text { min-width: 0; line-height: 1.4; }
+
+.expert-clear-btn,
+.expert-link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.expert-clear-btn:hover:not(:disabled),
+.expert-link-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.expert-clear-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.expert-group { display: flex; flex-direction: column; gap: 4px; }
+
+.expert-group-title {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-dim);
+  letter-spacing: 0.3px;
+}
+
+.expert-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 5px;
+}
+
+.expert-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.14s ease;
+}
+
+.expert-card:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+}
+
+.expert-card.active {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--accent-text);
+}
+
+.expert-card:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.expert-card-name {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.expert-card-tag {
+  padding: 0 5px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  font-size: 9.5px;
+  font-weight: 500;
+  color: var(--text-dim);
+}
+
+.expert-card-sum {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--text-dim);
+}
+
+.expert-starters { display: flex; flex-wrap: wrap; gap: 5px; }
+
+.expert-starter-btn {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-dim);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: all 0.14s ease;
+}
+
+.expert-starter-btn:hover {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--accent-text);
+}
+
+.expert-bar-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+
+.expert-bar-note.is-warn { color: var(--warning); }
+.expert-bar-note.is-error { color: var(--error); }
+
+.expert-bar-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-subtle);
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+
+.expert-bar-paths {
+  font-family: var(--font-mono);
+  white-space: pre-line;
+  word-break: break-all;
+}

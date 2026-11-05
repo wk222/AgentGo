@@ -40,6 +40,7 @@ func defaultRiskTable() map[string]RiskLevel {
 		"external_agent":            RiskHigh,
 		"schedule_task":             RiskMedium, // arms future unattended turns
 		"session_message":           RiskMedium, // starts a turn in another conversation
+		"conversation_create":       RiskMedium, // adds a conversation to the user's list
 		"run_swarm":                 RiskHigh,
 		"workflow_trigger":          RiskMedium,
 		"send_email":                RiskMedium,

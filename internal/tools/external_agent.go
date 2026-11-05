@@ -25,7 +25,7 @@ type externalAgentInput struct {
 	Prompt         string `json:"prompt,omitempty" jsonschema:"description=The task for that agent\\, self-contained: it knows nothing of this conversation. Say what to do and what a good answer looks like"`
 	Cwd            string `json:"cwd,omitempty" jsonschema:"description=Working directory for the agent (inside the workspace). Default: the workspace root"`
 	Permission     string `json:"permission,omitempty" jsonschema:"description=What the agent may do without asking: 'read_only' (default: read\\, search\\, analyse)\\, 'edit' (also change files) or 'full' (also run commands). Start with read_only"`
-	Session        string `json:"session,omitempty" jsonschema:"description=A label that keeps the agent running between calls so a follow-up prompt continues its work. Omit for a one-off. Close it with action=close when done"`
+	Session        string `json:"session,omitempty" jsonschema:"description=A label that keeps the agent's work going between calls: a follow-up prompt with the same label continues it\\, even after the agent was stopped (idle\\, restart) if that agent can load sessions. Omit for a one-off. action=close ends it for good"`
 	TimeoutMinutes int    `json:"timeout_minutes,omitempty" jsonschema:"description=Give up after this many minutes (default and max set by the user's settings)"`
 }
 
@@ -40,6 +40,7 @@ type externalAgentOutput struct {
 	Action     string                  `json:"action"`
 	Agent      string                  `json:"agent,omitempty"`
 	Session    string                  `json:"session,omitempty"`
+	Resumed    bool                    `json:"resumed,omitempty"` // this call carried on a session the agent had before
 	StopReason string                  `json:"stop_reason,omitempty"`
 	Text       string                  `json:"text,omitempty"`
 	Tools      []acpclient.ToolCall    `json:"tools,omitempty"`
@@ -58,7 +59,7 @@ func RegisterExternalAgentTool(r *Registry, workspaceRoot string) error {
 		"Delegate a task to ANOTHER coding agent installed on this machine (Claude Code, Codex, Gemini CLI, Qwen Code, OpenCode, …) and get its answer back. "+
 			"Use it for a second opinion from a different model, for work that agent is better at, or to run a long independent task. "+
 			"It runs in the workspace with its own tools and its own login; by default it may only read (permission=read_only). "+
-			"Give it a self-contained prompt. With a session label it stays open so you can send follow-ups.",
+			"Give it a self-contained prompt. With a session label it stays open so you can send follow-ups, and the same label carries on later even after the agent was stopped.",
 		func(ctx context.Context, in externalAgentInput) (externalAgentOutput, error) {
 			action := strings.ToLower(strings.TrimSpace(in.Action))
 			if action == "" {
@@ -74,6 +75,12 @@ func RegisterExternalAgentTool(r *Registry, workspaceRoot string) error {
 				for _, p := range acpclient.Agents(custom) {
 					out.Agents = append(out.Agents, externalAgentInfo{ID: p.ID, Installed: p.Installed(), Note: p.Note})
 				}
+				for _, s := range out.Sessions {
+					if !s.Live {
+						out.Message = "live=false 的会话 agent 已停止，但用同一个 session 标签再 run 会接着它之前的会话继续；不再需要时 action=close。"
+						break
+					}
+				}
 				return out, nil
 			case "close":
 				label := strings.TrimSpace(in.Session)
@@ -81,9 +88,9 @@ func RegisterExternalAgentTool(r *Registry, workspaceRoot string) error {
 					return externalAgentOutput{Action: action, Error: "session is required"}, nil
 				}
 				if !acpclient.Default.Close(label) {
-					return externalAgentOutput{Action: action, Error: fmt.Sprintf("no open session %q", label)}, nil
+					return externalAgentOutput{Action: action, Error: fmt.Sprintf("no session %q (open or saved)", label)}, nil
 				}
-				return externalAgentOutput{Success: true, Action: action, Session: label, Message: "已关闭"}, nil
+				return externalAgentOutput{Success: true, Action: action, Session: label, Message: "已关闭，这个标签之后从头开始"}, nil
 			case "run":
 				return runExternalAgent(ctx, in, custom, workspaceRoot), nil
 			}
@@ -151,7 +158,22 @@ func runExternalAgent(ctx context.Context, in externalAgentInput, custom map[str
 	if strings.TrimSpace(out.Text) == "" && out.Message == "" {
 		out.Message = "它没有返回文字；看 tools 了解它做了什么。"
 	}
+	// How the session began goes after the checks above, which look at whether anything else was said.
+	switch {
+	case turn.Resumed:
+		out.Resumed = true
+		out.Message = joinNotes(out.Message, fmt.Sprintf("已接着标签 %q 之前的会话继续（agent 自己保存的记录）。", label))
+	case turn.ResumeNote != "":
+		out.Message = joinNotes(out.Message, fmt.Sprintf("想接着标签 %q 之前的会话没成功（%s），这次是新开的会话，它不记得之前的内容。", label, turn.ResumeNote))
+	}
 	return out
+}
+
+func joinNotes(a, b string) string {
+	if a == "" {
+		return b
+	}
+	return a + " " + b
 }
 
 // externalCwd resolves the agent's working directory and keeps it inside the workspace.

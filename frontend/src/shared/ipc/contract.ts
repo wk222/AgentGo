@@ -2,7 +2,7 @@
 // 参数与 Go 方法签名一一对应（internal/bridge）；新增后端方法时先在这里登记，
 // wailsCall 才会给出参数/返回类型检查。未登记的方法仍可用旧签名调用（返回 unknown）。
 import type {
-  APITestResult, AppInfo, ArtifactRecord, CallTraceEvent, BackgroundTask, CapabilityGrant, ChannelStatus, ConfigEntry, DiagnosticsExport, ForkSessionReply, GovernancePolicyReply, HooksStatus, IMLoginState, IMSaveRequest, IMStatus, MemoryContradiction, MemoryRecord,
+  APITestResult, AppInfo, ArtifactRecord, CallTraceEvent, BackgroundTask, CapabilityGrant, ChannelStatus, ConfigEntry, DiagnosticsExport, ExpertInfo, ExpertListReply, ForkSessionReply, GovernancePolicyReply, HooksStatus, IMLoginState, IMSaveRequest, IMStatus, MemoryContradiction, MemoryRecord, NewSessionWithExpertReply, SessionExpertReply,
   MemoryTreeNode, MemoryTreeOverview, MemoryGraphData, ApplyTruthReply, ContextReport, FeatureFlagsReply, FlowgramReply, LLMConfigReply, Reply, ResolveApplyTruthReply, SessionExport, SessionSummary, TerminalInfo,
   RunningWork, TruthResolution, UsageSummary, WorkflowDefinition, WorkspaceEntry, WorkspaceInfoReply,
 } from './types'
@@ -25,6 +25,13 @@ export interface IpcContract {
   // 分叉：把整条对话（消息、模型上下文、模式、计划任务）复制成一条新对话，原对话不动；
   // 原对话正在运行或停在审批上时拒绝（success=false, busy=true）。title 为空则自动取「原标题（分叉）」
   ForkSession: M<[sessionID: string, title: string], Reply<ForkSessionReply>>
+  // 专家：一份「这条对话以什么角色工作」的规则（官方内置 + 用户目录 + 工作区 .agentgo/experts/）。
+  // 绑定只影响之后的消息，不改审批和沙箱；key 可以是 id 或名字，expert 为空 = 取消专家
+  ListExperts: M<[], Reply<ExpertListReply>>
+  GetExpert: M<[key: string], Reply<{ expert?: ExpertInfo }>>
+  GetSessionExpert: M<[sessionID: string], Reply<SessionExpertReply>>
+  SetSessionExpert: M<[sessionID: string, expert: string], Reply<SessionExpertReply>>
+  NewSessionWithExpert: M<[title: string, expert: string], Reply<NewSessionWithExpertReply>>
   DeleteSessionsBatch: M<[sessionIDs: string[]], Reply<{ deleted?: number }>>
   DeleteOtherSessions: M<[keepSessionID: string], Reply<{ deleted?: number; keep_id?: string }>>
   DeleteSessionsByTitle: M<[title: string, keepSessionID: string], Reply<{ deleted?: number }>>

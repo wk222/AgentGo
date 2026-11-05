@@ -130,13 +130,20 @@ func (r *Runtime) SetWorkspaceRoot(path string) (WorkspaceInfo, error) {
 	return buildWorkspaceInfo(abs), nil
 }
 
+// newSkillLoader reads the skills of a workspace plus the user-level folders.
+func newSkillLoader(workspaceRoot, dataDir string) *skills.Loader {
+	l := skills.NewLoader(workspaceRoot)
+	l.SetCredentialFile(filepath.Join(dataDir, skillCredentialsFile))
+	l.SetSources(skills.DefaultSources(dataDir))
+	l.Reload()
+	return l
+}
+
 // applyWorkspaceRoot updates the runtime-owned, workspace-scoped state.
 func (r *Runtime) applyWorkspaceRoot(abs string) error {
 	var err error
 	wsMW := workspace.NewContextMiddleware(abs)
-	loader := skills.NewLoader(abs)
-	loader.SetCredentialFile(filepath.Join(r.dataDir, skillCredentialsFile))
-	loader.Reload()
+	loader := newSkillLoader(abs, r.dataDir)
 
 	r.mu.Lock()
 	r.workspace = abs
