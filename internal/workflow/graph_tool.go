@@ -86,6 +86,12 @@ func (t *workflowGraphTool) InvokableRun(ctx context.Context, argsJSON string, _
 	}
 	input := strings.TrimSpace(in.Input)
 
+	// Same nesting guard as Execute: this path compiles and runs the graph itself.
+	ctx, err := EnterWorkflow(ctx, workflowKey(t.def))
+	if err != nil {
+		return "", err
+	}
+
 	// Private per-invocation RunContext: copy the static template, then give this run
 	// its own Input, RunID, Vars map and signal closures so concurrent invocations of
 	// the same tool never share mutable state.

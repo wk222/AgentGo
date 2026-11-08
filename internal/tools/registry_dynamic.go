@@ -105,6 +105,19 @@ func (r *Registry) RegisterDynamicTool(def DynamicToolDef) error {
 	return nil
 }
 
+// RemoveDynamicTool unregisters a hot-loaded generated tool. It reports whether
+// anything was removed; built-in tools are never touched.
+func (r *Registry) RemoveDynamicTool(name string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.dynamicCompiled[name] {
+		return false
+	}
+	delete(r.tools, name)
+	delete(r.dynamicCompiled, name)
+	return true
+}
+
 // IsDynamicCompiled reports whether name is a hot-loaded dynamic Python tool.
 func (r *Registry) IsDynamicCompiled(name string) bool {
 	r.mu.RLock()

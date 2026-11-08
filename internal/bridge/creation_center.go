@@ -28,7 +28,7 @@ func (s *AppService) GetCreationCenter(ctx context.Context) map[string]any {
 	data["versions"] = versions
 	data["success"] = true
 	available := []string{}
-	for _, name := range []string{"create_tool", "scaffold_inner_app", "update_inner_app_file", "verify_inner_app", "save_workflow_definition", "evolve_skill", "manage_extension_versions"} {
+	for _, name := range []string{"create_tool", "scaffold_inner_app", "update_inner_app_file", "verify_inner_app", "save_workflow_definition", "define_workflow_node", "evolve_skill", "manage_extension_versions"} {
 		if _, ok := s.rt.toolReg.Get(name); ok {
 			available = append(available, name)
 		}

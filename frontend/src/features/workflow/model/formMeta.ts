@@ -239,6 +239,26 @@ export const NODE_FORM_META: Record<string, NodeFormMeta> = {
       { key: 'rounds', label: '轮数', type: 'number', min: 1, max: 10 },
     ],
   },
+  Custom: {
+    fields: [
+      {
+        key: 'node_id',
+        label: '节点 ID',
+        type: 'text',
+        required: true,
+        pattern: '^[a-z][a-z0-9_]{2,47}$',
+        patternMessage: '节点 ID 为小写字母、数字、下划线（3-48 位），以字母开头',
+        hint: '智能体用 define_workflow_node 发布的节点；对话里问 list_workflow_nodes 可查看已有节点',
+      },
+      {
+        key: 'inputs',
+        label: '输入映射 JSON',
+        type: 'json',
+        placeholder: '{"text": "{{input}}"}',
+        hint: '节点输入名 → 值或模板（{{input}} {{last}} {{var.x}}）；省略的输入按名称从上一节点的 JSON 输出读取',
+      },
+    ],
+  },
 }
 
 export function formMetaForType(flowType: string): NodeFormMeta {

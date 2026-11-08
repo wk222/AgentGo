@@ -76,6 +76,9 @@ CREATE TABLE IF NOT EXISTS workflow_run_steps (
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 )`)
+	if err := s.initNodeTables(); err != nil {
+		return nil, err
+	}
 	_ = s.SeedDefaults()
 	return s, nil
 }

@@ -51,6 +51,26 @@ func TestStrictAllowsReviewedWorkspaceMutationButBlocksToolMutation(t *testing.T
 	}
 }
 
+// A node can carry Python and its contract tests run it, so publishing one is held to
+// the same bar as creating a tool.
+func TestPublishingAWorkflowNodeIsGovernedLikeCreatingATool(t *testing.T) {
+	if d := ControlPolicyFromMode("strict").EvaluateToolCall("define_workflow_node", false); d.Allowed {
+		t.Fatalf("strict must block publishing nodes: %+v", d)
+	}
+	if d := ControlPolicyFromMode("balanced").EvaluateToolCall("define_workflow_node", false); !d.Allowed || !d.RequiresApproval {
+		t.Fatalf("balanced must ask before publishing a node: %+v", d)
+	}
+	if d := ControlPolicyFromMode("open").EvaluateToolCall("define_workflow_node", false); d.RequiresApproval {
+		t.Fatalf("open waives approval, as it does for create_tool: %+v", d)
+	}
+	if !BuildPolicy("strict", t.TempDir()).BlockedTools["define_workflow_node"] {
+		t.Fatal("strict policy must list define_workflow_node as blocked")
+	}
+	if got := BuildPolicy("balanced", t.TempDir()).ToolRiskLevels["define_workflow_node"]; got != RiskHigh {
+		t.Fatalf("risk = %q, want high", got)
+	}
+}
+
 func TestRunBatchScriptAlwaysRequiresApproval(t *testing.T) {
 	for _, mode := range []string{"strict", "balanced", "open"} {
 		d := ControlPolicyFromMode(mode).EvaluateToolCall("run_batch_script", false)

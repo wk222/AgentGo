@@ -33,6 +33,7 @@ func defaultRiskTable() map[string]RiskLevel {
 		"replace_workspace_text":    RiskMedium,
 		"create_workspace_file":     RiskMedium,
 		"create_tool":               RiskHigh,
+		"define_workflow_node":      RiskHigh, // a node can carry Python and its tests run it
 		"create_tool_from_template": RiskHigh,
 		"mcp_filesystem":            RiskHigh,
 		"execute_dynamic_tool":      RiskHigh,

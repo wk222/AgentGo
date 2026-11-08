@@ -76,6 +76,10 @@ func (r *WorkflowRuntime) RunContextWithCallbacks(workflowID string, toolCallbac
 	rc.RunSubworkflow = func(ctx context.Context, subID, subInput string) (string, error) {
 		return r.Execute(ctx, subID, subInput)
 	}
+	if r.Store != nil {
+		// Custom nodes (type "custom:<id>") are looked up in the same store as workflows.
+		rc.ResolveNode = r.Store.GetNode
+	}
 	rc.AgentRun = func(ctx context.Context, sessionID, prompt string) (string, error) {
 		if cfg.APIKey == "" || r.Runner == nil {
 			return r.chatOnce(ctx, "", prompt)

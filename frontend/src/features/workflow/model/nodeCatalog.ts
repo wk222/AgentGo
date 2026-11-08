@@ -283,6 +283,17 @@ export const NODE_CATALOG: NodeCatalogEntry[] = [
     outputType: 'Boolean',
     defaults: { channel: 'desktop', message: '{{last}}' },
   },
+  {
+    type: 'Custom',
+    label: '自定义节点',
+    description: '运行智能体发布的可复用节点（有明确的输入/输出契约，背后可以是工具、整套工作流或 Python）',
+    color: '#0d9488',
+    category: 'flow',
+    icon: '⬡',
+    outputVar: 'node_output',
+    outputType: 'JSON',
+    defaults: { node_id: '', inputs: '{}' },
+  },
 ]
 
 export const CATEGORY_LABELS: Record<NodeCategory, string> = {
@@ -340,6 +351,8 @@ const TYPE_ALIAS_MAP: Record<string, string> = {
   human: 'AskUser',
   notify: 'Notify',
   notification: 'Notify',
+  custom: 'Custom',
+  custom_node: 'Custom',
 }
 
 export function normalizeCatalogType(rawType?: string): string {
@@ -347,6 +360,8 @@ export function normalizeCatalogType(rawType?: string): string {
   if (!trimmed) return 'LLM'
   const exact = NODE_CATALOG.find(n => n.type === trimmed)
   if (exact) return exact.type
+  // 'custom:<id>' is how a definition names a custom node; the canvas type is 'Custom'
+  if (trimmed.toLowerCase().startsWith('custom:')) return 'Custom'
   const mapped = TYPE_ALIAS_MAP[trimmed.toLowerCase()]
   if (mapped) return mapped
   const ci = NODE_CATALOG.find(n => n.type.toLowerCase() === trimmed.toLowerCase())

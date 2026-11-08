@@ -78,6 +78,9 @@ func (doc FlowgramDocument) ToDefinition(name, description string) Definition {
 				}
 			}
 			ingestBranchTable(&node, n.Data)
+			if nt == "custom" {
+				ingestCustomNode(&node, n.Data)
+			}
 			if sc, ok := n.Data["sub_canvas"].(string); ok && strings.TrimSpace(sc) != "" {
 				node.Config["sub_flowgram"] = sc
 			}
@@ -146,6 +149,9 @@ func FromDefinition(def Definition) FlowgramDocument {
 	x := 80.0
 	for _, n := range def.Nodes {
 		fn := FlowgramNode{ID: n.ID, Type: flowgramType(n.Type), Data: map[string]any{}}
+		if IsCustomNodeType(n.Type) {
+			exportCustomNode(&fn, n)
+		}
 		if n.Prompt != "" {
 			fn.Data["prompt"] = n.Prompt
 		}
@@ -224,6 +230,9 @@ func FromDefinition(def Definition) FlowgramDocument {
 
 func normalizeNodeType(t string) string {
 	t = strings.ToLower(strings.TrimSpace(t))
+	if IsCustomNodeType(t) {
+		return "custom" // before the substring rules: "custom:send_email" must not become an end node
+	}
 	switch {
 	case strings.Contains(t, "start"):
 		return "start"
@@ -333,6 +342,8 @@ func flowgramType(t string) string {
 		return "Merge"
 	case "foreach":
 		return "ForEach"
+	case "custom":
+		return "Custom"
 	default:
 		return "LLM"
 	}

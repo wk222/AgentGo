@@ -38,6 +38,7 @@ type RunContext struct {
 	AgentRun       func(ctx context.Context, sessionID, prompt string) (string, error)
 	ToolRunner     ToolRunner
 	RunSubworkflow func(ctx context.Context, workflowID, input string) (string, error)
+	ResolveNode    func(id string) (NodeManifest, bool) // custom node lookup; nil = custom nodes unavailable
 	SignalWait     func(ctx context.Context, signalName string, timeout time.Duration) (string, error)
 	SignalEmit     func(ctx context.Context, signalName, payload string)
 	ScheduleCron   func(ctx context.Context, spec, prompt, sessionID string) (string, error)
@@ -130,6 +131,8 @@ func newBuiltinRegistry() *ExecutorRegistry {
 	r.Register("batch", &BatchNodeExecutor{})
 	r.Register("parallel", &ParallelNodeExecutor{})
 	r.Register("merge", &MergeNodeExecutor{})
+	r.Register("custom", &CustomNodeExecutor{})
+	r.Register("custom_node", &CustomNodeExecutor{})
 	return r
 }
 
@@ -138,7 +141,15 @@ func (r *ExecutorRegistry) Register(typ string, exec NodeExecutor) {
 }
 
 func (r *ExecutorRegistry) Get(typ string) NodeExecutor {
-	return r.executors[strings.ToLower(typ)]
+	t := strings.ToLower(strings.TrimSpace(typ))
+	if e, ok := r.executors[t]; ok {
+		return e
+	}
+	// "custom:<id>" is the custom executor with the node id in the type itself.
+	if strings.HasPrefix(t, CustomNodePrefix) {
+		return r.executors["custom"]
+	}
+	return nil
 }
 
 // Execute runs a workflow definition sequentially by compiling it into an Eino Compose Graph.
@@ -148,6 +159,13 @@ func Execute(ctx context.Context, def Definition, rc RunContext) (string, error)
 	}
 	if rc.Vars == nil {
 		rc.Vars = make(map[string]string)
+	}
+
+	// Refuse cycles and runaway nesting before anything runs: agent-authored
+	// nodes may wrap whole workflows, and a loop through them never finishes.
+	ctx, err := EnterWorkflow(ctx, workflowKey(def))
+	if err != nil {
+		return "", err
 	}
 
 	rcPtr := &rc
@@ -189,6 +207,15 @@ func CompileToCompose(ctx context.Context, def Definition, rc *RunContext, compi
 	nodeByID := make(map[string]Node, len(def.Nodes))
 	for _, n := range def.Nodes {
 		nodeByID[n.ID] = n
+	}
+	// Eino keeps "start" and "end" for the graph's own entry and exit, yet workflow
+	// definitions (the seeded examples, anything an agent writes) call their entry and
+	// exit nodes exactly that. gk maps such a node onto a private graph key.
+	gk := func(id string) string {
+		if _, isNode := nodeByID[id]; isNode && (id == compose.START || id == compose.END) {
+			return "__" + id + "__"
+		}
+		return id
 	}
 
 	// Edges grouped by 'From'
@@ -262,7 +289,7 @@ func CompileToCompose(ctx context.Context, def Definition, rc *RunContext, compi
 			return newState, nil
 		})
 
-		_ = g.AddLambdaNode(node.ID, lambda)
+		_ = g.AddLambdaNode(gk(node.ID), lambda)
 	}
 
 	// 2. Add edges and branches
@@ -270,7 +297,7 @@ func CompileToCompose(ctx context.Context, def Definition, rc *RunContext, compi
 		edges := next[n.ID]
 		if len(edges) == 0 {
 			// No outgoing edges -> connects to END
-			_ = g.AddEdge(n.ID, compose.END)
+			_ = g.AddEdge(gk(n.ID), compose.END)
 			continue
 		}
 
@@ -284,16 +311,16 @@ func CompileToCompose(ctx context.Context, def Definition, rc *RunContext, compi
 				mergeTarget, _ = n.Config["merge_target"].(string)
 			}
 			if strings.TrimSpace(mergeTarget) != "" {
-				_ = g.AddEdge(n.ID, mergeTarget)
+				_ = g.AddEdge(gk(n.ID), gk(mergeTarget))
 			} else {
-				_ = g.AddEdge(n.ID, compose.END)
+				_ = g.AddEdge(gk(n.ID), compose.END)
 			}
 			continue
 		}
 
 		if !isCondition && len(edges) == 1 {
 			// Simple edge
-			_ = g.AddEdge(n.ID, edges[0].To)
+			_ = g.AddEdge(gk(n.ID), gk(edges[0].To))
 		} else {
 			// Branching
 			nodeEdges := edges
@@ -303,17 +330,18 @@ func CompileToCompose(ctx context.Context, def Definition, rc *RunContext, compi
 				if nextID == "" {
 					return compose.END, nil
 				}
-				return nextID, nil
+				return gk(nextID), nil
 			}
 
+			// Eino accepts a branch result only when its entry here is true.
 			ends := make(map[string]bool)
 			for _, e := range nodeEdges {
-				ends[e.To] = false
+				ends[gk(e.To)] = true
 			}
 			ends[compose.END] = true
 
 			branch := compose.NewGraphBranch(condition, ends)
-			_ = g.AddBranch(n.ID, branch)
+			_ = g.AddBranch(gk(n.ID), branch)
 		}
 	}
 
@@ -322,7 +350,7 @@ func CompileToCompose(ctx context.Context, def Definition, rc *RunContext, compi
 	if _, ok := nodeByID[startNode]; !ok && len(def.Nodes) > 0 {
 		startNode = def.Nodes[0].ID
 	}
-	_ = g.AddEdge(compose.START, startNode)
+	_ = g.AddEdge(compose.START, gk(startNode))
 
 	opts := []compose.GraphCompileOption{compose.WithGraphName(workflowGraphName(def))}
 	if rc.CheckPointStore != nil {

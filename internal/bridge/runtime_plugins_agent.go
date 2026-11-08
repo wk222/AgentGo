@@ -265,6 +265,9 @@ func (rt *Runtime) registerBuiltinTools(c *plugin.Context, reg *tools.Registry, 
 			}
 			return rt.SyncWorkflowTools()
 		},
+		// Contract tests of a custom node run in the same governed context as a workflow run.
+		NodeRunContext: func() *workflow.RunContext { return rt.workflowRunContextPtr("") },
+		HotLoadTool:    onCompiled,
 	}
 	rt.agentPack = agentPackEngine
 	noteReg("agentpack.RegisterTools", agentpack.RegisterTools(reg, agentPackEngine))
@@ -277,7 +280,8 @@ func (rt *Runtime) registerBuiltinTools(c *plugin.Context, reg *tools.Registry, 
 	for _, declaration := range []struct {
 		name     string
 		mutating bool
-	}{{"extension_catalog", false}, {"manage_extension_versions", true}, {"save_workflow_definition", true}} {
+	}{{"extension_catalog", false}, {"manage_extension_versions", true}, {"save_workflow_definition", true},
+		{"define_workflow_node", true}, {"list_workflow_nodes", false}} {
 		c.Effect("extension-static-"+declaration.name, tools.RegisterStaticTool(declaration.name, declaration.mutating))
 		c.Effect("extension-traits-"+declaration.name, governance.RegisterToolTraits(declaration.name, governance.ToolTraits{Source: "extensions", Mutating: declaration.mutating}))
 	}

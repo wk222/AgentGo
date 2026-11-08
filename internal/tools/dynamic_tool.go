@@ -210,6 +210,13 @@ func runPythonToolBody(ctx context.Context, sandboxDir string, def DynamicToolDe
 	// Per-invocation directory: args and wrapper files used to be named
 	// <tool>_args.json / <tool>_wrapper.py directly in the sandbox, so two
 	// concurrent calls to the same tool overwrote each other's arguments.
+	// The sandbox folder is only ever named at startup; a fresh data directory
+	// has none yet, which used to fail every first run of a generated tool.
+	if sandboxDir != "" {
+		if err := os.MkdirAll(sandboxDir, 0o755); err != nil {
+			return dynamicInvokeOutput{Error: err.Error()}, nil
+		}
+	}
 	runDir, err := os.MkdirTemp(sandboxDir, def.Name+"-run-")
 	if err != nil {
 		return dynamicInvokeOutput{Error: err.Error()}, nil

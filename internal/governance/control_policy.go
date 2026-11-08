@@ -43,7 +43,7 @@ type ToolControlDecision struct {
 }
 
 var (
-	toolMutationTools = []string{"create_tool", "create_tool_from_template", "execute_dynamic_tool"}
+	toolMutationTools = []string{"create_tool", "create_tool_from_template", "execute_dynamic_tool", "define_workflow_node"}
 	// Built-in tools that change workspace files. Plugin tools do not belong
 	// here: they declare Mutating through RegisterToolTraits (tool_traits.go),
 	// which the policy checks at decision time. The codetools plugin's own

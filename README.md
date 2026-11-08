@@ -77,6 +77,8 @@ Everything runs on your own machine. Models are reached through your own API end
 *   **Natural Language Compilation**: Describe multi-step logic (e.g., "fetch stock -> summarize -> notify Slack") to compile it into an Eino DAG.
 *   **Visual Calibration**: Open and adjust nodes, prompts, or branches visually via the built-in canvas.
 *   **Atomic Reuse**: Register the completed workflow as a single Tool, letting other agents invoke the entire workflow via a simple function call.
+*   **Agent-Authored Nodes**: Anything with typed inputs and outputs can become a node. An agent publishes one with `define_workflow_node` — backed by a generated Python tool, an existing tool, or a whole sub-workflow — together with contract tests that actually run before anything is saved. Nodes are versioned (update, retire, roll back) and any workflow uses them as `custom:<id>`; `list_workflow_nodes` shows what exists.
+*   **Checked Before It Is Saved**: `save_workflow_definition` rejects unknown node types, tools, sub-workflows and custom nodes, wrong or missing node inputs, and workflows that would end up running themselves; nesting depth is capped at run time too (`AGENTGO_WORKFLOW_MAX_DEPTH`, default 6).
 
 #### 3. Inner App as Tool
 *   **Seamless Integration**: Once registered, an Inner App automatically registers its capabilities as an `invoke_inner_app` tool.

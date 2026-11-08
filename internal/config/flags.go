@@ -231,6 +231,7 @@ var (
 
 	WorkflowCheckpoint = newBool("AGENTGO_WORKFLOW_CHECKPOINT", true, GroupWorkflow, "checkpoint workflow runs (needed by ask_user nodes)")
 	WorkflowGraphTool  = newBool("AGENTGO_WORKFLOW_GRAPH_TOOL", true, GroupWorkflow, "register workflows as Eino graph tools")
+	WorkflowMaxDepth   = newInt("AGENTGO_WORKFLOW_MAX_DEPTH", 6, GroupWorkflow, "max nesting depth of workflows that run workflows (a workflow that reaches itself is always refused)")
 )
 
 // --- debugging -------------------------------------------------------------

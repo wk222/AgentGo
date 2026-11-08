@@ -54,6 +54,11 @@ type Engine struct {
 	OutDir      string // default directory for exported packs
 	VersionsDir string
 	OnReload    func() error
+	// NodeRunContext builds the governed context a custom node's contract tests
+	// run in (the host's workflow run context). Nil: tests run straight against Reg.
+	NodeRunContext func() *workflow.RunContext
+	// HotLoadTool makes a generated tool callable right away. Nil: Reg.RegisterDynamicTool.
+	HotLoadTool func(def tools.DynamicToolDef) error
 }
 
 // ExportRequest selects the artifacts to bundle.

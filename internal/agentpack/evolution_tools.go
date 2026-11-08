@@ -59,7 +59,8 @@ func RegisterEvolutionTools(reg *tools.Registry, e *Engine) error {
 	}
 	reg.AddTool(versionTool)
 	save, err := utils.InferTool("save_workflow_definition",
-		"Save and hot-register a complete workflow definition with explicit id, name, nodes and edges. Preserves arbitrary node ids and branches. Automatically snapshots an existing definition before replacement. Checks graph structure; run_workflow separately to test execution.",
+		"Save and hot-register a complete workflow definition with explicit id, name, nodes and edges. Preserves arbitrary node ids and branches. Automatically snapshots an existing definition before replacement. "+
+			"Checks graph structure AND references before saving: node types, tool names, sub-workflows, custom nodes (type custom:<id>, see list_workflow_nodes and define_workflow_node), and workflows that would run themselves; problems are listed and nothing is saved. Saving does not run the workflow; the result's run_with says how to run it.",
 		func(ctx context.Context, in struct {
 			Definition workflow.Definition `json:"definition"`
 		}) (map[string]any, error) {
@@ -69,6 +70,14 @@ func RegisterEvolutionTools(reg *tools.Registry, e *Engine) error {
 			}
 			if e.WF == nil {
 				return map[string]any{"success": false, "error": "workflow store unavailable"}, nil
+			}
+			issues := workflow.Lint(d, e.lintEnv())
+			if len(workflow.LintErrors(issues)) > 0 {
+				return map[string]any{
+					"success": false,
+					"error":   "the workflow has problems; nothing was saved:\n" + workflow.FormatLint(issues),
+					"issues":  issues,
+				}, nil
 			}
 			if _, err := e.WF.Get(d.ID); err == nil {
 				if _, err := e.Snapshot(ctx, ExportRequest{Title: "修改前：" + d.Name, Workflows: []string{d.ID}}); err != nil {
@@ -83,14 +92,28 @@ func RegisterEvolutionTools(reg *tools.Registry, e *Engine) error {
 					return map[string]any{"success": false, "error": "saved but reload failed: " + err.Error()}, nil
 				}
 			}
-			return map[string]any{"success": true, "id": d.ID, "validation": "structure only; execute run_workflow to test"}, nil
+			out := map[string]any{
+				"success":    true,
+				"id":         d.ID,
+				"validation": "structure and references checked; nothing has been run yet",
+				// The run tool is registered now, but tool_search builds its index when a turn starts,
+				// so it is only listed from the next turn on.
+				"run_with": "workflow_" + workflow.SafeToolName(d.Name, d.ID) + " (found with tool_search from the next turn), or run_workflow with this id where your toolset has it",
+			}
+			if len(issues) > 0 {
+				out["warnings"] = issues
+			}
+			return out, nil
 		})
 	if err != nil {
 		return err
 	}
 	reg.AddTool(save)
+	if err := registerNodeTools(reg, e); err != nil {
+		return err
+	}
 	catalog, err := utils.InferTool("extension_catalog",
-		"List generated capabilities and the tools available for extending AgentGo without modifying its Eino runtime. Use create_tool, scaffold_inner_app/update_inner_app_file/verify_inner_app, save_workflow_definition, evolve_skill, and manage_extension_versions. Native Go changes require rebuilding.",
+		"List generated capabilities and the tools available for extending AgentGo without modifying its Eino runtime. Use create_tool, scaffold_inner_app/update_inner_app_file/verify_inner_app, save_workflow_definition, define_workflow_node (reusable workflow nodes with typed inputs/outputs), evolve_skill, and manage_extension_versions. Native Go changes require rebuilding.",
 		func(ctx context.Context, in struct{}) (string, error) {
 			data, err := e.Catalog(ctx)
 			if err != nil {
@@ -128,6 +151,13 @@ func (e *Engine) Catalog(ctx context.Context) (map[string]any, error) {
 			list = append(list, map[string]string{"id": d.ID, "name": d.Name, "description": d.Description})
 		}
 		out["workflows"] = list
+		if nodes, err := e.WF.ListNodes(false); err == nil && len(nodes) > 0 {
+			nodeList := []map[string]string{}
+			for _, n := range nodes {
+				nodeList = append(nodeList, map[string]string{"id": n.ID, "description": n.Description, "use_as": "type " + workflow.CustomNodePrefix + n.ID})
+			}
+			out["workflow_nodes"] = nodeList
+		}
 	}
 	if e.Apps != nil {
 		items, err := e.Apps.List(ctx, 1000)
